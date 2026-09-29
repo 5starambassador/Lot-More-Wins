@@ -1,0 +1,33 @@
+{
+  "name": "lot-more-wins",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lot More Wins — Multi-platform Partner, Outlet Admin, and Central Admin System",
+  "packageManager": "pnpm@12.6.0",
+  "scripts": {
+    "dev": "turbo run dev",
+    "dev:partner": "pnpm --filter @lotmorewins/partner-app dev",
+    "dev:outlet": "pnpm --filter @lotmorewins/outlet-admin-app dev",
+    "dev:web": "pnpm --filter @lotmorewins/web dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "db:generate": "prisma generate --schema=./prisma/schema.prisma",
+    "db:push": "prisma db push --schema=./prisma/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema=./prisma/schema.prisma",
+    "db:test": "tsx ./prisma/test-connection.ts",
+    "db:studio": "prisma studio --schema=./prisma/schema.prisma"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "prisma": "^6.3.0",
+    "turbo": "^2.4.0",
+    "typescript": "^5.6.3",
+    "tsx": "^4.19.2",
+    "dotenv": "^16.4.7"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.3.0"
+  }
+}

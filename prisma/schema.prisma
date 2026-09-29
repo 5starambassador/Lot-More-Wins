@@ -1,0 +1,42 @@
+// Lot More Wins — Prisma Schema
+// Single centralized database source of truth
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// PHASE 1: Initial Infrastructure Verification Model
+// Minimal model ensuring Prisma client generation and DB connectivity verification.
+// ============================================================================
+
+model SystemHealth {
+  id        String   @id @default(uuid())
+  status    String   @default("ok")
+  checkedAt DateTime @default(now())
+  metadata  Json?
+
+  @@map("system_health")
+}
+
+// ============================================================================
+// FUTURE PHASE ENTITIES OUTLINE:
+// - Partner
+// - OutletAdmin
+// - Outlet
+// - Customer
+// - Referral
+// - Bill
+// - Discount
+// - Wallet
+// - Points
+// - QRCode
+// - Transaction
+// - ProgramSettings
+// - AuditLog
+// ============================================================================
