@@ -4,6 +4,9 @@
   "private": true,
   "description": "Lot More Wins — Multi-platform Partner, Outlet Admin, and Central Admin System",
   "packageManager": "pnpm@12.6.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "dev": "turbo run dev",
     "dev:partner": "pnpm --filter @lotmorewins/partner-app dev",
