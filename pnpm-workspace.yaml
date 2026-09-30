@@ -2,6 +2,10 @@ packages:
   - 'apps/*'
   - 'packages/*'
 
+# Expo/Metro cannot resolve packages inside pnpm's isolated store; use a hoisted
+# node_modules layout (Expo's documented setup for pnpm monorepos).
+nodeLinker: hoisted
+
 allowBuilds:
   '@prisma/client': true
   '@prisma/engines': true

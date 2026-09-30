@@ -6,12 +6,12 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "lotmorewins-partner",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#090d16"
+      "backgroundColor": "#ffffff"
     },
     "ios": {
       "supportsTablet": true,
@@ -20,7 +20,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#090d16"
+        "backgroundColor": "#ffffff"
       },
       "package": "com.lotmorewins.partner"
     },
@@ -48,6 +48,7 @@
       "eas": {
         "projectId": "lot-more-wins-partner-phase1"
       }
-    }
+    },
+    "backgroundColor": "#750505"
   }
 }
