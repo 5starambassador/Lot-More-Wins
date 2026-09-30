@@ -6,12 +6,12 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "lotmorewins-outletadmin",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#090d16"
+      "backgroundColor": "#ffffff"
     },
     "ios": {
       "supportsTablet": true,
@@ -20,7 +20,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#090d16"
+        "backgroundColor": "#ffffff"
       },
       "package": "com.lotmorewins.outletadmin"
     },
@@ -36,6 +36,13 @@
         {
           "cameraPermission": "Allow Lot More Wins Outlet Admin to scan partner and customer QR codes."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Lot More Wins Outlet Admin to choose your outlet logo and images.",
+          "cameraPermission": "Allow Lot More Wins Outlet Admin to scan partner QR codes."
+        }
       ]
     ],
     "experiments": {
@@ -48,6 +55,7 @@
       "eas": {
         "projectId": "lot-more-wins-outletadmin-phase1"
       }
-    }
+    },
+    "backgroundColor": "#750505"
   }
 }

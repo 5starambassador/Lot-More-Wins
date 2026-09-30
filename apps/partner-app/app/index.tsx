@@ -1,104 +1,100 @@
-import { View, Text, Pressable, ScrollView } from 'react-native';
-import { useState } from 'react';
-import { Link } from 'expo-router';
-import * as Haptics from 'expo-haptics';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { createApiClient } from '@lotmorewins/api-client';
-import type { HealthCheckResponse } from '@lotmorewins/types';
+import { useEffect } from 'react';
+import { StyleSheet, View } from 'react-native';
+import { Redirect, useRouter } from 'expo-router';
+import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import { Ionicons } from '@expo/vector-icons';
+import { Button, Divider, FullScreenLoader, Screen, Txt } from '../components/ui';
+import { BrandLogo, Wordmark } from '../components/brand/Brand';
+import { useAuthStore } from '../store/auth-store';
+import { useOnboardingStore } from '../store/onboarding-store';
+import { colors, space } from '../theme/tokens';
 
-const apiClient = createApiClient({
-  baseUrl: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api',
-});
+const BENEFITS = [
+  { icon: 'qr-code-outline' as const, title: 'A permanent discount QR', body: 'Show it at any participating outlet for your partner discount.' },
+  { icon: 'people-outline' as const, title: 'A referral QR of your own', body: 'Share it with family and friends and earn points on their visits.' },
+  { icon: 'diamond-outline' as const, title: 'Points that add up', body: 'Every eligible bill builds your rewards balance.' },
+];
 
-export default function PartnerHomeScreen() {
-  const [healthStatus, setHealthStatus] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+export default function WelcomeScreen() {
+  const router = useRouter();
+  const { partner, isLoading, loadStoredSession } = useAuthStore();
+  const resetOnboarding = useOnboardingStore((s) => s.reset);
 
-  const handleHapticTest = async () => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  };
+  useEffect(() => {
+    loadStoredSession();
+  }, [loadStoredSession]);
 
-  const handleCheckHealth = async () => {
-    setLoading(true);
-    try {
-      const res: HealthCheckResponse = await apiClient.checkHealth();
-      setHealthStatus(`Connected: ${res.service} (${res.status})`);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setHealthStatus(`API unreachable: ${msg}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (isLoading) return <FullScreenLoader />;
+  if (partner) return <Redirect href="/dashboard" />;
 
   return (
-    <ScrollView className="flex-1 bg-slate-950 px-6 py-8">
-      <Animated.View entering={FadeInDown.duration(600)} className="space-y-6">
-        {/* Status Badge */}
-        <View className="self-start rounded-full bg-emerald-500/10 px-3 py-1 border border-emerald-500/20">
-          <Text className="text-xs font-semibold text-emerald-400">
-            Phase 1 Foundation Ready
-          </Text>
-        </View>
-
-        {/* Title & App Identification */}
-        <View>
-          <Text className="text-3xl font-extrabold text-white">
-            Lot More Wins
-          </Text>
-          <Text className="text-lg font-medium text-emerald-400 mt-1">
-            Partner App
-          </Text>
-          <Text className="text-sm text-slate-400 mt-2 leading-relaxed">
-            Registered business partner application. Architecture initialized with NativeWind, Reanimated, Gesture Handler, and shared API client.
-          </Text>
-        </View>
-
-        {/* Foundation Validation Card */}
-        <View className="p-5 rounded-2xl bg-slate-900 border border-slate-800">
-          <Text className="text-sm font-semibold text-white mb-3">
-            Integrated Tech Stack
-          </Text>
-          <View className="space-y-2">
-            <Text className="text-xs text-slate-400">• NativeWind v4 + Tailwind CSS</Text>
-            <Text className="text-xs text-slate-400">• React Native Reanimated</Text>
-            <Text className="text-xs text-slate-400">• Gesture Handler & Expo Haptics</Text>
-            <Text className="text-xs text-slate-400">• Shared @lotmorewins/api-client</Text>
-          </View>
-        </View>
-
-        {/* API Health Probe */}
-        <Pressable
-          onPress={handleCheckHealth}
-          className="p-4 rounded-xl bg-slate-800 active:bg-slate-700 border border-slate-700 items-center"
-        >
-          <Text className="text-sm font-semibold text-slate-200">
-            {loading ? 'Checking API Health...' : 'Check API Connection (@lotmorewins/api-client)'}
-          </Text>
-          {healthStatus && (
-            <Text className="text-xs text-emerald-400 mt-2">{healthStatus}</Text>
-          )}
-        </Pressable>
-
-        {/* Interactive Haptic Test Button */}
-        <Pressable
-          onPress={handleHapticTest}
-          className="p-4 rounded-xl bg-slate-800 active:bg-slate-700 border border-slate-700 items-center"
-        >
-          <Text className="text-sm font-semibold text-slate-200">
-            Test Haptic Feedback
-          </Text>
-        </Pressable>
-
-        {/* Auth Route Placeholder Link */}
-        <Link href="/(auth)/login" asChild>
-          <Pressable className="p-4 rounded-xl bg-emerald-600 active:bg-emerald-700 items-center">
-            <Text className="text-sm font-semibold text-white">
-              Open (auth)/login Screen &rarr;
-            </Text>
-          </Pressable>
-        </Link>
+    <Screen
+      footer={
+        <Animated.View entering={FadeIn.delay(350).duration(400)} style={styles.actions}>
+          <Button
+            label="Become a partner"
+            onPress={() => {
+              resetOnboarding();
+              router.push('/onboarding/association');
+            }}
+          />
+          <Button label="I already have an account" variant="ghost" onPress={() => router.push('/(auth)/login')} />
+        </Animated.View>
+      }
+    >
+      <Animated.View entering={FadeIn.duration(500)} style={styles.brand}>
+        <BrandLogo size={64} />
+        <Wordmark size="sm" />
       </Animated.View>
-    </ScrollView>
+
+      <Animated.View entering={FadeInDown.delay(120).duration(500)} style={styles.hero}>
+        <Txt variant="overline" tone="gold">
+          Partner programme
+        </Txt>
+        <Txt variant="display" style={styles.headline}>
+          Rewards that{'\n'}recognise you.
+        </Txt>
+        <Txt variant="body" tone="secondary">
+          Join in a few minutes. Your discount and referral codes are issued the moment you register.
+        </Txt>
+      </Animated.View>
+
+      <Animated.View entering={FadeInDown.delay(220).duration(500)}>
+        {BENEFITS.map((b, i) => (
+          <View key={b.title}>
+            {i > 0 && <Divider inset={52} />}
+            <View style={styles.benefit}>
+              <View style={styles.benefitIcon}>
+                <Ionicons name={b.icon} size={20} color={colors.gold} />
+              </View>
+              <View style={styles.flex}>
+                <Txt variant="bodyMedium">{b.title}</Txt>
+                <Txt variant="small" tone="secondary">
+                  {b.body}
+                </Txt>
+              </View>
+            </View>
+          </View>
+        ))}
+      </Animated.View>
+    </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  brand: { flexDirection: 'row', alignItems: 'center', gap: space.md, marginTop: space.xl },
+  hero: { marginTop: space.xxxl, marginBottom: space.xxl, gap: space.sm },
+  headline: { marginBottom: space.xs },
+  benefit: { flexDirection: 'row', alignItems: 'flex-start', gap: space.md, paddingVertical: space.md },
+  benefitIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.goldLine,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actions: { gap: space.xs },
+});

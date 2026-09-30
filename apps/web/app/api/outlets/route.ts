@@ -1,8 +1,18 @@
-import { NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import prisma from '@/lib/prisma';
+import { requirePartnerId } from '@/lib/auth';
+import { serializeOutlet } from '@/lib/outlets';
+import { handleRouteError, ok } from '@/lib/api-response';
 
-export async function GET() {
-  return NextResponse.json({
-    status: 'ok',
-    message: 'Outlets API endpoint ready for Phase 2 implementation',
-  });
+export const dynamic = 'force-dynamic';
+
+/** GET /api/outlets — active outlets for the Partner App (managed by the Super Admin). */
+export async function GET(req: NextRequest) {
+  try {
+    requirePartnerId(req);
+    const outlets = await prisma.outlet.findMany({ where: { status: 'ACTIVE' }, orderBy: { name: 'asc' } });
+    return ok(outlets.map(serializeOutlet));
+  } catch (error) {
+    return handleRouteError(error, 'GET /api/outlets');
+  }
 }

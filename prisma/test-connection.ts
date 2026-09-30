@@ -21,24 +21,34 @@ async function main() {
   const maskedUrl = databaseUrl.replace(/:([^@]+)@/, ':****@');
   console.log(`Connecting to: ${maskedUrl}`);
 
-  const prisma = new PrismaClient({
-    log: ['error', 'warn'],
-  });
+  let attempts = 0;
+  const maxAttempts = 2;
 
-  try {
-    const startTime = Date.now();
-    await prisma.$queryRaw`SELECT 1 as connected;`;
-    const latency = Date.now() - startTime;
-    console.log(`✅ Database connection successful! (Latency: ${latency}ms)`);
-    await prisma.$disconnect();
-    process.exit(0);
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error('❌ Database connection failed:', message);
-    console.info('ℹ️  Ensure your PostgreSQL service is running and credentials in DATABASE_URL are correct.');
-    await prisma.$disconnect();
-    // In Phase 1, DB test exits with 0 or 1 depending on whether connection was required
-    process.exit(1);
+  while (attempts < maxAttempts) {
+    attempts++;
+    const prisma = new PrismaClient({
+      log: ['error', 'warn'],
+    });
+
+    try {
+      const startTime = Date.now();
+      await prisma.$queryRaw`SELECT 1 as connected;`;
+      const latency = Date.now() - startTime;
+      console.log(`✅ Database connection successful! (Latency: ${latency}ms)`);
+      await prisma.$disconnect();
+      process.exit(0);
+    } catch (error: unknown) {
+      await prisma.$disconnect();
+      if (attempts < maxAttempts) {
+        console.warn(`⏳ Initial attempt timed out (serverless cold start). Retrying (attempt ${attempts + 1}/${maxAttempts})...`);
+        await new Promise((res) => setTimeout(res, 2000));
+        continue;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('❌ Database connection failed:', message);
+      console.info('ℹ️  Ensure your PostgreSQL service is running and credentials in DATABASE_URL are correct.');
+      process.exit(1);
+    }
   }
 }
 

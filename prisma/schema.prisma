@@ -12,7 +12,6 @@ datasource db {
 
 // ============================================================================
 // PHASE 1: Initial Infrastructure Verification Model
-// Minimal model ensuring Prisma client generation and DB connectivity verification.
 // ============================================================================
 
 model SystemHealth {
@@ -25,18 +24,359 @@ model SystemHealth {
 }
 
 // ============================================================================
-// FUTURE PHASE ENTITIES OUTLINE:
-// - Partner
-// - OutletAdmin
-// - Outlet
-// - Customer
-// - Referral
-// - Bill
-// - Discount
-// - Wallet
-// - Points
-// - QRCode
-// - Transaction
-// - ProgramSettings
-// - AuditLog
+// PHASE 2: Partner Onboarding & Permanent QR Entities
 // ============================================================================
+
+enum PartnerRole {
+  NON_ACHARIYA
+  STAFF
+  TEACHER
+  PARENT
+}
+
+enum AchariyaRole {
+  STAFF
+  TEACHER
+}
+
+enum PartnerStatus {
+  ACTIVE
+  PENDING
+  SUSPENDED
+  REJECTED
+}
+
+enum QRCodeType {
+  DEFAULT_DISCOUNT
+  REFERRAL
+}
+
+enum QRCodeStatus {
+  ACTIVE
+  REVOKED
+}
+
+model AchariyaEmployee {
+  id         String       @id @default(uuid())
+  employeeId String       @unique @map("employee_id")
+  name       String
+  email      String?
+  phone      String?
+  role       AchariyaRole
+  department String?
+  isActive   Boolean      @default(true) @map("is_active")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  partners Partner[]
+
+  @@map("achariya_employees")
+}
+
+model AchariyaStudent {
+  id              String   @id @default(uuid())
+  admissionNumber String   @unique @map("admission_number")
+  studentName     String   @map("student_name")
+  parentName      String?  @map("parent_name")
+  parentEmail     String?  @map("parent_email")
+  parentPhone     String?  @map("parent_phone")
+  grade           String?
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  partners Partner[]
+
+  @@map("achariya_students")
+}
+
+model Partner {
+  id                   String        @id @default(uuid())
+  partnerCode          String        @unique @map("partner_code")
+  name                 String
+  mobile               String        @unique
+  email                String        @unique
+  passwordHash         String        @map("password_hash")
+  isAchariyaAssociated Boolean       @default(false) @map("is_achariya_associated")
+  role                 PartnerRole   @default(NON_ACHARIYA)
+  employeeId           String?       @map("employee_id")
+  admissionNumber      String?       @map("admission_number")
+  status               PartnerStatus @default(ACTIVE)
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
+
+  achariyaEmployee AchariyaEmployee? @relation(fields: [employeeId], references: [employeeId])
+  achariyaStudent  AchariyaStudent?  @relation(fields: [admissionNumber], references: [admissionNumber])
+  qrCodes          QRCode[]
+  directBills      Bill[]            @relation("BillPartner")
+  referredBills    Bill[]            @relation("BillReferrer")
+  customer         Customer?
+  pointEntries     PointsEntry[]
+
+  @@map("partners")
+}
+
+model QRCode {
+  id        String       @id @default(uuid())
+  partnerId String       @map("partner_id")
+  code      String       @unique
+  type      QRCodeType
+  status    QRCodeStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  bills   Bill[]
+
+  @@unique([partnerId, type])
+  @@map("qr_codes")
+}
+
+model OtpVerification {
+  id         String   @id @default(uuid())
+  identifier String
+  channel    String
+  codeHash   String   @map("code_hash")
+  expiresAt  DateTime @map("expires_at")
+  verified   Boolean  @default(false)
+  attempts   Int      @default(0)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([identifier])
+  @@map("otp_verifications")
+}
+
+// ============================================================================
+// PHASE 3: Super Admin, Program Settings, Outlets, Customers & Billing
+// ============================================================================
+
+enum MessagingChannel {
+  EMAIL
+  WHATSAPP
+}
+
+/// Amount that purchase and referral point percentages are applied to.
+enum PointsBasis {
+  BILL_AMOUNT
+  PAYABLE_AMOUNT
+}
+
+enum OutletStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum BillTransactionType {
+  DIRECT_PARTNER
+  REFERRAL
+}
+
+model SuperAdmin {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("super_admins")
+}
+
+/// Singleton row (id = "GLOBAL"). When absent, runtime defaults apply and the
+/// messaging mode falls back to the MESSAGING_MODE environment variable.
+model ProgramSetting {
+  id                           String           @id @default("GLOBAL")
+  messagingMode                MessagingChannel @map("messaging_mode")
+  firstTimeDiscountAchariya    Decimal          @default(0) @map("first_time_discount_achariya") @db.Decimal(5, 2)
+  firstTimeDiscountNonAchariya Decimal          @default(0) @map("first_time_discount_non_achariya") @db.Decimal(5, 2)
+  repeatDiscountAchariya       Decimal          @default(0) @map("repeat_discount_achariya") @db.Decimal(5, 2)
+  repeatDiscountNonAchariya    Decimal          @default(0) @map("repeat_discount_non_achariya") @db.Decimal(5, 2)
+  pointsRatioPoints            Decimal          @default(10) @map("points_ratio_points") @db.Decimal(12, 2)
+  pointsRatioRupees            Decimal          @default(1) @map("points_ratio_rupees") @db.Decimal(12, 2)
+  referralPointsAchariya       Decimal          @default(0) @map("referral_points_achariya") @db.Decimal(5, 2)
+  referralPointsNonAchariya    Decimal          @default(0) @map("referral_points_non_achariya") @db.Decimal(5, 2)
+  purchasePointsPercentage     Decimal          @default(0) @map("purchase_points_percentage") @db.Decimal(5, 2)
+  referralDiscountAchariya     Decimal          @default(0) @map("referral_discount_achariya") @db.Decimal(5, 2)
+  referralDiscountNonAchariya  Decimal          @default(0) @map("referral_discount_non_achariya") @db.Decimal(5, 2)
+  pointsBasis                  PointsBasis      @default(PAYABLE_AMOUNT) @map("points_basis")
+  appDownloadUrl               String?          @map("app_download_url")
+  updatedBy                   String?          @map("updated_by")
+  createdAt                    DateTime         @default(now()) @map("created_at")
+  updatedAt                    DateTime         @updatedAt @map("updated_at")
+
+  @@map("program_settings")
+}
+
+/// Uploaded outlet logo / gallery images, served from /api/media/[id].
+model MediaAsset {
+  id        String   @id @default(uuid())
+  mimeType  String   @map("mime_type")
+  data      Bytes
+  sizeBytes Int      @map("size_bytes")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("media_assets")
+}
+
+model Outlet {
+  id        String       @id @default(uuid())
+  name      String
+  email     String
+  mobile    String
+  logoUrl   String?      @map("logo_url")
+  images    String[]     @default([])
+  status    OutletStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  admins OutletAdmin[]
+  bills  Bill[]
+
+  @@index([status])
+  @@map("outlets")
+}
+
+model OutletAdmin {
+  id           String   @id @default(uuid())
+  outletId     String   @map("outlet_id")
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  outlet Outlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  bills  Bill[]
+
+  @@index([outletId])
+  @@map("outlet_admins")
+}
+
+/// Referred customer identity. Mobile (10-digit, normalized) is the long-term key.
+/// partnerId is set once the same mobile belongs to a registered partner.
+model Customer {
+  id        String   @id @default(uuid())
+  mobile    String   @unique
+  name      String
+  email     String?
+  partnerId String?  @unique @map("partner_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  partner      Partner?      @relation(fields: [partnerId], references: [id])
+  bills        Bill[]
+  pointEntries PointsEntry[]
+
+  @@map("customers")
+}
+
+enum PointsEntryType {
+  /// Purchase points for whoever made the purchase (direct partner or referred customer).
+  PURCHASE
+  /// Referral points for the partner whose referral QR was scanned.
+  REFERRAL
+}
+
+enum BillNotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  /// Not sent, e.g. no email address in email mode, or bills created before messaging existed.
+  SKIPPED
+}
+
+/// Points ledger. The balance of a partner is the sum of entries with their partnerId.
+/// An entry with customerId and no partnerId is pending: it is claimed (partnerId set)
+/// when a partner registers with that customer's mobile.
+model PointsEntry {
+  id         String          @id @default(uuid())
+  type       PointsEntryType
+  points     Decimal         @db.Decimal(14, 2)
+  billId     String          @map("bill_id")
+  partnerId  String?         @map("partner_id")
+  customerId String?         @map("customer_id")
+  claimedAt  DateTime?       @map("claimed_at")
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  bill     Bill      @relation(fields: [billId], references: [id], onDelete: Cascade)
+  partner  Partner?  @relation(fields: [partnerId], references: [id])
+  customer Customer? @relation(fields: [customerId], references: [id])
+
+  @@unique([billId, type])
+  @@index([partnerId, createdAt])
+  @@index([customerId, partnerId])
+  @@map("points_entries")
+}
+
+model Bill {
+  id                 String              @id @default(uuid())
+  billNumber         String              @unique @map("bill_number")
+  outletId           String              @map("outlet_id")
+  qrCodeId           String              @map("qr_code_id")
+  transactionType    BillTransactionType @map("transaction_type")
+  /// DIRECT_PARTNER: the partner who is purchasing.
+  partnerId          String?             @map("partner_id")
+  /// REFERRAL: the partner who owns the scanned referral QR.
+  referrerPartnerId  String?             @map("referrer_partner_id")
+  /// REFERRAL: the referred customer who is purchasing.
+  customerId         String?             @map("customer_id")
+  isFirstTime        Boolean             @map("is_first_time")
+  billAmount         Decimal             @map("bill_amount") @db.Decimal(12, 2)
+  discountPercentage Decimal             @map("discount_percentage") @db.Decimal(5, 2)
+  discountAmount     Decimal             @map("discount_amount") @db.Decimal(12, 2)
+  finalAmount        Decimal             @map("final_amount") @db.Decimal(12, 2)
+
+  // Settings snapshot: the Super Admin values this bill was calculated with.
+  settingsVersion            DateTime?   @map("settings_version")
+  purchasePointsPercentage   Decimal     @default(0) @map("purchase_points_percentage") @db.Decimal(5, 2)
+  referralPointsPercentage   Decimal     @default(0) @map("referral_points_percentage") @db.Decimal(5, 2)
+  pointsRatioPoints          Decimal     @default(0) @map("points_ratio_points") @db.Decimal(12, 2)
+  pointsRatioRupees          Decimal     @default(0) @map("points_ratio_rupees") @db.Decimal(12, 2)
+  pointsBasis                PointsBasis @default(PAYABLE_AMOUNT) @map("points_basis")
+  purchasePoints             Decimal     @default(0) @map("purchase_points") @db.Decimal(14, 2)
+  referralPoints             Decimal     @default(0) @map("referral_points") @db.Decimal(14, 2)
+
+  // Bill message (WhatsApp / email) delivery.
+  notificationStatus    BillNotificationStatus @default(PENDING) @map("notification_status")
+  notificationChannel   MessagingChannel?      @map("notification_channel")
+  notificationRecipient String?                @map("notification_recipient")
+  notificationError     String?                @map("notification_error")
+  notificationAttempts  Int                    @default(0) @map("notification_attempts")
+  notificationSentAt    DateTime?              @map("notification_sent_at")
+
+  idempotencyKey     String              @map("idempotency_key")
+  createdByAdminId   String              @map("created_by_admin_id")
+  createdAt          DateTime            @default(now()) @map("created_at")
+
+  outlet          Outlet        @relation(fields: [outletId], references: [id])
+  qrCode          QRCode        @relation(fields: [qrCodeId], references: [id])
+  partner         Partner?      @relation("BillPartner", fields: [partnerId], references: [id])
+  referrerPartner Partner?      @relation("BillReferrer", fields: [referrerPartnerId], references: [id])
+  customer        Customer?     @relation(fields: [customerId], references: [id])
+  createdByAdmin  OutletAdmin   @relation(fields: [createdByAdminId], references: [id])
+  pointEntries    PointsEntry[]
+
+  @@unique([outletId, idempotencyKey])
+  @@index([outletId, createdAt])
+  @@index([partnerId])
+  @@index([referrerPartnerId])
+  @@index([customerId])
+  @@index([qrCodeId, createdAt])
+  @@map("bills")
+}
+
+/// Failed sign-in attempts for Super Admin / Outlet Admin login rate limiting.
+/// Keyed by the submitted email (whether or not an account exists) and the client IP.
+model LoginAttempt {
+  id        String   @id @default(uuid())
+  scope     String
+  email     String
+  ip        String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([scope, email, ip, createdAt])
+  @@index([scope, ip, createdAt])
+  @@index([createdAt])
+  @@map("login_attempts")
+}

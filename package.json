@@ -17,15 +17,18 @@
     "db:push": "prisma db push --schema=./prisma/schema.prisma",
     "db:migrate": "prisma migrate dev --schema=./prisma/schema.prisma",
     "db:test": "tsx ./prisma/test-connection.ts",
+    "db:seed": "tsx ./prisma/seed.ts",
     "db:studio": "prisma studio --schema=./prisma/schema.prisma"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^16.4.7",
     "prettier": "^3.4.2",
     "prisma": "^6.3.0",
-    "turbo": "^2.4.0",
-    "typescript": "^5.6.3",
     "tsx": "^4.19.2",
-    "dotenv": "^16.4.7"
+    "turbo": "^2.4.0",
+    "typescript": "^5.6.3"
   },
   "dependencies": {
     "@prisma/client": "^6.3.0"
