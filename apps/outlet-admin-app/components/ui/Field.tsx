@@ -75,7 +75,10 @@ const styles = StyleSheet.create({
     paddingRight: space.sm,
     borderRightWidth: 1,
     borderRightColor: colors.hairline,
-    height: '60%',
+    // Stretch rather than a percentage height: a % of the auto-height box is measured
+    // inconsistently on Android and leaves blank space under the field.
+    alignSelf: 'stretch',
+    marginVertical: space.sm,
     justifyContent: 'center',
   },
   input: {

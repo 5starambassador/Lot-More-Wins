@@ -1,7 +1,6 @@
 import type {
   BillNotification,
   BillTransactionType,
-  PartnerClassification,
   PurchasePointsRecipient,
 } from '@lotmorewins/types';
 import type { BadgeTone } from '../components/ui/Parts';
@@ -38,7 +37,24 @@ export function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }
 
-export const classificationLabel = (c: PartnerClassification) => (c === 'ACHARIYA' ? 'Achariya' : 'Non-Achariya');
+/** e.g. "Includes 5% birthday bonus"; null when the bill carries no birthday bonus. */
+export function birthdayBonusLabel(birthdayBonusPercentage: number | undefined): string | null {
+  return birthdayBonusPercentage && birthdayBonusPercentage > 0
+    ? `Includes ${formatPercent(birthdayBonusPercentage)} birthday bonus`
+    : null;
+}
+
+/** e.g. "Referral reward: 20% special discount"; null when the bill uses no referral reward. */
+export function referralRewardLabel(referralRewardPercentage: number | undefined): string | null {
+  return referralRewardPercentage && referralRewardPercentage > 0
+    ? `Referral reward: ${formatPercent(referralRewardPercentage)} special discount`
+    : null;
+}
+
+/** Redeem QRs from the partner wallet carry a case-sensitive signed token after this prefix. */
+export const REDEEM_QR_PREFIX = 'LMW-RDM.';
+
+export const isRedeemQr = (code: string) => code.trim().startsWith(REDEEM_QR_PREFIX);
 
 export const transactionLabel = (t: BillTransactionType) => (t === 'DIRECT_PARTNER' ? 'Direct partner' : 'Referral');
 

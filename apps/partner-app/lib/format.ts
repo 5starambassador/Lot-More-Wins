@@ -1,25 +1,14 @@
-import type { PartnerProfile, PartnerRole } from '@lotmorewins/types';
-
-export function roleLabel(role: PartnerRole | undefined): string {
-  switch (role) {
-    case 'STAFF':
-      return 'Achariya Staff';
-    case 'TEACHER':
-      return 'Achariya Teacher';
-    case 'PARENT':
-      return 'Achariya Parent';
-    default:
-      return 'Partner';
-  }
-}
-
-/** Display label for the server-assigned classification. */
-export function tierLabel(partner: Pick<PartnerProfile, 'isAchariyaAssociated'> | null | undefined): string {
-  return partner?.isAchariyaAssociated ? 'Achariya Member' : 'Partner';
-}
-
 export function firstName(name: string | undefined | null): string {
   return (name ?? '').trim().split(/\s+/)[0] || 'Partner';
+}
+
+export function initials(name: string | undefined | null): string {
+  return (name ?? '')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? '')
+    .join('');
 }
 
 export function formatPoints(points: number): string {
@@ -30,12 +19,27 @@ export function formatINR(amount: number): string {
   return `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+/** Percentages come from the Super Admin settings with up to 2 decimals; drop trailing zeros. */
+export function formatPercent(value: number): string {
+  return `${Number(value.toFixed(2))}%`;
+}
+
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 export function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+}
+
+/** "Just now", "12 min ago", "3 h ago", then the date. */
+export function formatRelative(iso: string, now = Date.now()): string {
+  const minutes = Math.floor((now - new Date(iso).getTime()) / 60_000);
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return formatDateTime(iso);
 }
 
 export function greeting(now = new Date()): string {

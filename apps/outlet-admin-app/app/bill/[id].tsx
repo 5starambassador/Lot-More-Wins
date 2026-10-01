@@ -7,7 +7,7 @@ import { Badge, FullScreenLoader, InfoRow, Panel, Screen, SectionLabel, StateVie
 import { Breakdown } from '../../components/scan/AmountStep';
 import { NotificationPanel } from '../../components/scan/BillDone';
 import apiClient, { describeError } from '../../lib/api';
-import { classificationLabel, formatDateTime } from '../../lib/format';
+import { formatDateTime } from '../../lib/format';
 import { useSession } from '../../store/session-store';
 import { space } from '../../theme/tokens';
 
@@ -55,6 +55,8 @@ export default function BillDetailScreen() {
         <View style={styles.badges}>
           <Badge label={isReferral ? 'Referral QR' : 'Discount QR'} tone={isReferral ? 'muted' : 'gold'} />
           {bill.isFirstTime && <Badge label={isReferral ? "Customer's first visit" : 'First-time bonus'} />}
+          {bill.referralRewardPercentage > 0 && <Badge label="Referral reward" />}
+          {bill.birthdayBonusPercentage > 0 && <Badge label="Birthday bonus" />}
         </View>
 
         {bill.customer && (
@@ -68,7 +70,6 @@ export default function BillDetailScreen() {
           <View style={styles.section}>
             <SectionLabel label={isReferral ? 'Referred by' : 'Partner'} />
             <InfoRow label={partner.name} value={`+91 ${partner.mobile}`} />
-            <InfoRow label="Partner type" value={classificationLabel(bill.classification)} />
           </View>
         )}
 

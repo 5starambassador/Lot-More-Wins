@@ -6,6 +6,7 @@ import * as Haptics from '../../lib/haptics';
 import { useOnboardingStore } from '../../store/onboarding-store';
 import { useAuthStore } from '../../store/auth-store';
 import apiClient from '../../lib/api';
+import { describeError } from '../../lib/queries';
 import { OnboardingShell } from '../../components/onboarding/OnboardingShell';
 import { Button, Field, Notice, Txt } from '../../components/ui';
 import { colors, space } from '../../theme/tokens';
@@ -21,10 +22,11 @@ function Requirement({ met, label }: { met: boolean; label: string }) {
   );
 }
 
+/** Step 5: password and confirmation, then the account is created and Home opens with the welcome gift. */
 export default function SetPasswordScreen() {
   const router = useRouter();
   const onboarding = useOnboardingStore();
-  const setSession = useAuthStore((s) => s.setSession);
+  const { setSession, setWelcome } = useAuthStore();
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -48,13 +50,13 @@ export default function SetPasswordScreen() {
     setIsSubmitting(true);
     try {
       const payload = {
-        isAchariyaAssociated: onboarding.isAchariyaAssociated,
-        role: onboarding.role,
         name: onboarding.name,
         mobile: onboarding.mobile,
         email: onboarding.email,
-        employeeId: onboarding.employeeId || undefined,
-        admissionNumber: onboarding.admissionNumber || undefined,
+        city: onboarding.city,
+        state: onboarding.state,
+        pincode: onboarding.pincode,
+        dateOfBirth: onboarding.dateOfBirth,
         password,
         confirmPassword,
         otp: onboarding.otp,
@@ -62,24 +64,20 @@ export default function SetPasswordScreen() {
 
       const res = await apiClient.registerPartner(payload);
 
-      if (res.success && res.data) {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-        // Store permanent session and permanent QR codes in SecureStore + Zustand
-        await setSession(res.data.partner, res.data.qrCodes, res.data.token);
-        onboarding.reset();
+      // Home opens the welcome gift once. Points earned as a customer before registering
+      // are claimed during onboarding and mentioned on the card.
+      setWelcome({ claimedPoints: res.data.claimedPoints ?? 0 });
+      // Store permanent session and permanent QR codes in SecureStore + Zustand
+      await setSession(res.data.partner, res.data.qrCodes, res.data.token);
 
-        // Confirm success before entering the app
-        // Points earned as a customer before registering are claimed during onboarding.
-        const claimed = res.data.claimedPoints ?? 0;
-        router.replace({ pathname: '/onboarding/success', params: claimed > 0 ? { claimed: String(claimed) } : {} });
-      } else {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        setErrorMsg(res.message || 'Registration failed');
-      }
-    } catch (err: any) {
+      router.dismissAll();
+      router.replace('/dashboard');
+      onboarding.reset();
+    } catch (err) {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setErrorMsg(err.message || 'Server error creating partner account. Please try again.');
+      setErrorMsg(describeError(err));
     } finally {
       setIsSubmitting(false);
     }

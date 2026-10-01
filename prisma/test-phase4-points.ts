@@ -66,7 +66,7 @@ async function main() {
     await prisma.partner.deleteMany({ where: { id: { in: partnerIds } } });
   }
 
-  async function createPartner(name: string, achariya: boolean, mobile = uniqueMobile()) {
+  async function createPartner(name: string, mobile = uniqueMobile()) {
     const partner = await prisma.partner.create({
       data: {
         partnerCode: `LMW-P-T${rand(5)}`,
@@ -74,8 +74,9 @@ async function main() {
         mobile,
         email: `${name.toLowerCase().replace(/\s+/g, '.')}.${rand(6)}@${TEST_DOMAIN}`,
         passwordHash: 'x',
-        isAchariyaAssociated: achariya,
-        role: achariya ? 'STAFF' : 'NON_ACHARIYA',
+        city: 'Puducherry',
+        state: 'Puducherry',
+        pincode: '605001',
       },
     });
     const disc = await prisma.qRCode.create({
@@ -89,12 +90,19 @@ async function main() {
 
   const baseSettings = {
     messagingMode: 'email' as const,
-    firstTimeDiscount: { achariya: 20, nonAchariya: 15 },
-    repeatDiscount: { achariya: 10, nonAchariya: 5 },
-    referralDiscount: { achariya: 12, nonAchariya: 8 },
+    firstTimeDiscount: 15,
+    firstTimeValidityDays: 0,
+    repeatDiscount: 5,
+    birthdayBonusDiscount: 5,
+    referralDiscount: 12,
+    // A goal these suites never reach, so no bill here is given the referral reward discount.
+    referralRewardGoal: 1000,
+    referralRewardDiscount: 20,
     pointsToRupees: { points: 10, rupees: 1 },
-    referralPoints: { achariya: 3, nonAchariya: 2 },
+    referralPointsPercentage: 3,
     purchasePointsPercentage: 2,
+    purchasePointsValidityDays: 0,
+    referralPointsValidityDays: 0,
     pointsBasis: 'PAYABLE_AMOUNT' as const,
     appDownloadUrl: 'https://play.google.com/store/apps/details?id=com.lotmorewins.partner',
   };
@@ -112,21 +120,21 @@ async function main() {
     const admin = await prisma.outletAdmin.create({
       data: { outletId: outlet.id, email: `admin.${rand(6)}@${TEST_DOMAIN}`, passwordHash: 'x' },
     });
-    const ach = await createPartner('P4 Achariya Partner', true);
-    const nonAch = await createPartner('P4 NonAchariya Partner', false);
+    const referrer = await createPartner('P4 Referring Partner');
+    const shopper = await createPartner('P4 Shopping Partner');
 
     // ------------------------------------------------------------------------
     console.log('\n--- SUITE 1: SETTINGS ARE THE ONLY SOURCE ---');
     // ------------------------------------------------------------------------
     await prisma.programSetting.deleteMany({ where: { id: 'GLOBAL' } });
-    await expectError(() => billing.scanQr(outlet, nonAch.discQr), 'SETTINGS_NOT_CONFIGURED', 'Scan refused when settings were never saved');
+    await expectError(() => billing.scanQr(outlet, shopper.discQr), 'SETTINGS_NOT_CONFIGURED', 'Scan refused when settings were never saved');
     await expectError(
-      () => billing.previewBill(outlet, { qrCode: nonAch.discQr, billAmount: 100 }),
+      () => billing.previewBill(outlet, { qrCode: shopper.discQr, billAmount: 100 }),
       'SETTINGS_NOT_CONFIGURED',
       'Preview refused when settings were never saved'
     );
     await expectError(
-      () => billing.createBill(outlet, admin.id, { qrCode: nonAch.discQr, billAmount: 100, idempotencyKey: key('noset') }),
+      () => billing.createBill(outlet, admin.id, { qrCode: shopper.discQr, billAmount: 100, idempotencyKey: key('noset') }),
       'SETTINGS_NOT_CONFIGURED',
       'Bill refused when settings were never saved (no silent defaults)'
     );
@@ -137,46 +145,46 @@ async function main() {
     // ------------------------------------------------------------------------
     console.log('\n--- SUITE 2: DIRECT PARTNER QR ---');
     // ------------------------------------------------------------------------
-    const scanDirect = await billing.scanQr(outlet, nonAch.discQr);
+    const scanDirect = await billing.scanQr(outlet, shopper.discQr);
     assert(
       scanDirect.discount.isFirstTime === true && scanDirect.discount.discountPercentage === 15 && scanDirect.settingsVersion === settings.updatedAt,
-      'Scan: first-time (register bonus) Non-Achariya discount 15% from settings',
+      'Scan: first-time (register bonus) discount 15% from settings',
       scanDirect
     );
-    const d1 = await billing.createBill(outlet, admin.id, { qrCode: nonAch.discQr, billAmount: 1000, idempotencyKey: key('d1') });
+    const d1 = await billing.createBill(outlet, admin.id, { qrCode: shopper.discQr, billAmount: 1000, idempotencyKey: key('d1') });
     assert(
       d1.bill.discountAmount === 150 && d1.bill.finalAmount === 850 && d1.bill.purchasePoints === 170 && d1.bill.referralPoints === 0,
       'Direct first bill: ₹1000 − 15% = ₹850; purchase points 850 × 2% × 10 = 170',
       d1.bill
     );
     assert(d1.bill.purchasePointsRecipient === 'PARTNER', 'Direct bill purchase points go to the partner');
-    const d2 = await billing.createBill(outlet, admin.id, { qrCode: nonAch.discQr, billAmount: 2000, idempotencyKey: key('d2') });
+    const d2 = await billing.createBill(outlet, admin.id, { qrCode: shopper.discQr, billAmount: 2000, idempotencyKey: key('d2') });
     assert(
       d2.bill.isFirstTime === false && d2.bill.discountPercentage === 5 && d2.bill.purchasePoints === 380,
       'Direct repeat bill: repeat discount 5%, points 1900 × 2% × 10 = 380',
       d2.bill
     );
     const replay = await billing.createBill(outlet, admin.id, {
-      qrCode: nonAch.discQr,
+      qrCode: shopper.discQr,
       billAmount: 2000,
       idempotencyKey: (await prisma.bill.findUniqueOrThrow({ where: { id: d2.bill.id } })).idempotencyKey,
     });
     assert(replay.replayed === true, 'Retry with the same idempotency key replays the bill');
-    let nonAchWallet = await getPartnerWallet(nonAch.id);
-    assert(nonAchWallet.balancePoints === 550 && nonAchWallet.rupeeValue === 55, 'Partner wallet 170 + 380 = 550 pts = ₹55 (no double credit on replay)', nonAchWallet);
+    let shopperWallet = await getPartnerWallet(shopper.id);
+    assert(shopperWallet.balancePoints === 550 && shopperWallet.rupeeValue === 55, 'Partner wallet 170 + 380 = 550 pts = ₹55 (no double credit on replay)', shopperWallet);
 
     // ------------------------------------------------------------------------
     console.log('\n--- SUITE 3: REFERRAL QR, NEW CUSTOMER (PENDING POINTS) ---');
     // ------------------------------------------------------------------------
-    const scanRef = await billing.scanQr(outlet, ach.refQr);
+    const scanRef = await billing.scanQr(outlet, referrer.refQr);
     assert(
       scanRef.qrType === 'REFERRAL' && scanRef.discount.isFirstTime === null && scanRef.discount.discountPercentage === 12,
-      'Scan: referral discount 12% (referrer Achariya) known before customer entry',
+      'Scan: referral discount 12% known before customer entry',
       scanRef
     );
     const custMobile = uniqueMobile();
     const customer = { name: 'P4 Referred Customer', mobile: custMobile, email: `cust.${rand(6)}@${TEST_DOMAIN}` };
-    const preview = await billing.previewBill(outlet, { qrCode: ach.refQr, billAmount: 500, customer });
+    const preview = await billing.previewBill(outlet, { qrCode: referrer.refQr, billAmount: 500, customer });
     assert(
       preview.discountAmount === 60 && preview.finalAmount === 440 && preview.purchasePoints === 88 && preview.referralPoints === 132,
       'Referral preview: ₹500 − 12% = ₹440; customer 88 pts, referrer 440 × 3% × 10 = 132 pts',
@@ -184,7 +192,7 @@ async function main() {
     );
     assert(preview.purchasePointsRecipient === 'CUSTOMER_PENDING', 'Unregistered customer points are pending');
     const r1 = await billing.createBill(outlet, admin.id, {
-      qrCode: ach.refQr,
+      qrCode: referrer.refQr,
       billAmount: 500,
       customer,
       idempotencyKey: key('r1'),
@@ -193,15 +201,15 @@ async function main() {
     assert(r1.bill.purchasePoints === 88 && r1.bill.referralPoints === 132, 'Referral bill stores both point amounts', r1.bill);
     const pending = await prisma.pointsEntry.findFirst({ where: { billId: r1.bill.id, type: 'PURCHASE' } });
     assert(!!pending && pending.partnerId === null && pending.customerId !== null, 'Customer purchase points held against the mobile (no partner yet)', pending);
-    const achWallet = await getPartnerWallet(ach.id);
-    assert(achWallet.balancePoints === 132 && achWallet.totals.referralPoints === 132, 'Referring partner wallet credited 132 referral points', achWallet);
+    const referrerWallet = await getPartnerWallet(referrer.id);
+    assert(referrerWallet.balancePoints === 132 && referrerWallet.totals.referralPoints === 132, 'Referring partner wallet credited 132 referral points', referrerWallet);
 
     // ------------------------------------------------------------------------
     console.log('\n--- SUITE 4: CUSTOMER REGISTERS AS PARTNER ---');
     // ------------------------------------------------------------------------
     const lookup = await billing.lookupCustomer(custMobile);
     assert(lookup?.name === customer.name && lookup?.isPartner === false, 'Customer lookup prefills a known customer', lookup);
-    const newPartner = await createPartner('P4 Customer Turned Partner', false, custMobile);
+    const newPartner = await createPartner('P4 Customer Turned Partner', custMobile);
     const claim = await prisma.$transaction((tx) => claimPendingPoints(tx, newPartner.id, custMobile));
     assert(claim.claimedPoints === 88 && claim.claimedEntries === 1, 'Registration claims the 88 pending points', claim);
     const newWallet = await getPartnerWallet(newPartner.id);
@@ -211,12 +219,12 @@ async function main() {
     const newScan = await billing.scanQr(outlet, newPartner.discQr);
     assert(
       newScan.discount.isFirstTime === true && newScan.discount.discountPercentage === 15,
-      'Customer-turned-partner gets the Non-Achariya first-time (register bonus) discount',
+      'Customer-turned-partner gets the first-time (register bonus) discount',
       newScan.discount
     );
 
     const r2 = await billing.createBill(outlet, admin.id, {
-      qrCode: ach.refQr,
+      qrCode: referrer.refQr,
       billAmount: 250,
       customer: { ...customer, email: null },
       idempotencyKey: key('r2'),
@@ -233,13 +241,13 @@ async function main() {
     // ------------------------------------------------------------------------
     console.log('\n--- SUITE 5: SETTINGS CHANGES ---');
     // ------------------------------------------------------------------------
-    const before = await billing.previewBill(outlet, { qrCode: nonAch.discQr, billAmount: 3000 });
+    const before = await billing.previewBill(outlet, { qrCode: shopper.discQr, billAmount: 3000 });
     await new Promise((r) => setTimeout(r, 20));
     settings = await updateProgramSettings({ ...baseSettings, purchasePointsPercentage: 4, pointsBasis: 'BILL_AMOUNT' }, 'p4-test');
     await expectError(
       () =>
         billing.createBill(outlet, admin.id, {
-          qrCode: nonAch.discQr,
+          qrCode: shopper.discQr,
           billAmount: 3000,
           idempotencyKey: key('stale'),
           settingsVersion: before.settingsVersion,
@@ -248,10 +256,10 @@ async function main() {
       'Bill confirmed against an old preview is refused after a settings change'
     );
     const d3 = await billing.createBill(outlet, admin.id, {
-      qrCode: nonAch.discQr,
+      qrCode: shopper.discQr,
       billAmount: 3000,
       idempotencyKey: key('d3'),
-      settingsVersion: settings.updatedAt,
+      settingsVersion: settings.updatedAt ?? undefined,
     });
     assert(
       d3.bill.purchasePointsPercentage === 4 && d3.bill.pointsBasis === 'BILL_AMOUNT' && d3.bill.purchasePoints === 1200,
@@ -285,7 +293,7 @@ async function main() {
       wa.notification
     );
     const direct1 = await sendBillNotification(d1.bill.id);
-    assert(direct1.notification.recipient === nonAch.mobile, 'Direct bill message goes to the partner', direct1.notification);
+    assert(direct1.notification.recipient === shopper.mobile, 'Direct bill message goes to the partner', direct1.notification);
 
     // ------------------------------------------------------------------------
     console.log('\n--- SUITE 7: HISTORY ---');

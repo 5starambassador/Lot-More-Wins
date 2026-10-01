@@ -7,8 +7,12 @@ interface AuthState {
   qrCodes: PermanentQRItem[];
   token: string | null;
   isLoading: boolean;
+  /** Set right after registration: Home opens the welcome gift once, then clears it. */
+  welcome: { claimedPoints: number } | null;
   setSession: (partner: PartnerProfile, qrCodes: PermanentQRItem[], token: string) => Promise<void>;
+  updatePartner: (partner: PartnerProfile) => void;
   updateQrCodes: (qrCodes: PermanentQRItem[]) => void;
+  setWelcome: (welcome: { claimedPoints: number } | null) => void;
   loadStoredSession: () => Promise<boolean>;
   logout: () => Promise<void>;
 }
@@ -22,6 +26,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   qrCodes: [],
   token: null,
   isLoading: true,
+  welcome: null,
 
   setSession: async (partner, qrCodes, token) => {
     try {
@@ -34,10 +39,17 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ partner, qrCodes, token, isLoading: false });
   },
 
+  updatePartner: (partner) => {
+    set({ partner });
+    SecureStore.setItemAsync(SECURE_PROFILE_KEY, JSON.stringify(partner)).catch(() => {});
+  },
+
   updateQrCodes: (qrCodes) => {
     set({ qrCodes });
     SecureStore.setItemAsync(SECURE_QR_KEY, JSON.stringify(qrCodes)).catch(() => {});
   },
+
+  setWelcome: (welcome) => set({ welcome }),
 
   loadStoredSession: async () => {
     try {
@@ -66,6 +78,6 @@ export const useAuthStore = create<AuthState>((set) => ({
     } catch (err) {
       console.warn('SecureStore delete error:', err);
     }
-    set({ partner: null, qrCodes: [], token: null, isLoading: false });
+    set({ partner: null, qrCodes: [], token: null, isLoading: false, welcome: null });
   },
 }));

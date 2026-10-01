@@ -42,23 +42,6 @@ export const healthCheckResponseSchema = z.object({
  * Phase 2 Validation Schemas
  */
 
-export const validateEmployeeSchema = z.object({
-  employeeId: z
-    .string()
-    .trim()
-    .min(3, 'Employee ID must be at least 3 characters')
-    .toUpperCase(),
-  role: z.enum(['STAFF', 'TEACHER']).optional(),
-});
-
-export const validateAdmissionSchema = z.object({
-  admissionNumber: z
-    .string()
-    .trim()
-    .min(3, 'Admission number must be at least 3 characters')
-    .toUpperCase(),
-});
-
 export const otpSendSchema = z.object({
   identifier: z.string().trim().min(5, 'Mobile number or email is required'),
   name: z.string().trim().optional(),
@@ -71,53 +54,53 @@ export const otpVerifySchema = z.object({
   otp: z.string().trim().regex(/^\d{6}$/, 'OTP must be exactly 6 digits'),
 });
 
+const partnerNameSchema = z.string().trim().min(2, 'Name must be at least 2 characters').max(100);
+
+/** Calendar date as YYYY-MM-DD: a real date, not in the future and not more than 120 years ago. */
+export const dateOfBirthSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date of birth must be in YYYY-MM-DD format')
+  .refine((v) => {
+    const [y, m, d] = v.split('-').map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d));
+    if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return false;
+    const now = new Date();
+    return date.getTime() <= now.getTime() && y >= now.getUTCFullYear() - 120;
+  }, 'Please enter a valid date of birth');
+
+const partnerAddressFields = {
+  city: z.string().trim().min(2, 'Please enter your city').max(80),
+  state: z.string().trim().min(2, 'Please enter your state').max(80),
+  pincode: z
+    .string()
+    .trim()
+    .regex(/^[1-9]\d{5}$/, 'Please enter a valid 6-digit pincode'),
+};
+
+/** One registration path for every partner: contact, address, optional birthday, OTP and password. */
 export const partnerOnboardingSchema = z
   .object({
-    isAchariyaAssociated: z.boolean(),
-    role: z.enum(['NON_ACHARIYA', 'STAFF', 'TEACHER', 'PARENT']),
-    name: z.string().trim().min(2, 'Name must be at least 2 characters').max(100),
+    name: partnerNameSchema,
     mobile: phoneSchema,
     email: emailSchema,
-    employeeId: z.string().trim().toUpperCase().optional().nullable(),
-    admissionNumber: z.string().trim().toUpperCase().optional().nullable(),
+    ...partnerAddressFields,
+    dateOfBirth: dateOfBirthSchema.optional().nullable(),
     password: z.string().min(6, 'Password must be at least 6 characters'),
     confirmPassword: z.string().min(6, 'Confirm password must be at least 6 characters'),
     otp: z.string().trim().regex(/^\d{6}$/, 'OTP must be exactly 6 digits'),
   })
+  .strict()
   .refine((data) => data.password === data.confirmPassword, {
     message: 'Passwords do not match',
     path: ['confirmPassword'],
-  })
-  .refine((data) => data.isAchariyaAssociated === (data.role !== 'NON_ACHARIYA'), {
-    message: 'Achariya association does not match the selected role',
-    path: ['isAchariyaAssociated'],
-  })
-  .refine(
-    (data) => {
-      if (data.isAchariyaAssociated && (data.role === 'STAFF' || data.role === 'TEACHER')) {
-        return !!data.employeeId && data.employeeId.length >= 3;
-      }
-      return true;
-    },
-    {
-      message: 'Valid Employee ID is required for Achariya Staff / Teachers',
-      path: ['employeeId'],
-    }
-  )
-  .refine(
-    (data) => {
-      if (data.isAchariyaAssociated && data.role === 'PARENT') {
-        return !!data.admissionNumber && data.admissionNumber.length >= 3;
-      }
-      return true;
-    },
-    {
-      message: "Valid Child's Admission Number is required for Achariya Parents",
-      path: ['admissionNumber'],
-    }
-  );
+  });
 
 export type PartnerOnboardingFormValues = z.infer<typeof partnerOnboardingSchema>;
+
+/** Step-level schemas for the registration wizard (same rules as the full payload). */
+export const partnerContactStepSchema = z.object({ name: partnerNameSchema, mobile: phoneSchema, email: emailSchema });
+export const partnerAddressStepSchema = z.object(partnerAddressFields);
 
 
 /**
@@ -147,10 +130,6 @@ export const percentageSchema = z
   .max(100, 'Percentage cannot exceed 100')
   .refine(hasAtMostTwoDecimals, 'Percentage can have at most 2 decimal places');
 
-const classificationPercentagesSchema = z
-  .object({ achariya: percentageSchema, nonAchariya: percentageSchema })
-  .strict();
-
 const ratioPartSchema = z
   .number({ invalid_type_error: 'Ratio must be a number' })
   .finite()
@@ -171,12 +150,19 @@ export const programSettingsUpdateSchema = z
     messagingMode: z.enum(['email', 'whatsapp'], {
       errorMap: () => ({ message: 'Messaging mode must be "email" or "whatsapp"' }),
     }),
-    firstTimeDiscount: classificationPercentagesSchema,
+    firstTimeDiscount: percentageSchema,
     firstTimeValidityDays: validityDaysSchema,
-    repeatDiscount: classificationPercentagesSchema,
-    referralDiscount: classificationPercentagesSchema,
+    repeatDiscount: percentageSchema,
+    birthdayBonusDiscount: percentageSchema,
+    referralDiscount: percentageSchema,
+    referralRewardGoal: z
+      .number({ invalid_type_error: 'Referral goal must be a number' })
+      .int('Referral goal must be a whole number')
+      .min(1, 'Referral goal must be at least 1')
+      .max(1000, 'Referral goal cannot exceed 1000'),
+    referralRewardDiscount: percentageSchema,
     pointsToRupees: z.object({ points: ratioPartSchema, rupees: ratioPartSchema }).strict(),
-    referralPoints: classificationPercentagesSchema,
+    referralPointsPercentage: percentageSchema,
     purchasePointsPercentage: percentageSchema,
     purchasePointsValidityDays: validityDaysSchema,
     referralPointsValidityDays: validityDaysSchema,
@@ -209,12 +195,34 @@ export const imageUrlSchema = z
     'Image must be an http(s) URL or an uploaded image'
   );
 
+/** Gallery size limit of an outlet, enforced by the API and mirrored by the upload forms. */
+export const MAX_OUTLET_IMAGES = 12;
+
+/** Free text where an empty value means "not set". */
+const optionalTextSchema = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .transform((v) => (v === '' ? null : v))
+    .nullable();
+
 const outletProfileFields = {
   name: z.string().trim().min(2, 'Outlet name must be at least 2 characters').max(120),
   email: emailSchema,
   mobile: normalizedMobileSchema,
+  description: optionalTextSchema(1000),
+  address: optionalTextSchema(300),
+  /** Empty string clears the link. */
+  mapUrl: z
+    .string()
+    .trim()
+    .max(2048)
+    .refine((v) => v === '' || /^https?:\/\/\S+$/i.test(v), 'Map link must be an http(s) URL')
+    .transform((v) => (v === '' ? null : v))
+    .nullable(),
   logoUrl: imageUrlSchema.nullable(),
-  images: z.array(imageUrlSchema).max(10, 'At most 10 outlet images are allowed'),
+  images: z.array(imageUrlSchema).max(MAX_OUTLET_IMAGES, `At most ${MAX_OUTLET_IMAGES} outlet images are allowed`),
 };
 
 const outletPasswordSchema = z.string().min(8, 'Password must be at least 8 characters').max(200);
@@ -222,6 +230,9 @@ const outletPasswordSchema = z.string().min(8, 'Password must be at least 8 char
 export const outletCreateSchema = z
   .object({
     ...outletProfileFields,
+    description: outletProfileFields.description.optional(),
+    address: outletProfileFields.address.optional(),
+    mapUrl: outletProfileFields.mapUrl.optional(),
     logoUrl: outletProfileFields.logoUrl.optional(),
     images: outletProfileFields.images.optional(),
     status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
@@ -304,19 +315,79 @@ export const customerLookupQuerySchema = z.object({ mobile: normalizedMobileSche
 // Super Admin: read-only list queries
 // ============================================================================
 
-export const adminPartnerListQuerySchema = paginationQuerySchema.extend({
-  status: z.enum(['ACTIVE', 'PENDING', 'SUSPENDED', 'REJECTED']).optional(),
-  role: z.enum(['NON_ACHARIYA', 'STAFF', 'TEACHER', 'PARENT']).optional(),
-  sort: z.enum(['newest', 'oldest', 'name']).default('newest'),
-});
+/** A real calendar date as YYYY-MM-DD (IST calendar on the server). */
+const adminDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Dates must be in YYYY-MM-DD format')
+  .refine((v) => {
+    const [y, m, d] = v.split('-').map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d));
+    return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+  }, 'Please enter a valid date');
 
-export const adminTransactionListQuerySchema = paginationQuerySchema.extend({
-  outletId: z.string().uuid().optional(),
-  partnerId: z.string().uuid().optional(),
-  type: z.enum(['DIRECT_PARTNER', 'REFERRAL']).optional(),
-  notification: z.enum(['PENDING', 'SENT', 'FAILED', 'SKIPPED']).optional(),
-  range: z.enum(['today', '7d', '30d', 'all']).default('all'),
-});
+/**
+ * Shared by every admin list: an inclusive from–to date filter (either end optional) and
+ * `format=csv` to download the whole filtered result instead of one JSON page.
+ */
+const adminFilterFields = {
+  from: adminDateSchema.optional(),
+  to: adminDateSchema.optional(),
+  format: z.enum(['json', 'csv']).default('json'),
+};
+
+const fromNotAfterTo = (v: { from?: string; to?: string }) => !v.from || !v.to || v.from <= v.to;
+const fromNotAfterToError = { message: 'The start date cannot be after the end date', path: ['from'] };
+
+export const adminPartnerListQuerySchema = paginationQuerySchema
+  .extend({
+    status: z.enum(['ACTIVE', 'PENDING', 'SUSPENDED', 'REJECTED']).optional(),
+    /** Partners with / without at least one successful referral. */
+    referrals: z.enum(['with', 'without']).optional(),
+    sort: z.enum(['newest', 'oldest', 'name']).default('newest'),
+    ...adminFilterFields,
+  })
+  .refine(fromNotAfterTo, fromNotAfterToError);
+
+export const adminTransactionListQuerySchema = paginationQuerySchema
+  .extend({
+    outletId: z.string().uuid().optional(),
+    partnerId: z.string().uuid().optional(),
+    type: z.enum(['DIRECT_PARTNER', 'REFERRAL']).optional(),
+    notification: z.enum(['PENDING', 'SENT', 'FAILED', 'SKIPPED']).optional(),
+    range: z.enum(['today', '7d', '30d', 'all']).default('all'),
+    ...adminFilterFields,
+  })
+  .refine(fromNotAfterTo, fromNotAfterToError);
+
+export const adminOutletListQuerySchema = z
+  .object({
+    search: z.string().trim().optional(),
+    status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+    ...adminFilterFields,
+  })
+  .refine(fromNotAfterTo, fromNotAfterToError);
+
+/** Single partner: the activity log (own purchases, successful referrals, redemptions, QR shares). */
+export const adminPartnerActivityQuerySchema = paginationQuerySchema
+  .extend({
+    outletId: z.string().uuid().optional(),
+    kind: z.enum(['PURCHASE', 'REFERRAL', 'REDEMPTION', 'SHARE']).optional(),
+    ...adminFilterFields,
+  })
+  .refine(fromNotAfterTo, fromNotAfterToError);
+
+/** Single outlet: wallet redemptions made there. */
+export const adminOutletRedemptionsQuerySchema = paginationQuerySchema
+  .extend(adminFilterFields)
+  .refine(fromNotAfterTo, fromNotAfterToError);
+
+/** Dashboard period; defaults to the last 30 days. */
+export const adminDashboardQuerySchema = z
+  .object({ ...adminFilterFields })
+  .refine(fromNotAfterTo, fromNotAfterToError);
+
+/** Dashboard search across partners and outlets. */
+export const adminSearchQuerySchema = z.object({ q: z.string().trim().min(1, 'Enter something to search for').max(100) });
 
 /** Partner sign-in: registered mobile number (any common Indian format) or email, plus password. */
 export const partnerLoginSchema = z
@@ -332,3 +403,44 @@ export const partnerLoginSchema = z
     message: 'Enter a valid 10-digit mobile number or email address',
     path: ['identifier'],
   });
+
+/** Partner profile edit: any subset of the registration details, plus the profile photo. */
+export const partnerProfileUpdateSchema = z
+  .object({
+    name: partnerNameSchema,
+    mobile: normalizedMobileSchema,
+    email: emailSchema,
+    ...partnerAddressFields,
+    dateOfBirth: dateOfBirthSchema.nullable(),
+    photoUrl: imageUrlSchema.nullable(),
+  })
+  .partial()
+  .strict();
+
+// ============================================================================
+// Wallet redemption, notifications & push
+// ============================================================================
+
+export const redeemScanSchema = z.object({ qrCode: z.string().trim().min(1, 'QR code is required').max(1024) }).strict();
+
+export const redeemSchema = z
+  .object({
+    qrCode: z.string().trim().min(1, 'QR code is required').max(1024),
+    rupees: z
+      .number({ invalid_type_error: 'Amount must be a number' })
+      .finite()
+      .positive('Amount must be greater than 0')
+      .max(10_000_000, 'Amount is too large')
+      .refine(hasAtMostTwoDecimals, 'Amount can have at most 2 decimal places'),
+  })
+  .strict();
+
+export const pushTokenSchema = z
+  .object({
+    token: z
+      .string()
+      .trim()
+      .regex(/^(Expo|Exponent)PushToken\[[^\]]+\]$/, 'Invalid push token'),
+    platform: z.enum(['ios', 'android', 'web']).optional(),
+  })
+  .strict();

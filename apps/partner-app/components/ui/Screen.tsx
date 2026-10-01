@@ -3,7 +3,7 @@ import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, GUTTER, space } from '../../theme/tokens';
+import { canvasFill, colors, GUTTER, space } from '../../theme/tokens';
 import { Txt } from './Txt';
 import { BrandLogo } from '../brand/Brand';
 
@@ -41,7 +41,7 @@ export function Screen({
 
   return (
     <SafeAreaView edges={edges} style={styles.root}>
-      <KeyboardAvoidingView style={styles.grow} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         {body}
         {footer ? <View style={styles.footer}>{footer}</View> : null}
       </KeyboardAvoidingView>
@@ -49,8 +49,12 @@ export function Screen({
   );
 }
 
-/** Minimal top bar: back chevron, optional centred title and a right-hand slot. */
-/** Untitled bars centre the logo; titled bars carry it on the right unless `right` is given. */
+/**
+ * Minimal top bar: back arrow, optional centred title and a right-hand slot.
+ * Untitled bars centre the logo; titled bars carry it on the right unless `right` is given.
+ * The back arrow is always shown (pass `onBack={false}` to hide it): it goes back in history,
+ * or to the start of the app when this screen was opened directly.
+ */
 export function TopBar({
   title,
   onBack,
@@ -63,7 +67,8 @@ export function TopBar({
   showLogo?: boolean;
 }) {
   const router = useRouter();
-  const showBack = onBack !== false && (onBack || router.canGoBack());
+  const showBack = onBack !== false;
+  const goBack = onBack || (() => (router.canGoBack() ? router.back() : router.replace('/')));
   return (
     <View style={styles.topBar}>
       <View style={styles.topSide}>
@@ -72,10 +77,10 @@ export function TopBar({
             accessibilityRole="button"
             accessibilityLabel="Go back"
             hitSlop={12}
-            onPress={onBack || (() => router.back())}
+            onPress={goBack}
             style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}
           >
-            <Ionicons name="chevron-back" size={22} color={colors.text} />
+            <Ionicons name="arrow-back" size={22} color={colors.text} />
           </Pressable>
         ) : null}
       </View>
@@ -92,7 +97,7 @@ export function TopBar({
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.canvas },
+  root: { flex: 1, ...canvasFill },
   grow: { flexGrow: 1 },
   padded: { paddingHorizontal: GUTTER, paddingBottom: space.xl },
   footer: {
@@ -101,7 +106,7 @@ const styles = StyleSheet.create({
     paddingBottom: space.md,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.hairline,
-    backgroundColor: colors.canvas,
+    backgroundColor: 'transparent',
   },
   topBar: { height: 52, flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.sm },
   topSide: { width: 48, justifyContent: 'center' },

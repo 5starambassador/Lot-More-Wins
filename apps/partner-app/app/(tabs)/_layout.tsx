@@ -1,7 +1,10 @@
 import { useEffect } from 'react';
-import { Redirect, Tabs } from 'expo-router';
+import { Redirect, Tabs, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useQueryClient } from '@tanstack/react-query';
 import { FullScreenLoader } from '../../components/ui';
+import { registerForPush, subscribeToPush } from '../../lib/push';
 import { useAuthStore } from '../../store/auth-store';
 import { colors, fonts } from '../../theme/tokens';
 
@@ -9,18 +12,38 @@ type IconName = React.ComponentProps<typeof Ionicons>['name'];
 
 const TABS: { name: string; title: string; icon: IconName; active: IconName }[] = [
   { name: 'dashboard', title: 'Home', icon: 'home-outline', active: 'home' },
-  { name: 'outlets', title: 'Outlets', icon: 'storefront-outline', active: 'storefront' },
-  { name: 'rewards', title: 'Rewards', icon: 'diamond-outline', active: 'diamond' },
+  { name: 'wallet', title: 'Wallet', icon: 'wallet-outline', active: 'wallet' },
   { name: 'profile', title: 'Profile', icon: 'person-outline', active: 'person' },
 ];
 
+const TAB_BAR_HEIGHT = 64;
+
 /** Signed-in shell. Without a stored partner session the user is sent back to the welcome screen. */
 export default function TabsLayout() {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const { partner, isLoading, loadStoredSession } = useAuthStore();
+  const partnerId = partner?.id;
 
   useEffect(() => {
     if (!partner) loadStoredSession();
   }, [partner, loadStoredSession]);
+
+  // Push notifications for wallet activity: register this device once signed in, refresh
+  // the wallet when one arrives, and open the Notifications page when one is tapped.
+  useEffect(() => {
+    if (!partnerId) return;
+    registerForPush();
+    return subscribeToPush(
+      () => {
+        queryClient.invalidateQueries({ queryKey: ['home'] });
+        queryClient.invalidateQueries({ queryKey: ['wallet'] });
+        queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      },
+      () => router.push('/notifications')
+    );
+  }, [partnerId, queryClient, router]);
 
   if (!partner && isLoading) return <FullScreenLoader />;
   if (!partner) return <Redirect href="/" />;
@@ -32,10 +55,13 @@ export default function TabsLayout() {
         tabBarActiveTintColor: colors.gold,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: {
-          backgroundColor: colors.canvas,
+          backgroundColor: colors.canvasDeep,
           borderTopColor: colors.hairline,
           borderTopWidth: 1,
           paddingTop: 6,
+          // The default 49pt bar clips the Poppins labels; size it for icon + label + system inset.
+          height: TAB_BAR_HEIGHT + insets.bottom,
+          paddingBottom: insets.bottom + 6,
         },
         tabBarLabelStyle: { fontFamily: fonts.medium, fontSize: 11 },
         sceneStyle: { backgroundColor: colors.canvas },

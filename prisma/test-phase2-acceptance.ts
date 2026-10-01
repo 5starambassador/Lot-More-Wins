@@ -111,107 +111,58 @@ async function runTests() {
   }
 
   // --------------------------------------------------------------------------
-  // TEST 2: ACHARIYA EMPLOYEE VALIDATION ACCEPTANCE TEST (Sections 12 & 13)
+  // TEST 2: PARTNER ONBOARDING FLOW (single partner role)
   // --------------------------------------------------------------------------
-  console.log('\n--- TEST SUITE 2: ACHARIYA EMPLOYEE VALIDATION ---');
-  {
-    // Valid Staff ID
-    const validStaff = await request('/partner/validate-employee', {
-      method: 'POST',
-      body: JSON.stringify({ employeeId: 'ACH-STF-101', role: 'STAFF' }),
-    });
-    assert(validStaff.ok && validStaff.data.success, 'Valid Staff Employee ID approved (ACH-STF-101)', validStaff.data);
-    assert(validStaff.data.data.name === 'Rajesh Kumar', 'Authoritative Staff name verified: Rajesh Kumar');
-
-    // Valid Teacher ID
-    const validTeacher = await request('/partner/validate-employee', {
-      method: 'POST',
-      body: JSON.stringify({ employeeId: 'ACH-TCH-201', role: 'TEACHER' }),
-    });
-    assert(validTeacher.ok && validTeacher.data.success, 'Valid Teacher Employee ID approved (ACH-TCH-201)', validTeacher.data);
-    assert(validTeacher.data.data.name === 'Anand Sundaram', 'Authoritative Teacher name verified: Anand Sundaram');
-
-    // Invalid Employee ID
-    const invalidEmp = await request('/partner/validate-employee', {
-      method: 'POST',
-      body: JSON.stringify({ employeeId: 'INVALID-999', role: 'STAFF' }),
-    });
-    assert(invalidEmp.status === 404 && !invalidEmp.data.success, 'Non-existent Employee ID rejected with 404', invalidEmp.data);
-
-    // Mismatched role
-    const mismatchedRole = await request('/partner/validate-employee', {
-      method: 'POST',
-      body: JSON.stringify({ employeeId: 'ACH-STF-101', role: 'TEACHER' }),
-    });
-    assert(mismatchedRole.status === 400 && !mismatchedRole.data.success, 'Mismatched role rejected (Staff queried as Teacher)', mismatchedRole.data);
-  }
-
-  // --------------------------------------------------------------------------
-  // TEST 3: ACHARIYA ADMISSION VALIDATION ACCEPTANCE TEST (Section 14)
-  // --------------------------------------------------------------------------
-  console.log('\n--- TEST SUITE 3: ACHARIYA ADMISSION VALIDATION ---');
-  {
-    // Valid Admission Number
-    const validAdm = await request('/partner/validate-admission', {
-      method: 'POST',
-      body: JSON.stringify({ admissionNumber: 'ACH-ADM-3001' }),
-    });
-    assert(validAdm.ok && validAdm.data.success, 'Valid Admission Number approved (ACH-ADM-3001)', validAdm.data);
-    assert(validAdm.data.data.studentName === 'Aarav Sundaram', 'Authoritative Student name verified: Aarav Sundaram');
-
-    // Invalid Admission Number
-    const invalidAdm = await request('/partner/validate-admission', {
-      method: 'POST',
-      body: JSON.stringify({ admissionNumber: 'ADM-FAKE-000' }),
-    });
-    assert(invalidAdm.status === 404 && !invalidAdm.data.success, 'Non-existent Admission Number rejected with 404', invalidAdm.data);
-  }
-
-  // --------------------------------------------------------------------------
-  // TEST 4: NON-ACHARIYA ONBOARDING FLOW (Section 30)
-  // --------------------------------------------------------------------------
-  console.log('\n--- TEST SUITE 4: NON-ACHARIYA ONBOARDING ---');
+  console.log('\n--- TEST SUITE 2: PARTNER ONBOARDING ---');
   const uniqueTime = Date.now().toString().slice(-6);
-  const nonAchMobile = `98${uniqueTime}11`;
-  const nonAchEmail = `nonach.${uniqueTime}@example.com`;
-  let nonAchPartnerId = '';
-  let nonAchDiscountQr = '';
-  let nonAchReferralQr = '';
-  let nonAchToken = '';
+  const partnerMobile = `98${uniqueTime}11`;
+  const partnerEmail = `partner.${uniqueTime}@example.com`;
+  let partnerId = '';
+  let partnerDiscountQr = '';
+  let partnerReferralQr = '';
+  let partnerToken = '';
 
   {
     // 1. Send OTP
     const sendOtp = await request('/auth/otp', {
       method: 'POST',
-      body: JSON.stringify({ identifier: nonAchMobile, email: nonAchEmail, name: 'Vikram Malhotra' }),
+      body: JSON.stringify({ identifier: partnerMobile, email: partnerEmail, name: 'Vikram Malhotra' }),
     });
-    assert(sendOtp.ok && sendOtp.data.success, 'Non-Achariya: OTP generated and sent', sendOtp.data);
-    const otpCode = await otpFor(nonAchMobile, sendOtp);
+    assert(sendOtp.ok && sendOtp.data.success, 'OTP generated and sent', sendOtp.data);
+    const otpCode = await otpFor(partnerMobile, sendOtp);
 
     // 2. Verify OTP
     const verifyOtp = await request('/auth/otp', {
       method: 'PUT',
-      body: JSON.stringify({ identifier: nonAchMobile, otp: otpCode }),
+      body: JSON.stringify({ identifier: partnerMobile, otp: otpCode }),
     });
-    assert(verifyOtp.ok && verifyOtp.data.success, 'Non-Achariya: OTP verified', verifyOtp.data);
+    assert(verifyOtp.ok && verifyOtp.data.success, 'OTP verified', verifyOtp.data);
 
     // 3. Register Account + Generate 2 Permanent QR Codes
     const register = await request('/partner/onboarding', {
       method: 'POST',
       body: JSON.stringify({
-        isAchariyaAssociated: false,
-        role: 'NON_ACHARIYA',
         name: 'Vikram Malhotra',
-        mobile: nonAchMobile,
-        email: nonAchEmail,
+        mobile: partnerMobile,
+        email: partnerEmail,
+        city: 'Puducherry',
+        state: 'Puducherry',
+        pincode: '605001',
+        dateOfBirth: '1990-04-15',
         password: 'Password@123',
         confirmPassword: 'Password@123',
         otp: otpCode,
       }),
     });
 
-    assert(register.status === 201 && register.data.success, 'Non-Achariya: Account created with HTTP 201', register.data);
-    assert(register.data.data.partner.role === 'NON_ACHARIYA', 'Partner role is NON_ACHARIYA');
+    assert(register.status === 201 && register.data.success, 'Account created with HTTP 201', register.data);
+    const profile = register.data.data.partner;
+    assert(
+      profile.city === 'Puducherry' && profile.state === 'Puducherry' && profile.pincode === '605001' && profile.dateOfBirth === '1990-04-15',
+      'City, state, pincode and date of birth stored on the profile',
+      profile
+    );
+    assert(!('role' in profile) && !('isAchariyaAssociated' in profile), 'Profile carries no role or classification', profile);
     assert(register.data.data.qrCodes.length === 2, 'Exactly TWO permanent QR codes returned');
 
     const disc = register.data.data.qrCodes.find((q: any) => q.type === 'DEFAULT_DISCOUNT');
@@ -221,168 +172,103 @@ async function runTests() {
     assert(!!ref && ref.code.startsWith('LMW-REF-'), 'Referral QR generated with prefix LMW-REF-');
     assert(disc?.code !== ref?.code, 'Both QR codes have distinct unique identities');
 
-    nonAchPartnerId = register.data.data.partner.id;
-    nonAchDiscountQr = disc?.code;
-    nonAchReferralQr = ref?.code;
-    nonAchToken = register.data.data.token;
+    partnerId = register.data.data.partner.id;
+    partnerDiscountQr = disc?.code;
+    partnerReferralQr = ref?.code;
+    partnerToken = register.data.data.token;
   }
 
   // --------------------------------------------------------------------------
-  // TEST 5: STAFF ONBOARDING FLOW (Section 31)
+  // TEST 3: BIRTHDAY STEP SKIPPED, DUPLICATES AND REQUIRED DETAILS
   // --------------------------------------------------------------------------
-  console.log('\n--- TEST SUITE 5: ACHARIYA STAFF ONBOARDING ---');
+  console.log('\n--- TEST SUITE 3: OPTIONAL BIRTHDAY, DUPLICATES & REQUIRED DETAILS ---');
   {
-    const staffMobile = `98${uniqueTime}22`;
-    const staffEmail = `staff.${uniqueTime}@example.com`;
+    const skipMobile = `98${uniqueTime}22`;
+    const skipEmail = `skip.${uniqueTime}@example.com`;
 
-    // 1. Send OTP
     const sendOtp = await request('/auth/otp', {
       method: 'POST',
-      body: JSON.stringify({ identifier: staffMobile, email: staffEmail, name: 'Rajesh Kumar' }),
+      body: JSON.stringify({ identifier: skipMobile, email: skipEmail, name: 'Rajesh Kumar' }),
     });
-    const otpCode = await otpFor(staffMobile, sendOtp);
-
-    // 2. Verify OTP
+    const otpCode = await otpFor(skipMobile, sendOtp);
     await request('/auth/otp', {
       method: 'PUT',
-      body: JSON.stringify({ identifier: staffMobile, otp: otpCode }),
+      body: JSON.stringify({ identifier: skipMobile, otp: otpCode }),
     });
 
-    // 3. Register Staff Account
-    const register = await request('/partner/onboarding', {
+    const details = {
+      name: 'Rajesh Kumar',
+      mobile: skipMobile,
+      email: skipEmail,
+      city: 'Chennai',
+      state: 'Tamil Nadu',
+      pincode: '600040',
+      password: 'Password@123',
+      confirmPassword: 'Password@123',
+      otp: otpCode,
+    };
+
+    const noPincode = await request('/partner/onboarding', {
       method: 'POST',
-      body: JSON.stringify({
-        isAchariyaAssociated: true,
-        role: 'STAFF',
-        employeeId: 'ACH-STF-101',
-        name: 'Rajesh Kumar',
-        mobile: staffMobile,
-        email: staffEmail,
-        password: 'Password@123',
-        confirmPassword: 'Password@123',
-        otp: otpCode,
-      }),
+      body: JSON.stringify({ ...details, pincode: undefined }),
     });
+    assert(noPincode.status === 400, 'Registration without a pincode is rejected (400)', noPincode.data);
 
-    assert(register.status === 201 && register.data.success, 'Staff: Account created with Employee ID ACH-STF-101', register.data);
-    assert(register.data.data.partner.role === 'STAFF', 'Partner role is STAFF');
-    assert(register.data.data.partner.employeeId === 'ACH-STF-101', 'Partner linked to Employee ID ACH-STF-101');
-    assert(register.data.data.qrCodes.length === 2, 'Staff: Exactly two permanent QR codes created');
-    assert(register.data.data.partner.isAchariyaAssociated === true, 'Staff: classified as Achariya by the server');
+    const badDob = await request('/partner/onboarding', {
+      method: 'POST',
+      body: JSON.stringify({ ...details, dateOfBirth: '2999-01-01' }),
+    });
+    assert(badDob.status === 400, 'Date of birth in the future is rejected (400)', badDob.data);
 
-    // Duplicate check: trying to register same Employee ID again should fail
+    const register = await request('/partner/onboarding', { method: 'POST', body: JSON.stringify(details) });
+    assert(register.status === 201 && register.data.success, 'Account created without a date of birth (step skipped)', register.data);
+    assert(register.data.data.partner.dateOfBirth === null, 'Skipped date of birth is stored as null');
+    assert(register.data.data.qrCodes.length === 2, 'Exactly two permanent QR codes created');
+
+    // Profile edit: the skipped birthday can be added later.
+    const addDob = await request('/partner/me', {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${register.data.data.token}` },
+      body: JSON.stringify({ dateOfBirth: '1988-11-02', city: 'Coimbatore' }),
+    });
+    assert(
+      addDob.ok && addDob.data.data.partner.dateOfBirth === '1988-11-02' && addDob.data.data.partner.city === 'Coimbatore',
+      'Profile edit updates date of birth and city',
+      addDob.data
+    );
+
+    // A new mobile number needs a verified OTP for that number.
+    const mobileNoOtp = await request('/partner/me', {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${register.data.data.token}` },
+      body: JSON.stringify({ mobile: `98${uniqueTime}77` }),
+    });
+    assert(mobileNoOtp.status === 403 && mobileNoOtp.data.code === 'OTP_REQUIRED', 'Changing the mobile number without an OTP is refused', mobileNoOtp.data);
+
+    // Duplicate check: the same mobile cannot register twice.
     const dupCheck = await request('/partner/onboarding', {
       method: 'POST',
-      body: JSON.stringify({
-        isAchariyaAssociated: true,
-        role: 'STAFF',
-        employeeId: 'ACH-STF-101',
-        name: 'Imposter',
-        mobile: `98${uniqueTime}99`,
-        email: `imposter.${uniqueTime}@example.com`,
-        password: 'Password@123',
-        confirmPassword: 'Password@123',
-        otp: '123456',
-      }),
+      body: JSON.stringify({ ...details, name: 'Imposter', email: `imposter.${uniqueTime}@example.com`, otp: '123456' }),
     });
-    assert(dupCheck.status === 409 || dupCheck.status === 400, 'Duplicate Employee ID registration blocked with 409/400');
+    assert(dupCheck.status === 409, 'Duplicate mobile registration blocked with 409', dupCheck.data);
   }
 
   // --------------------------------------------------------------------------
-  // TEST 6: TEACHER ONBOARDING FLOW (Section 32)
+  // TEST 4: PERMANENT QR RETRIEVAL & IMMUTABILITY (Section 20 & 35)
   // --------------------------------------------------------------------------
-  console.log('\n--- TEST SUITE 6: ACHARIYA TEACHER ONBOARDING ---');
-  {
-    const teacherMobile = `98${uniqueTime}33`;
-    const teacherEmail = `teacher.${uniqueTime}@example.com`;
-
-    const sendOtp = await request('/auth/otp', {
-      method: 'POST',
-      body: JSON.stringify({ identifier: teacherMobile, email: teacherEmail, name: 'Anand Sundaram' }),
-    });
-    const otpCode = await otpFor(teacherMobile, sendOtp);
-
-    await request('/auth/otp', {
-      method: 'PUT',
-      body: JSON.stringify({ identifier: teacherMobile, otp: otpCode }),
-    });
-
-    const register = await request('/partner/onboarding', {
-      method: 'POST',
-      body: JSON.stringify({
-        isAchariyaAssociated: true,
-        role: 'TEACHER',
-        employeeId: 'ACH-TCH-201',
-        name: 'Anand Sundaram',
-        mobile: teacherMobile,
-        email: teacherEmail,
-        password: 'Password@123',
-        confirmPassword: 'Password@123',
-        otp: otpCode,
-      }),
-    });
-
-    assert(register.status === 201 && register.data.success, 'Teacher: Account created with Employee ID ACH-TCH-201', register.data);
-    assert(register.data.data.partner.role === 'TEACHER', 'Partner role is TEACHER');
-    assert(register.data.data.qrCodes.length === 2, 'Teacher: Exactly two permanent QR codes created');
-  }
-
-  // --------------------------------------------------------------------------
-  // TEST 7: PARENT ONBOARDING FLOW (Section 33)
-  // --------------------------------------------------------------------------
-  console.log('\n--- TEST SUITE 7: ACHARIYA PARENT ONBOARDING ---');
-  {
-    const parentMobile = `98${uniqueTime}44`;
-    const parentEmail = `parent.${uniqueTime}@example.com`;
-
-    const sendOtp = await request('/auth/otp', {
-      method: 'POST',
-      body: JSON.stringify({ identifier: parentMobile, email: parentEmail, name: 'Sundaram Raman' }),
-    });
-    const otpCode = await otpFor(parentMobile, sendOtp);
-
-    await request('/auth/otp', {
-      method: 'PUT',
-      body: JSON.stringify({ identifier: parentMobile, otp: otpCode }),
-    });
-
-    const register = await request('/partner/onboarding', {
-      method: 'POST',
-      body: JSON.stringify({
-        isAchariyaAssociated: true,
-        role: 'PARENT',
-        admissionNumber: 'ACH-ADM-3001',
-        name: 'Sundaram Raman',
-        mobile: parentMobile,
-        email: parentEmail,
-        password: 'Password@123',
-        confirmPassword: 'Password@123',
-        otp: otpCode,
-      }),
-    });
-
-    assert(register.status === 201 && register.data.success, 'Parent: Account created with Admission No ACH-ADM-3001', register.data);
-    assert(register.data.data.partner.role === 'PARENT', 'Partner role is PARENT');
-    assert(register.data.data.partner.admissionNumber === 'ACH-ADM-3001', 'Partner linked to Admission No ACH-ADM-3001');
-    assert(register.data.data.qrCodes.length === 2, 'Parent: Exactly two permanent QR codes created');
-  }
-
-  // --------------------------------------------------------------------------
-  // TEST 8: PERMANENT QR RETRIEVAL & IMMUTABILITY (Section 20 & 35)
-  // --------------------------------------------------------------------------
-  console.log('\n--- TEST SUITE 8: PERMANENT QR RETRIEVAL & IMMUTABILITY ---');
+  console.log('\n--- TEST SUITE 4: PERMANENT QR RETRIEVAL & IMMUTABILITY ---');
   {
     // Retrieve QR codes via /api/partner/qr (Call 1)
-    const qrCall1 = await request('/partner/qr', { headers: { Authorization: `Bearer ${nonAchToken}` } });
+    const qrCall1 = await request('/partner/qr', { headers: { Authorization: `Bearer ${partnerToken}` } });
     assert(qrCall1.ok && qrCall1.data.success, 'Retrieve partner QR codes (Call 1)', qrCall1.data);
     const disc1 = qrCall1.data.data.qrCodes.find((q: any) => q.type === 'DEFAULT_DISCOUNT')?.code;
     const ref1 = qrCall1.data.data.qrCodes.find((q: any) => q.type === 'REFERRAL')?.code;
 
-    assert(disc1 === nonAchDiscountQr, 'Default Discount QR in Call 1 matches original creation');
-    assert(ref1 === nonAchReferralQr, 'Referral QR in Call 1 matches original creation');
+    assert(disc1 === partnerDiscountQr, 'Default Discount QR in Call 1 matches original creation');
+    assert(ref1 === partnerReferralQr, 'Referral QR in Call 1 matches original creation');
 
     // Retrieve QR codes via /api/partner/qr (Call 2 - Simulating App Restart / Reopen)
-    const qrCall2 = await request('/partner/qr', { headers: { Authorization: `Bearer ${nonAchToken}` } });
+    const qrCall2 = await request('/partner/qr', { headers: { Authorization: `Bearer ${partnerToken}` } });
     const disc2 = qrCall2.data.data.qrCodes.find((q: any) => q.type === 'DEFAULT_DISCOUNT')?.code;
     const ref2 = qrCall2.data.data.qrCodes.find((q: any) => q.type === 'REFERRAL')?.code;
 
@@ -390,7 +276,7 @@ async function runTests() {
     assert(ref1 === ref2, 'Referral QR is 100% IMMUTABLE (Call 1 === Call 2)');
 
     // Retrieve via /api/partner/me (Call 3 - Simulating Dashboard Profile Fetch)
-    const meCall = await request('/partner/me', { headers: { Authorization: `Bearer ${nonAchToken}` } });
+    const meCall = await request('/partner/me', { headers: { Authorization: `Bearer ${partnerToken}` } });
     assert(meCall.ok && meCall.data.success, 'Retrieve partner profile & QR via /api/partner/me', meCall.data);
     const disc3 = meCall.data.data.qrCodes.find((q: any) => q.type === 'DEFAULT_DISCOUNT')?.code;
     const ref3 = meCall.data.data.qrCodes.find((q: any) => q.type === 'REFERRAL')?.code;
@@ -400,17 +286,17 @@ async function runTests() {
   }
 
   // --------------------------------------------------------------------------
-  // TEST 9: PHASE 2 SECURITY CORRECTIONS
+  // TEST 5: PHASE 2 SECURITY CORRECTIONS
   // --------------------------------------------------------------------------
-  console.log('\n--- TEST SUITE 9: IDENTITY & CLASSIFICATION ARE SERVER-AUTHORITATIVE ---');
+  console.log('\n--- TEST SUITE 5: IDENTITY IS SERVER-AUTHORITATIVE ---');
   {
-    const qrNoAuth = await request(`/partner/qr?partnerId=${nonAchPartnerId}`);
+    const qrNoAuth = await request(`/partner/qr?partnerId=${partnerId}`);
     assert(qrNoAuth.status === 401, 'partnerId query parameter without a token is rejected (401)', qrNoAuth.data);
 
-    const meNoAuth = await request(`/partner/me?partnerId=${nonAchPartnerId}`);
+    const meNoAuth = await request(`/partner/me?partnerId=${partnerId}`);
     assert(meNoAuth.status === 401, '/partner/me without a token is rejected (401)', meNoAuth.data);
 
-    const [h, body, sig] = nonAchToken.split('.');
+    const [h, body, sig] = partnerToken.split('.');
     const forgedBody = Buffer.from(
       JSON.stringify({ ...JSON.parse(Buffer.from(body, 'base64url').toString()), partnerId: 'someone-else' })
     ).toString('base64url');
@@ -420,53 +306,32 @@ async function runTests() {
     const unsigned = await request('/partner/me', { headers: { Authorization: `Bearer ${h}.${body}.` } });
     assert(unsigned.status === 401, 'Unsigned token is rejected (401)', unsigned.data);
 
-    const tamperMobile = `98${uniqueTime}55`;
-    const tamperClass = await request('/partner/onboarding', {
+    // The retired classification fields are not accepted any more.
+    const legacyFields = await request('/partner/onboarding', {
       method: 'POST',
       body: JSON.stringify({
         isAchariyaAssociated: true,
-        role: 'NON_ACHARIYA',
-        name: 'Class Tamper',
-        mobile: tamperMobile,
-        email: `tamper.${uniqueTime}@example.com`,
+        role: 'STAFF',
+        employeeId: 'ACH-STF-101',
+        name: 'Legacy Client',
+        mobile: `98${uniqueTime}55`,
+        email: `legacy.${uniqueTime}@example.com`,
+        city: 'Puducherry',
+        state: 'Puducherry',
+        pincode: '605001',
         password: 'Password@123',
         confirmPassword: 'Password@123',
         otp: '123456',
       }),
     });
-    assert(tamperClass.status === 400, 'Client cannot claim Achariya classification with a NON_ACHARIYA role', tamperClass.data);
+    assert(legacyFields.status === 400, 'Registration carrying role / classification fields is rejected (400)', legacyFields.data);
 
-    // Verify an OTP first so the request reaches the employee-role check.
-    const mismatchMobile = `98${uniqueTime}66`;
-    const mismatchEmail = `mismatch.${uniqueTime}@example.com`;
-    const mismatchOtp = await request('/auth/otp', {
+    const noValidateRoute = await fetch(`${BASE_URL}/partner/validate-employee`, {
       method: 'POST',
-      body: JSON.stringify({ identifier: mismatchMobile, email: mismatchEmail, name: 'Role Mismatch' }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employeeId: 'ACH-STF-101' }),
     });
-    const mismatchCode = await otpFor(mismatchMobile, mismatchOtp);
-    await request('/auth/otp', {
-      method: 'PUT',
-      body: JSON.stringify({ identifier: mismatchMobile, otp: mismatchCode }),
-    });
-    const roleMismatch = await request('/partner/onboarding', {
-      method: 'POST',
-      body: JSON.stringify({
-        isAchariyaAssociated: true,
-        role: 'TEACHER',
-        employeeId: 'ACH-STF-102',
-        name: 'Role Mismatch',
-        mobile: mismatchMobile,
-        email: mismatchEmail,
-        password: 'Password@123',
-        confirmPassword: 'Password@123',
-        otp: mismatchCode,
-      }),
-    });
-    assert(
-      roleMismatch.status === 400 && /registered as STAFF/.test(roleMismatch.data.message),
-      'Staff Employee ID cannot register as TEACHER',
-      roleMismatch.data
-    );
+    assert(noValidateRoute.status === 404 || noValidateRoute.status === 405, 'Employee validation endpoint no longer exists');
   }
 
   console.log('\n================================================================');

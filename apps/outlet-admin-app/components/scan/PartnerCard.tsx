@@ -1,7 +1,7 @@
 import { StyleSheet, View } from 'react-native';
 import type { ScanResult } from '@lotmorewins/types';
 import { Badge, Divider, IconMark, InfoRow, Panel, Txt } from '../ui';
-import { classificationLabel, formatPercent } from '../../lib/format';
+import { birthdayBonusLabel, formatPercent, referralRewardLabel } from '../../lib/format';
 import { colors, radius, space } from '../../theme/tokens';
 
 /** Partner resolved by the server from the scanned QR, with the discount the settings give them. */
@@ -9,12 +9,24 @@ export function PartnerCard({ scan, compact = false }: { scan: ScanResult; compa
   const isReferral = scan.qrType === 'REFERRAL';
   const { partner, discount } = scan;
 
-  const discountLabel = isReferral ? 'Referral discount' : discount.isFirstTime ? 'First-time bonus discount' : 'Partner discount';
-  const discountHint = isReferral
-    ? `For the customer · ${classificationLabel(partner.classification)} partner rate`
-    : discount.isFirstTime
-      ? `First redemption · ${classificationLabel(partner.classification)}`
-      : 'Register bonus already used';
+  // A waiting referral reward replaces the usual discount on the partner's own bill.
+  const reward = referralRewardLabel(discount.referralRewardPercentage);
+  const discountLabel = isReferral
+    ? 'Referral discount'
+    : reward
+      ? 'Referral reward discount'
+      : discount.isFirstTime
+        ? 'First-time bonus discount'
+        : 'Partner discount';
+  const baseHint = isReferral
+    ? 'For the referred customer'
+    : reward
+      ? `${reward} for completing the referral goal`
+      : discount.isFirstTime
+        ? 'First redemption'
+        : 'Register bonus already used';
+  const bonus = birthdayBonusLabel(discount.birthdayBonusPercentage);
+  const discountHint = bonus ? `${baseHint} · ${bonus}` : baseHint;
 
   return (
     <Panel style={styles.card}>
@@ -35,7 +47,6 @@ export function PartnerCard({ scan, compact = false }: { scan: ScanResult; compa
         <View style={styles.details}>
           <InfoRow label="Mobile" value={`+91 ${partner.mobile}`} />
           {!isReferral && <InfoRow label="Email" value={partner.email} />}
-          <InfoRow label="Partner type" value={classificationLabel(partner.classification)} />
           <InfoRow label="Partner code" value={partner.partnerCode} />
         </View>
       )}

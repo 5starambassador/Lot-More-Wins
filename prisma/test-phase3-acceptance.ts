@@ -86,7 +86,7 @@ async function cleanup() {
   await prisma.loginAttempt.deleteMany({ where: { email: { endsWith: `@${TEST_DOMAIN}` } } });
 }
 
-async function createPartner(name: string, achariya: boolean) {
+async function createPartner(name: string) {
   const mobile = uniqueMobile();
   const partner = await prisma.partner.create({
     data: {
@@ -95,8 +95,9 @@ async function createPartner(name: string, achariya: boolean) {
       mobile,
       email: `${name.toLowerCase().replace(/\s+/g, '.')}.${rand(6)}@${TEST_DOMAIN}`,
       passwordHash: bcrypt.hashSync('Password@123', 4),
-      isAchariyaAssociated: achariya,
-      role: achariya ? 'STAFF' : 'NON_ACHARIYA',
+      city: 'Puducherry',
+      state: 'Puducherry',
+      pincode: '605001',
       status: 'ACTIVE',
       qrCodes: {
         create: [
@@ -144,10 +145,10 @@ async function run() {
       data: { name: 'P3 Super Admin', email: adminEmail, passwordHash: bcrypt.hashSync(adminPassword, 10) },
     });
 
-    const achPartner = await createPartner('P3 Achariya Partner', true);
-    const nonAchPartner = await createPartner('P3 NonAch Partner', false);
-    const revokedPartner = await createPartner('P3 Revoked Partner', false);
-    const suspendedPartner = await createPartner('P3 Suspended Partner', true);
+    const partnerA = await createPartner('P3 First Partner');
+    const partnerB = await createPartner('P3 Second Partner');
+    const revokedPartner = await createPartner('P3 Revoked Partner');
+    const suspendedPartner = await createPartner('P3 Suspended Partner');
     await prisma.qRCode.updateMany({ where: { partnerId: revokedPartner.id }, data: { status: 'REVOKED' } });
     await prisma.partner.update({ where: { id: suspendedPartner.id }, data: { status: 'SUSPENDED' } });
 
@@ -172,11 +173,15 @@ async function run() {
 
     const validSettings = {
       messagingMode: 'email',
-      firstTimeDiscount: { achariya: 20, nonAchariya: 15 },
-      repeatDiscount: { achariya: 10, nonAchariya: 5 },
+      firstTimeDiscount: 20,
+      repeatDiscount: 10,
+      birthdayBonusDiscount: 5,
       pointsToRupees: { points: 10, rupees: 1 },
-      referralDiscount: { achariya: 12, nonAchariya: 8 },
-      referralPoints: { achariya: 3, nonAchariya: 2 },
+      referralDiscount: 12,
+      // A goal these suites never reach, so no bill here is given the referral reward discount.
+      referralRewardGoal: 1000,
+      referralRewardDiscount: 20,
+      referralPointsPercentage: 3,
       purchasePointsPercentage: 1.5,
       pointsBasis: 'PAYABLE_AMOUNT',
       appDownloadUrl: 'https://play.google.com/store/apps/details?id=com.lotmorewins.partner',
@@ -186,17 +191,14 @@ async function run() {
     const reread = await request('/admin/settings', { cookie: adminCookie });
     const s = reread.data.data;
     assert(
-      s.firstTimeDiscount.achariya === 20 &&
-        s.firstTimeDiscount.nonAchariya === 15 &&
-        s.repeatDiscount.achariya === 10 &&
-        s.repeatDiscount.nonAchariya === 5,
-      'First-time and repeat discounts persisted',
+      s.firstTimeDiscount === 20 && s.repeatDiscount === 10 && s.birthdayBonusDiscount === 5,
+      'First-time, repeat and birthday bonus discounts persisted',
       s
     );
     assert(s.pointsToRupees.points === 10 && s.pointsToRupees.rupees === 1, 'Points-to-rupees ratio persisted (10 : ₹1)', s);
-    assert(s.referralPoints.achariya === 3 && s.referralPoints.nonAchariya === 2, 'Referral point percentages persisted', s);
+    assert(s.referralPointsPercentage === 3, 'Referral points percentage persisted', s);
     assert(s.purchasePointsPercentage === 1.5, 'Purchase points percentage persisted', s);
-    assert(s.referralDiscount.achariya === 12 && s.referralDiscount.nonAchariya === 8, 'Referral discounts persisted', s);
+    assert(s.referralDiscount === 12, 'Referral discount persisted', s);
     assert(s.pointsBasis === 'PAYABLE_AMOUNT', 'Points basis persisted', s);
     assert(s.appDownloadUrl === validSettings.appDownloadUrl, 'App download link persisted', s);
 
@@ -207,12 +209,13 @@ async function run() {
       const r = await request('/admin/settings', { method: 'PUT', cookie: adminCookie, body });
       assert(r.status === 400, name, r.data);
     };
-    await invalid({ ...validSettings, firstTimeDiscount: { achariya: 101, nonAchariya: 15 } }, 'Percentage above 100 rejected');
-    await invalid({ ...validSettings, repeatDiscount: { achariya: -1, nonAchariya: 5 } }, 'Negative percentage rejected');
+    await invalid({ ...validSettings, firstTimeDiscount: 101 }, 'Percentage above 100 rejected');
+    await invalid({ ...validSettings, repeatDiscount: -1 }, 'Negative percentage rejected');
+    await invalid({ ...validSettings, firstTimeDiscount: { achariya: 20, nonAchariya: 15 } }, 'Per-classification percentages are no longer accepted');
     await invalid({ ...validSettings, pointsToRupees: { points: 0, rupees: 1 } }, 'Zero points ratio rejected');
     await invalid({ ...validSettings, pointsToRupees: { points: 10, rupees: -5 } }, 'Negative rupees ratio rejected');
     await invalid({ ...validSettings, messagingMode: 'sms' }, 'Invalid messaging mode rejected');
-    await invalid({ ...validSettings, referralDiscount: { achariya: 150, nonAchariya: 8 } }, 'Referral discount above 100 rejected');
+    await invalid({ ...validSettings, referralDiscount: 150 }, 'Referral discount above 100 rejected');
     await invalid({ ...validSettings, pointsBasis: 'NET' }, 'Invalid points basis rejected');
     await invalid({ ...validSettings, appDownloadUrl: 'javascript:alert(1)' }, 'Non-http app download link rejected');
     await invalid({ ...validSettings, role: 'SUPER_ADMIN' }, 'Unknown fields (e.g. client-supplied role) rejected');
@@ -282,7 +285,7 @@ async function run() {
     assert(deactivateC.data.data?.status === 'INACTIVE', 'Second outlet deactivated for inactive-outlet checks');
 
     // Partner App listing (partner-authenticated)
-    const partnerToken = await loginPartnerToken(nonAchPartner.id);
+    const partnerToken = await loginPartnerToken(partnerB.id);
     const partnerList = await request('/outlets', { token: partnerToken });
     const listedIds = (partnerList.data.data ?? []).map((o: any) => o.id);
     assert(partnerList.status === 200 && listedIds.includes(outletA.id), 'Active outlets are returned to the Partner App', partnerList.data);
@@ -308,20 +311,24 @@ async function run() {
     // ------------------------------------------------------------------------
     console.log('\n--- SUITE 4: QR VALIDATION ---');
     // ------------------------------------------------------------------------
-    const scanDisc = await request('/outlet/scan', { method: 'POST', token: tokenA, body: { qrCode: achPartner.discQr } });
+    const scanDisc = await request('/outlet/scan', { method: 'POST', token: tokenA, body: { qrCode: partnerA.discQr } });
     const sd = scanDisc.data.data;
     assert(scanDisc.status === 200 && sd.qrType === 'DEFAULT_DISCOUNT' && sd.transactionType === 'DIRECT_PARTNER', 'DEFAULT_DISCOUNT recognised', scanDisc.data);
     assert(
-      sd?.partner.name === achPartner.name && sd.partner.mobile === achPartner.mobile && sd.partner.email === achPartner.email,
+      sd?.partner.name === partnerA.name && sd.partner.mobile === partnerA.mobile && sd.partner.email === partnerA.email,
       'Partner name, mobile and email retrieved from the database',
       sd
     );
-    assert(sd?.partner.classification === 'ACHARIYA', 'Partner type determined server-side (ACHARIYA)', sd);
-    assert(sd?.discount.isFirstTime === true && sd.discount.discountPercentage === 20, 'First-time status and discount resolved on scan', sd);
-
-    const scanRef = await request('/outlet/scan', { method: 'POST', token: tokenA, body: { qrCode: nonAchPartner.refQr } });
+    assert(!('classification' in (sd?.partner ?? {})), 'Scan result carries no partner classification', sd);
     assert(
-      scanRef.status === 200 && scanRef.data.data.qrType === 'REFERRAL' && scanRef.data.data.partner.name === nonAchPartner.name,
+      sd?.discount.isFirstTime === true && sd.discount.discountPercentage === 20 && sd.discount.birthdayBonusPercentage === 0,
+      'First-time status and discount resolved on scan (no birthday bonus)',
+      sd
+    );
+
+    const scanRef = await request('/outlet/scan', { method: 'POST', token: tokenA, body: { qrCode: partnerB.refQr } });
+    assert(
+      scanRef.status === 200 && scanRef.data.data.qrType === 'REFERRAL' && scanRef.data.data.partner.name === partnerB.name,
       'REFERRAL recognised with referring partner',
       scanRef.data
     );
@@ -329,7 +336,7 @@ async function run() {
     const scanUrl = await request('/outlet/scan', {
       method: 'POST',
       token: tokenA,
-      body: { qrCode: `https://lotmorewins.example/q/${achPartner.discQr.toLowerCase()}?src=share` },
+      body: { qrCode: `https://lotmorewins.example/q/${partnerA.discQr.toLowerCase()}?src=share` },
     });
     assert(scanUrl.status === 200, 'QR embedded in a URL / lowercase is still resolved by the server', scanUrl.data);
 
@@ -341,24 +348,24 @@ async function run() {
     assert(revoked.status === 422 && revoked.data.code === 'QR_INACTIVE', 'Inactive QR rejected', revoked.data);
     const suspended = await request('/outlet/scan', { method: 'POST', token: tokenA, body: { qrCode: suspendedPartner.discQr } });
     assert(suspended.status === 422 && suspended.data.code === 'PARTNER_INACTIVE', 'Invalid (inactive) partner rejected', suspended.data);
-    const noToken = await request('/outlet/scan', { method: 'POST', body: { qrCode: achPartner.discQr } });
+    const noToken = await request('/outlet/scan', { method: 'POST', body: { qrCode: partnerA.discQr } });
     assert(noToken.status === 401, 'Scanning requires an Outlet Admin session', noToken.data);
 
     // ------------------------------------------------------------------------
     console.log('\n--- SUITE 5: DIRECT PARTNER BILLING ---');
     // ------------------------------------------------------------------------
-    const preview = await request('/outlet/bills/preview', { method: 'POST', token: tokenA, body: { qrCode: achPartner.discQr, billAmount: 1000 } });
+    const preview = await request('/outlet/bills/preview', { method: 'POST', token: tokenA, body: { qrCode: partnerA.discQr, billAmount: 1000 } });
     const p = preview.data.data;
     assert(
       preview.status === 200 && p.discountPercentage === 20 && p.discountAmount === 200 && p.finalAmount === 800,
-      'Preview: Achariya first-time 20% of ₹1000 = ₹200 off, ₹800 final',
+      'Preview: first-time 20% of ₹1000 = ₹200 off, ₹800 final',
       preview.data
     );
     const billsBefore = await prisma.bill.count({ where: { outletId: outletA.id } });
     assert(billsBefore === 0, 'Preview persists nothing');
 
     const k1 = key('direct1');
-    const bill1 = await request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: achPartner.discQr, billAmount: 1000, idempotencyKey: k1 } });
+    const bill1 = await request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: partnerA.discQr, billAmount: 1000, idempotencyKey: k1 } });
     const b1 = bill1.data.data?.bill;
     assert(bill1.status === 201 && bill1.data.data.replayed === false, 'Direct bill completed (201)', bill1.data);
     assert(b1?.isFirstTime === true && b1.discountPercentage === 20 && b1.finalAmount === 800, 'First-time discount applied server-side', b1);
@@ -367,7 +374,7 @@ async function run() {
     assert(
       !!dbBill1 &&
         dbBill1.outletId === outletA.id &&
-        dbBill1.partnerId === achPartner.id &&
+        dbBill1.partnerId === partnerA.id &&
         dbBill1.referrerPartnerId === null &&
         dbBill1.customerId === null &&
         dbBill1.billAmount.toNumber() === 1000 &&
@@ -379,34 +386,34 @@ async function run() {
     );
 
     // Duplicate protection
-    const replay = await request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: achPartner.discQr, billAmount: 1000, idempotencyKey: k1 } });
+    const replay = await request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: partnerA.discQr, billAmount: 1000, idempotencyKey: k1 } });
     assert(replay.status === 200 && replay.data.data.replayed === true && replay.data.data.bill.id === b1?.id, 'Retry with the same key replays the original bill', replay.data);
-    const doubleScan = await request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: achPartner.discQr, billAmount: 1000, idempotencyKey: key('dup') } });
+    const doubleScan = await request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: partnerA.discQr, billAmount: 1000, idempotencyKey: key('dup') } });
     assert(doubleScan.status === 409 && doubleScan.data.code === 'DUPLICATE_BILL', 'Identical bill from a double scan rejected (409)', doubleScan.data);
-    const keyReuse = await request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: achPartner.discQr, billAmount: 1234, idempotencyKey: k1 } });
+    const keyReuse = await request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: partnerA.discQr, billAmount: 1234, idempotencyKey: k1 } });
     assert(keyReuse.status === 409 && keyReuse.data.code === 'IDEMPOTENCY_CONFLICT', 'Reusing a key for a different bill rejected', keyReuse.data);
 
     const kConcurrent = key('concurrent');
     const burst = await Promise.all(
       Array.from({ length: 5 }, () =>
-        request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: achPartner.discQr, billAmount: 1500, idempotencyKey: kConcurrent } })
+        request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: partnerA.discQr, billAmount: 1500, idempotencyKey: kConcurrent } })
       )
     );
     const burstIds = new Set(burst.map((r) => r.data.data?.bill?.id).filter(Boolean));
     const burstCount = await prisma.bill.count({ where: { outletId: outletA.id, idempotencyKey: kConcurrent } });
     assert(burstCount === 1 && burstIds.size === 1, '5 concurrent submits (double tap / mobile retry) create exactly one bill', burst.map((r) => r.status));
     const b2 = burst.find((r) => r.data.data?.bill)?.data.data.bill;
-    assert(b2?.isFirstTime === false && b2.discountPercentage === 10 && b2.discountAmount === 150 && b2.finalAmount === 1350, 'Repeat discount (Achariya 10%) applied to second bill', b2);
+    assert(b2?.isFirstTime === false && b2.discountPercentage === 10 && b2.discountAmount === 150 && b2.finalAmount === 1350, 'Repeat discount (10%) applied to second bill', b2);
 
-    const nonAchBill = await request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: nonAchPartner.discQr, billAmount: 999.99, idempotencyKey: key('nonach1') } });
-    const nb = nonAchBill.data.data?.bill;
+    const secondBill = await request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: partnerB.discQr, billAmount: 999.99, idempotencyKey: key('second1') } });
+    const nb = secondBill.data.data?.bill;
     assert(
-      nb?.classification === 'NON_ACHARIYA' && nb.isFirstTime && nb.discountPercentage === 15 && nb.discountAmount === 150 && nb.finalAmount === 849.99,
-      'Non-Achariya first-time 15% with half-up rounding (₹999.99 → ₹150.00 off)',
+      nb?.isFirstTime && nb.discountPercentage === 20 && nb.discountAmount === 200 && nb.finalAmount === 799.99,
+      'Every partner gets the same first-time 20%, with half-up rounding (₹999.99 → ₹200.00 off)',
       nb
     );
-    const nonAchRepeat = await request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: nonAchPartner.discQr, billAmount: 200, idempotencyKey: key('nonach2') } });
-    assert(nonAchRepeat.data.data?.bill.discountPercentage === 5, 'Non-Achariya repeat discount 5%', nonAchRepeat.data);
+    const secondRepeat = await request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: partnerB.discQr, billAmount: 200, idempotencyKey: key('second2') } });
+    assert(secondRepeat.data.data?.bill.discountPercentage === 10, 'Every partner gets the same repeat discount 10%', secondRepeat.data);
 
     // Client cannot override authoritative values
     const override = async (extra: Record<string, unknown>, name: string) => {
@@ -414,7 +421,7 @@ async function run() {
       const r = await request('/outlet/bills', {
         method: 'POST',
         token: tokenA,
-        body: { qrCode: achPartner.discQr, billAmount: 50, idempotencyKey: key('override'), ...extra },
+        body: { qrCode: partnerA.discQr, billAmount: 50, idempotencyKey: key('override'), ...extra },
       });
       const after = await prisma.bill.count();
       assert(r.status === 400 && after === before, name, r.data);
@@ -424,7 +431,7 @@ async function run() {
     await override({ partnerType: 'ACHARIYA', classification: 'ACHARIYA' }, 'Client cannot override partner type');
     await override({ isFirstTime: true }, 'Client cannot override first-time status');
     await override({ outletId: outletB.id }, 'Client cannot choose the outlet');
-    await override({ partnerId: nonAchPartner.id }, 'Client cannot choose the partner');
+    await override({ partnerId: partnerB.id }, 'Client cannot choose the partner');
 
     // ------------------------------------------------------------------------
     console.log('\n--- SUITE 6: REFERRAL BILLING ---');
@@ -432,33 +439,33 @@ async function run() {
     const customerMobile = uniqueMobile();
     const customer = { name: 'P3 Referred Customer', mobile: `+91-${customerMobile.slice(0, 5)} ${customerMobile.slice(5)}`, email: `cust.${rand(6)}@${TEST_DOMAIN}` };
 
-    const noCustomer = await request('/outlet/bills/preview', { method: 'POST', token: tokenA, body: { qrCode: achPartner.refQr, billAmount: 500 } });
+    const noCustomer = await request('/outlet/bills/preview', { method: 'POST', token: tokenA, body: { qrCode: partnerA.refQr, billAmount: 500 } });
     assert(noCustomer.status === 400 && noCustomer.data.code === 'CUSTOMER_REQUIRED', 'Referral bill requires customer details', noCustomer.data);
 
-    const refPreview = await request('/outlet/bills/preview', { method: 'POST', token: tokenA, body: { qrCode: achPartner.refQr, billAmount: 500, customer } });
+    const refPreview = await request('/outlet/bills/preview', { method: 'POST', token: tokenA, body: { qrCode: partnerA.refQr, billAmount: 500, customer } });
     assert(
       refPreview.status === 200 && refPreview.data.data.transactionType === 'REFERRAL' && refPreview.data.data.discountPercentage === 12,
-      'Referral discount from settings (referrer Achariya → 12%)',
+      'Referral discount from settings (12%)',
       refPreview.data
     );
 
-    const refBill = await request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: achPartner.refQr, billAmount: 500, customer, idempotencyKey: key('ref1') } });
+    const refBill = await request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: partnerA.refQr, billAmount: 500, customer, idempotencyKey: key('ref1') } });
     const rb = refBill.data.data?.bill;
-    assert(refBill.status === 201 && rb.referrerPartner?.id === achPartner.id && rb.partner === null, 'Referring partner recorded on the transaction', refBill.data);
+    assert(refBill.status === 201 && rb.referrerPartner?.id === partnerA.id && rb.partner === null, 'Referring partner recorded on the transaction', refBill.data);
     assert(rb?.qrType === 'REFERRAL' && rb.transactionType === 'REFERRAL' && rb.discountAmount === 60 && rb.finalAmount === 440, 'Referral transaction amounts persisted', rb);
     const dbCustomer = await prisma.customer.findUnique({ where: { mobile: customerMobile } });
     assert(!!dbCustomer && dbCustomer.name === customer.name && dbCustomer.email === customer.email, 'Customer persisted with normalised 10-digit mobile', dbCustomer);
     const dbRefBill = await prisma.bill.findUnique({ where: { id: rb?.id ?? '' } });
-    assert(dbRefBill?.customerId === dbCustomer?.id && dbRefBill?.referrerPartnerId === achPartner.id, 'Referral bill linked to customer and referrer');
+    assert(dbRefBill?.customerId === dbCustomer?.id && dbRefBill?.referrerPartnerId === partnerA.id, 'Referral bill linked to customer and referrer');
 
     const refRepeat = await request('/outlet/bills', {
       method: 'POST',
       token: tokenA,
-      body: { qrCode: nonAchPartner.refQr, billAmount: 300, customer: { ...customer, mobile: customerMobile }, idempotencyKey: key('ref2') },
+      body: { qrCode: partnerB.refQr, billAmount: 300, customer: { ...customer, mobile: customerMobile }, idempotencyKey: key('ref2') },
     });
     assert(
-      refRepeat.data.data?.bill.isFirstTime === false && refRepeat.data.data.bill.discountPercentage === 8,
-      'Returning referred customer: not first-time, referral discount by referrer (Non-Achariya 8%)',
+      refRepeat.data.data?.bill.isFirstTime === false && refRepeat.data.data.bill.discountPercentage === 12,
+      'Returning referred customer: not first-time, same referral discount whoever referred them (12%)',
       refRepeat.data
     );
     assert((await prisma.customer.count({ where: { mobile: customerMobile } })) === 1, 'Same mobile reuses one customer identity');
@@ -466,10 +473,10 @@ async function run() {
     const selfRef = await request('/outlet/bills/preview', {
       method: 'POST',
       token: tokenA,
-      body: { qrCode: achPartner.refQr, billAmount: 100, customer: { name: 'Self', mobile: achPartner.mobile } },
+      body: { qrCode: partnerA.refQr, billAmount: 100, customer: { name: 'Self', mobile: partnerA.mobile } },
     });
     assert(selfRef.status === 422 && selfRef.data.code === 'SELF_REFERRAL', 'Partner cannot use their own referral QR', selfRef.data);
-    const directWithCustomer = await request('/outlet/bills/preview', { method: 'POST', token: tokenA, body: { qrCode: achPartner.discQr, billAmount: 100, customer } });
+    const directWithCustomer = await request('/outlet/bills/preview', { method: 'POST', token: tokenA, body: { qrCode: partnerA.discQr, billAmount: 100, customer } });
     assert(directWithCustomer.status === 400, 'Customer details rejected on a direct partner QR', directWithCustomer.data);
 
     // ------------------------------------------------------------------------
@@ -511,13 +518,13 @@ async function run() {
     const forged = await request('/outlet/transactions', { token: `${h}.${forgedBody}.${sig}` });
     assert(forged.status === 401, 'Forged Outlet Admin token (swapped identity) rejected', forged.data);
 
-    const inactiveScan = await request('/outlet/scan', { method: 'POST', token: tokenC, body: { qrCode: achPartner.discQr } });
+    const inactiveScan = await request('/outlet/scan', { method: 'POST', token: tokenC, body: { qrCode: partnerA.discQr } });
     assert(inactiveScan.status === 403 && inactiveScan.data.code === 'OUTLET_INACTIVE', 'Inactive outlet cannot scan', inactiveScan.data);
-    const inactiveBill = await request('/outlet/bills', { method: 'POST', token: tokenC, body: { qrCode: achPartner.discQr, billAmount: 10, idempotencyKey: key('inactive') } });
+    const inactiveBill = await request('/outlet/bills', { method: 'POST', token: tokenC, body: { qrCode: partnerA.discQr, billAmount: 10, idempotencyKey: key('inactive') } });
     assert(inactiveBill.status === 403 && inactiveBill.data.code === 'OUTLET_INACTIVE', 'Inactive outlet cannot bill', inactiveBill.data);
 
     await request(`/admin/outlets/${outletA.id}`, { method: 'PATCH', cookie: adminCookie, body: { status: 'INACTIVE' } });
-    const deactivatedMidSession = await request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: nonAchPartner.discQr, billAmount: 10, idempotencyKey: key('mid') } });
+    const deactivatedMidSession = await request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: partnerB.discQr, billAmount: 10, idempotencyKey: key('mid') } });
     assert(deactivatedMidSession.status === 403, 'Deactivation takes effect immediately for an existing session', deactivatedMidSession.data);
     await request(`/admin/outlets/${outletA.id}`, { method: 'PATCH', cookie: adminCookie, body: { status: 'ACTIVE' } });
 

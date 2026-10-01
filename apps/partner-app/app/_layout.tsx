@@ -4,9 +4,9 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState } from 'react';
-import { View } from 'react-native';
+import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { AppState, Platform, View } from 'react-native';
 import { useFonts } from 'expo-font';
 import { colors, fonts } from '../theme/tokens';
 
@@ -21,6 +21,13 @@ const POPPINS = {
 export default function RootLayout() {
   const [queryClient] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 30_000 } } }));
   const [fontsLoaded, fontError] = useFonts(POPPINS);
+
+  // Refetch stale data when the app returns to the foreground (e.g. after a push arrived in the background).
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const subscription = AppState.addEventListener('change', (state) => focusManager.setFocused(state === 'active'));
+    return () => subscription.remove();
+  }, []);
 
   // Hold on the brand canvas until Poppins is ready so text never flashes in a system font.
   if (!fontsLoaded && !fontError) {
@@ -43,8 +50,9 @@ export default function RootLayout() {
             <Stack.Screen name="onboarding" />
             <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
             <Stack.Screen name="outlet/[id]" />
-            <Stack.Screen name="activity" />
-            <Stack.Screen name="settings" />
+            <Stack.Screen name="qr/[type]" />
+            <Stack.Screen name="redeem" />
+            <Stack.Screen name="notifications" />
             <Stack.Screen name="(auth)" />
           </Stack>
         </QueryClientProvider>

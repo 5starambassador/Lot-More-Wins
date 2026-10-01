@@ -3,7 +3,7 @@ import { BackHandler, StyleSheet, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useQueryClient } from '@tanstack/react-query';
-import type { BillRecord, ReferredCustomerInput, ScanResult } from '@lotmorewins/types';
+import type { BillRecord, RedeemScanResult, RedemptionReceipt, ReferredCustomerInput, ScanResult } from '@lotmorewins/types';
 import { Button, Notice, Screen, Txt } from '../../components/ui';
 import { BrandLogo } from '../../components/brand/Brand';
 import { Scanner } from '../../components/scan/Scanner';
@@ -11,6 +11,8 @@ import { PartnerCard } from '../../components/scan/PartnerCard';
 import { CustomerStep } from '../../components/scan/CustomerStep';
 import { AmountStep } from '../../components/scan/AmountStep';
 import { BillDone } from '../../components/scan/BillDone';
+import { RedeemStep } from '../../components/scan/RedeemStep';
+import { RedeemDone } from '../../components/scan/RedeemDone';
 import { useSession } from '../../store/session-store';
 import { colors, space } from '../../theme/tokens';
 
@@ -20,11 +22,12 @@ import { colors, space } from '../../theme/tokens';
  *
  *   Direct partner QR:  scan → partner → amount → done
  *   Referral QR:        scan → partner → customer → amount → done
+ *   Wallet redeem QR:   scan → redeem → redeemed
  *
  * Every amount, discount and point shown comes from the server, which calculates it from
  * the Super Admin settings.
  */
-type Step = 'scan' | 'partner' | 'customer' | 'amount' | 'done';
+type Step = 'scan' | 'partner' | 'customer' | 'amount' | 'done' | 'redeem' | 'redeemDone';
 
 const TITLES: Record<Step, string> = {
   scan: 'Scan partner QR',
@@ -32,10 +35,19 @@ const TITLES: Record<Step, string> = {
   customer: 'Referred customer',
   amount: 'Bill amount',
   done: 'Bill settled',
+  redeem: 'Redeem points',
+  redeemDone: 'Points redeemed',
 };
 
 function Steps({ current, referral }: { current: Step; referral: boolean }) {
-  const steps: { key: Step; label: string }[] = referral
+  const redeeming = current === 'redeem' || current === 'redeemDone';
+  const steps: { key: Step; label: string }[] = redeeming
+    ? [
+        { key: 'scan', label: 'Scan' },
+        { key: 'redeem', label: 'Redeem' },
+        { key: 'redeemDone', label: 'Done' },
+      ]
+    : referral
     ? [
         { key: 'scan', label: 'Scan' },
         { key: 'customer', label: 'Customer' },
@@ -53,8 +65,9 @@ function Steps({ current, referral }: { current: Step; referral: boolean }) {
   return (
     <View style={styles.steps}>
       {steps.map((s, i) => {
-        const done = i < activeIndex || current === 'done';
-        const active = i === activeIndex && current !== 'done';
+        const finished = current === 'done' || current === 'redeemDone';
+        const done = i < activeIndex || finished;
+        const active = i === activeIndex && !finished;
         return (
           <View key={s.key} style={styles.stepCell}>
             <View style={[styles.stepBar, (done || active) && { backgroundColor: done ? colors.gold : colors.goldMuted }]} />
@@ -79,6 +92,8 @@ export default function ScanScreen() {
   const [scan, setScan] = useState<ScanResult | null>(null);
   const [customer, setCustomer] = useState<ReferredCustomerInput | undefined>(undefined);
   const [done, setDone] = useState<{ bill: BillRecord; replayed: boolean } | null>(null);
+  const [redeem, setRedeem] = useState<RedeemScanResult | null>(null);
+  const [redeemed, setRedeemed] = useState<RedemptionReceipt | null>(null);
 
   const isReferral = scan?.qrType === 'REFERRAL';
 
@@ -88,12 +103,14 @@ export default function ScanScreen() {
     setScan(null);
     setCustomer(undefined);
     setDone(null);
+    setRedeem(null);
+    setRedeemed(null);
   }, []);
 
   const back = useCallback(() => {
     if (step === 'customer') setStep('partner');
     else if (step === 'amount') setStep(isReferral ? 'customer' : 'partner');
-    else if (step === 'partner' || step === 'done') reset();
+    else if (step === 'partner' || step === 'done' || step === 'redeem' || step === 'redeemDone') reset();
   }, [step, isReferral, reset]);
 
   useFocusEffect(
@@ -101,7 +118,7 @@ export default function ScanScreen() {
       setFocused(true);
       // Android back steps back through the flow instead of leaving the app.
       const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-        if (step === 'scan' || step === 'done') return false;
+        if (step === 'scan' || step === 'done' || step === 'redeemDone') return false;
         back();
         return true;
       });
@@ -121,6 +138,12 @@ export default function ScanScreen() {
     setScan(result);
     setCustomer(undefined);
     setStep('partner');
+  }, []);
+
+  const onRedeem = useCallback((code: string, result: RedeemScanResult) => {
+    setQrCode(code);
+    setRedeem(result);
+    setStep('redeem');
   }, []);
 
   const onCompleted = (bill: BillRecord, replayed: boolean) => {
@@ -148,7 +171,9 @@ export default function ScanScreen() {
       <Steps current={step} referral={step === 'scan' ? false : isReferral} />
 
       <Animated.View key={step} entering={FadeInDown.duration(300)}>
-        {step === 'scan' && <Scanner active={focused && step === 'scan'} onVerified={onVerified} onSignedOut={handleSignedOut} />}
+        {step === 'scan' && (
+          <Scanner active={focused && step === 'scan'} onVerified={onVerified} onRedeem={onRedeem} onSignedOut={handleSignedOut} />
+        )}
 
         {step === 'partner' && scan && (
           <>
@@ -194,6 +219,21 @@ export default function ScanScreen() {
         )}
 
         {step === 'done' && done && <BillDone bill={done.bill} replayed={done.replayed} onNext={reset} onSignedOut={handleSignedOut} />}
+
+        {step === 'redeem' && redeem && qrCode && (
+          <RedeemStep
+            qrCode={qrCode}
+            scan={redeem}
+            onCompleted={(receipt) => {
+              setRedeemed(receipt);
+              setStep('redeemDone');
+            }}
+            onCancel={reset}
+            onSignedOut={handleSignedOut}
+          />
+        )}
+
+        {step === 'redeemDone' && redeemed && <RedeemDone receipt={redeemed} onNext={reset} />}
       </Animated.View>
     </Screen>
   );

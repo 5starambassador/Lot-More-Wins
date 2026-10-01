@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, View } from 'react-native';
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
-import type { ScanResult } from '@lotmorewins/types';
+import type { RedeemScanResult, ScanResult } from '@lotmorewins/types';
 import * as Haptics from '../../lib/haptics';
 import { Button, Field, IconMark, Notice, Panel, Segmented, Txt } from '../ui';
 import apiClient, { describeError, isAuthError } from '../../lib/api';
+import { isRedeemQr } from '../../lib/format';
 import { colors, radius, space } from '../../theme/tokens';
 
 /**
@@ -15,6 +16,8 @@ import { colors, radius, space } from '../../theme/tokens';
  * reference: a synchronous lock (camera callbacks fire faster than React re-renders),
  * same-code suppression after a failure, and a re-arm cooldown so a bad QR left in frame
  * does not loop requests.
+ * A wallet redeem QR (LMW-RDM.…) is verified against the redemption endpoint instead and
+ * handed to onRedeem; its token is case-sensitive, so the value is passed on untouched.
  */
 
 const FRAME_SIZE = 220;
@@ -92,11 +95,13 @@ function PermissionPanel({ canAskAgain, onRequest, onManual }: { canAskAgain: bo
 export function Scanner({
   active,
   onVerified,
+  onRedeem,
   onSignedOut,
 }: {
   /** Camera runs only while the scan step is visible and the tab is focused. */
   active: boolean;
   onVerified: (qrCode: string, result: ScanResult) => void;
+  onRedeem: (qrCode: string, result: RedeemScanResult) => void;
   onSignedOut: () => void;
 }) {
   const [permission, requestPermission] = useCameraPermissions();
@@ -133,11 +138,20 @@ export function Scanner({
       setErrorMsg(null);
 
       try {
-        const res = await apiClient.scanQr(code);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        setManualCode('');
-        setBusy(false);
-        onVerified(code, res.data); // lock stays held until the scanner is re-activated
+        // The lock stays held after success until the scanner is re-activated.
+        if (isRedeemQr(code)) {
+          const res = await apiClient.scanRedeemQr(code);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          setManualCode('');
+          setBusy(false);
+          onRedeem(code, res.data);
+        } else {
+          const res = await apiClient.scanQr(code);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          setManualCode('');
+          setBusy(false);
+          onVerified(code, res.data);
+        }
       } catch (err) {
         if (isAuthError(err)) {
           onSignedOut();
@@ -156,7 +170,7 @@ export function Scanner({
         }
       }
     },
-    [onVerified, onSignedOut]
+    [onVerified, onRedeem, onSignedOut]
   );
 
   const onBarcodeScanned = useCallback(
@@ -218,7 +232,7 @@ export function Scanner({
             )}
           </View>
           <Txt variant="caption" tone="muted" align="center" style={{ marginTop: space.sm }}>
-            Hold the partner&apos;s discount or referral QR inside the frame. It scans automatically.
+            Hold the partner&apos;s discount, referral or wallet redeem QR inside the frame. It scans automatically.
           </Txt>
         </>
       )}
@@ -227,10 +241,11 @@ export function Scanner({
         <View>
           <Field
             label="Partner QR code"
-            placeholder="LMW-DISC-… or LMW-REF-…"
+            placeholder="LMW-DISC-…, LMW-REF-… or LMW-RDM.…"
             value={manualCode}
             onChangeText={setManualCode}
-            autoCapitalize="characters"
+            // Redeem codes are case-sensitive, so the keyboard must not force capitals.
+            autoCapitalize="none"
             autoCorrect={false}
             editable={!busy}
             returnKeyType="go"

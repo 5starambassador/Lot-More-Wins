@@ -1,10 +1,6 @@
 import type {
   ApiResponse,
   HealthCheckResponse,
-  ValidateEmployeePayload,
-  ValidateEmployeeResponse,
-  ValidateAdmissionPayload,
-  ValidateAdmissionResponse,
   OtpSendPayload,
   OtpSendResponse,
   OtpVerifyPayload,
@@ -36,12 +32,28 @@ import type {
   BillHistorySummary,
   CustomerLookup,
   PartnerWallet,
+  PartnerHome,
+  PartnerOffers,
+  PartnerNotificationPage,
+  PushTokenPayload,
+  RedeemQr,
+  RedeemScanResult,
+  RedeemPayload,
+  RedemptionReceipt,
+  UpdatePartnerProfilePayload,
   AdminDashboard,
+  AdminSearchResult,
   AdminPartnerDetail,
   AdminPartnerListItem,
   AdminPartnerListQuery,
   AdminTransactionListQuery,
   AdminTransactionPage,
+  AdminDateRangeQuery,
+  AdminOutletListQuery,
+  AdminOutletRedemptionsPage,
+  AdminOutletRedemptionsQuery,
+  AdminPartnerActivityPage,
+  AdminPartnerActivityQuery,
 } from '@lotmorewins/types';
 
 export interface ApiClientConfig {
@@ -207,14 +219,6 @@ export class ApiClient {
   // Phase 2: Onboarding & Authentication Methods
   // ==========================================================================
 
-  public validateEmployee(payload: ValidateEmployeePayload): Promise<ApiResponse<ValidateEmployeeResponse>> {
-    return this.post<ApiResponse<ValidateEmployeeResponse>>('/partner/validate-employee', payload);
-  }
-
-  public validateAdmission(payload: ValidateAdmissionPayload): Promise<ApiResponse<ValidateAdmissionResponse>> {
-    return this.post<ApiResponse<ValidateAdmissionResponse>>('/partner/validate-admission', payload);
-  }
-
   public sendOtp(payload: OtpSendPayload): Promise<OtpSendResponse> {
     return this.post<OtpSendResponse>('/auth/otp', payload);
   }
@@ -227,7 +231,6 @@ export class ApiClient {
     return this.post<ApiResponse<PartnerOnboardingResponse>>('/partner/onboarding', payload);
   }
 
-  /** The partner is identified by the Bearer token only. */
   /** Partner sign-in with registered mobile/email and password; returns the same session shape as onboarding. */
   public partnerLogin(payload: PartnerLoginPayload): Promise<ApiResponse<PartnerOnboardingResponse>> {
     return this.post<ApiResponse<PartnerOnboardingResponse>>('/partner/auth/login', payload);
@@ -237,9 +240,47 @@ export class ApiClient {
     return this.get<ApiResponse<PartnerQrResponse>>('/partner/qr');
   }
 
+  /** The partner is identified by the Bearer token only. */
   public getPartnerMe(): Promise<ApiResponse<PartnerOnboardingResponse>> {
     return this.get<ApiResponse<PartnerOnboardingResponse>>('/partner/me');
   }
+
+  /** Edits the partner's own profile. A new mobile or email must have been OTP-verified first. */
+  public updatePartnerProfile(payload: UpdatePartnerProfilePayload): Promise<ApiResponse<PartnerOnboardingResponse>> {
+    return this.patch<ApiResponse<PartnerOnboardingResponse>>('/partner/me', payload);
+  }
+
+  /** Public: the first-purchase and birthday offers advertised during registration. */
+  public getPartnerOffers(): Promise<ApiResponse<PartnerOffers>> {
+    return this.get<ApiResponse<PartnerOffers>>('/partner/offers');
+  }
+
+  /** Referral progress, current offers and the unread notification count for the Home screen. */
+  public getPartnerHome(): Promise<ApiResponse<PartnerHome>> {
+    return this.get<ApiResponse<PartnerHome>>('/partner/home');
+  }
+
+  /** Records one tap of "Share QR" on the referral QR page (Super Admin tracking). */
+  public trackReferralShare(): Promise<ApiResponse<{ recorded: boolean }>> {
+    return this.post<ApiResponse<{ recorded: boolean }>>('/partner/referral-share');
+  }
+
+  public getPartnerNotifications(page = 1, limit = 30): Promise<ApiResponse<PartnerNotificationPage>> {
+    return this.get<ApiResponse<PartnerNotificationPage>>('/partner/notifications', { params: { page, limit } });
+  }
+
+  public markPartnerNotificationsRead(): Promise<ApiResponse<{ updated: number }>> {
+    return this.post<ApiResponse<{ updated: number }>>('/partner/notifications/read');
+  }
+
+  public registerPushToken(payload: PushTokenPayload): Promise<ApiResponse<{ registered: boolean }>> {
+    return this.post<ApiResponse<{ registered: boolean }>>('/partner/push-token', payload);
+  }
+
+  public removePushToken(token: string): Promise<ApiResponse<{ removed: boolean }>> {
+    return this.delete<ApiResponse<{ removed: boolean }>>('/partner/push-token', { params: { token } });
+  }
+
 
   /** Active outlets managed by the Super Admin. */
   public getOutlets(): Promise<ApiResponse<Outlet[]>> {
@@ -266,8 +307,18 @@ export class ApiClient {
     return this.put<ApiResponse<ProgramSettings>>('/admin/settings', payload);
   }
 
-  public listAdminOutlets(): Promise<ApiResponse<AdminOutlet[]>> {
-    return this.get<ApiResponse<AdminOutlet[]>>('/admin/outlets');
+  public listAdminOutlets(query: AdminOutletListQuery = {}): Promise<ApiResponse<AdminOutlet[]>> {
+    return this.get<ApiResponse<AdminOutlet[]>>('/admin/outlets', { params: { ...query } });
+  }
+
+  /** Wallet redemptions made at one outlet, with totals for the date filter. */
+  public getAdminOutletRedemptions(
+    id: string,
+    query: AdminOutletRedemptionsQuery = {}
+  ): Promise<ApiResponse<AdminOutletRedemptionsPage>> {
+    return this.get<ApiResponse<AdminOutletRedemptionsPage>>(`/admin/outlets/${encodeURIComponent(id)}/redemptions`, {
+      params: { ...query },
+    });
   }
 
   public getAdminOutlet(id: string): Promise<ApiResponse<AdminOutlet>> {
@@ -282,8 +333,14 @@ export class ApiClient {
     return this.patch<ApiResponse<AdminOutlet>>(`/admin/outlets/${encodeURIComponent(id)}`, payload);
   }
 
-  public getAdminDashboard(): Promise<ApiResponse<AdminDashboard>> {
-    return this.get<ApiResponse<AdminDashboard>>('/admin/dashboard');
+  /** `from` / `to` set the period of the dashboard's metrics and charts (default: last 30 days). */
+  /** Partners (name, mobile, email, code, id) and outlets matching one query, for the dashboard search. */
+  public adminSearch(q: string): Promise<ApiResponse<AdminSearchResult>> {
+    return this.get<ApiResponse<AdminSearchResult>>('/admin/search', { params: { q } });
+  }
+
+  public getAdminDashboard(query: AdminDateRangeQuery = {}): Promise<ApiResponse<AdminDashboard>> {
+    return this.get<ApiResponse<AdminDashboard>>('/admin/dashboard', { params: { ...query } });
   }
 
   public listAdminPartners(query: AdminPartnerListQuery = {}): Promise<PaginatedResponse<AdminPartnerListItem>> {
@@ -292,6 +349,13 @@ export class ApiClient {
 
   public getAdminPartner(id: string): Promise<ApiResponse<AdminPartnerDetail>> {
     return this.get<ApiResponse<AdminPartnerDetail>>(`/admin/partners/${encodeURIComponent(id)}`);
+  }
+
+  /** One partner's activity log: own purchases, successful referrals, redemptions and QR shares. */
+  public getAdminPartnerActivity(id: string, query: AdminPartnerActivityQuery = {}): Promise<ApiResponse<AdminPartnerActivityPage>> {
+    return this.get<ApiResponse<AdminPartnerActivityPage>>(`/admin/partners/${encodeURIComponent(id)}/activity`, {
+      params: { ...query },
+    });
   }
 
   public listAdminTransactions(query: AdminTransactionListQuery = {}): Promise<ApiResponse<AdminTransactionPage>> {
@@ -359,6 +423,25 @@ export class ApiClient {
 
   public getPartnerWallet(): Promise<ApiResponse<PartnerWallet>> {
     return this.get<ApiResponse<PartnerWallet>>('/partner/wallet');
+  }
+
+  /** A fresh, short-lived, single-use QR for spending wallet points at an outlet. */
+  public createRedeemQr(): Promise<ApiResponse<RedeemQr>> {
+    return this.post<ApiResponse<RedeemQr>>('/partner/wallet/redeem-qr');
+  }
+
+  // ==========================================================================
+  // Outlet Admin: wallet redemption (Bearer outlet admin token)
+  // ==========================================================================
+
+  /** Resolves a scanned redeem QR to the partner and their live wallet balance. */
+  public scanRedeemQr(qrCode: string): Promise<ApiResponse<RedeemScanResult>> {
+    return this.post<ApiResponse<RedeemScanResult>>('/outlet/redemptions/scan', { qrCode });
+  }
+
+  /** Spends points from the partner's wallet. Each redeem QR works once; a retry replays the result. */
+  public redeemPoints(payload: RedeemPayload): Promise<ApiResponse<RedemptionReceipt>> {
+    return this.post<ApiResponse<RedemptionReceipt>>('/outlet/redemptions', payload, { timeoutMs: 30000 });
   }
 
   /** Resolves an API-hosted asset path (/api/media/...) against the API origin. */

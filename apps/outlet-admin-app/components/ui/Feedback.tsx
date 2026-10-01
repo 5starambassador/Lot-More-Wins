@@ -2,7 +2,7 @@ import { useEffect, type ComponentProps } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View, type DimensionValue } from 'react-native';
 import Animated, { FadeIn, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, radius, space } from '../../theme/tokens';
+import { canvasFill, colors, radius, space } from '../../theme/tokens';
 import { Button } from './Button';
 import { Txt } from './Txt';
 
@@ -149,6 +149,6 @@ const styles = StyleSheet.create({
   },
   stateMsg: { marginTop: space.xs, maxWidth: 300 },
   stateAction: { marginTop: space.xl, minWidth: 160 },
-  loader: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.canvas },
+  loader: { flex: 1, alignItems: 'center', justifyContent: 'center', ...canvasFill },
   skelRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
 });

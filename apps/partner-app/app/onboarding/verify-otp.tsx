@@ -1,24 +1,24 @@
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
-import { useState, useEffect, useRef } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import * as Haptics from '../../lib/haptics';
 import { useOnboardingStore } from '../../store/onboarding-store';
 import apiClient from '../../lib/api';
+import { describeError } from '../../lib/queries';
 import { OnboardingShell } from '../../components/onboarding/OnboardingShell';
-import { Button, Notice, Txt } from '../../components/ui';
-import { colors, fonts, space } from '../../theme/tokens';
+import { Button, Notice, OtpInput, Txt } from '../../components/ui';
+import { space } from '../../theme/tokens';
 
+/** Step 4: the 6-digit code sent when the partner left the birthday step. */
 export default function VerifyOtpScreen() {
   const router = useRouter();
-  const { mobile, email, name, messagingMode, setOtp: saveOtpToStore } = useOnboardingStore();
+  const { mobile, email, name, messagingMode, setMessagingMode, setOtp: saveOtpToStore } = useOnboardingStore();
 
   const [otp, setOtp] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(60);
-
-  const inputRef = useRef<TextInput>(null);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -37,22 +37,13 @@ export default function VerifyOtpScreen() {
     setIsVerifying(true);
 
     try {
-      const res = await apiClient.verifyOtp({
-        identifier: mobile,
-        otp: code,
-      });
-
-      if (res.success) {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        saveOtpToStore(code);
-        router.push('/onboarding/set-password');
-      } else {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        setErrorMsg(res.message || 'Verification failed. Please check OTP.');
-      }
-    } catch (err: any) {
+      await apiClient.verifyOtp({ identifier: mobile, otp: code });
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      saveOtpToStore(code);
+      router.push('/onboarding/set-password');
+    } catch (err) {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setErrorMsg(err.message || 'Invalid or expired OTP. Please try again.');
+      setErrorMsg(describeError(err));
     } finally {
       setIsVerifying(false);
     }
@@ -64,30 +55,14 @@ export default function VerifyOtpScreen() {
     setErrorMsg(null);
 
     try {
-      const res = await apiClient.sendOtp({
-        identifier: mobile,
-        name,
-        email,
-      });
-
-      if (res.success) {
-        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        setCountdown(60);
-      } else {
-        setErrorMsg(res.message || 'Failed to resend code');
-      }
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Error resending code');
+      const res = await apiClient.sendOtp({ identifier: mobile, name, email });
+      setMessagingMode(res.mode);
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setCountdown(60);
+    } catch (err) {
+      setErrorMsg(describeError(err));
     } finally {
       setIsResending(false);
-    }
-  };
-
-  const handleOtpChange = (val: string) => {
-    const cleaned = val.replace(/\D/g, '').slice(0, 6);
-    setOtp(cleaned);
-    if (cleaned.length === 6) {
-      handleVerify(cleaned);
     }
   };
 
@@ -105,32 +80,9 @@ export default function VerifyOtpScreen() {
     >
       {errorMsg && <Notice tone="error" message={errorMsg} />}
 
-      <Pressable accessibilityLabel="Verification code" onPress={() => inputRef.current?.focus()} style={styles.cells}>
-        {[0, 1, 2, 3, 4, 5].map((index) => {
-          const digit = otp[index] || '';
-          const isCurrent = otp.length === index;
-          return (
-            <View
-              key={index}
-              style={[styles.cell, { borderBottomColor: digit ? colors.goldMuted : isCurrent ? colors.gold : colors.line }]}
-            >
-              <Txt style={styles.digit}>{digit}</Txt>
-            </View>
-          );
-        })}
-        <TextInput
-          ref={inputRef}
-          value={otp}
-          onChangeText={handleOtpChange}
-          keyboardType="number-pad"
-          textContentType="oneTimeCode"
-          autoComplete="sms-otp"
-          maxLength={6}
-          autoFocus
-          caretHidden
-          style={styles.hiddenInput}
-        />
-      </Pressable>
+      <View style={styles.cells}>
+        <OtpInput value={otp} onChange={setOtp} onComplete={handleVerify} />
+      </View>
 
       <View style={styles.resend}>
         <Txt variant="small" tone="muted">
@@ -151,9 +103,6 @@ export default function VerifyOtpScreen() {
 }
 
 const styles = StyleSheet.create({
-  cells: { flexDirection: 'row', justifyContent: 'space-between', marginTop: space.md },
-  cell: { width: 44, height: 60, alignItems: 'center', justifyContent: 'center', borderBottomWidth: 2 },
-  digit: { fontFamily: fonts.semibold, fontSize: 28, lineHeight: 36, color: colors.text },
-  hiddenInput: { position: 'absolute', width: 1, height: 1, opacity: 0 },
+  cells: { marginTop: space.md },
   resend: { flexDirection: 'row', alignItems: 'center', marginTop: space.xxl },
 });

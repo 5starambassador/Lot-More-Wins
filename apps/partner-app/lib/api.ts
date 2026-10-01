@@ -1,10 +1,15 @@
 import { createApiClient } from '@lotmorewins/api-client';
+import { Platform } from 'react-native';
 import { secureStorage as SecureStore } from './secure-storage';
 
 /** The live API on Vercel. EXPO_PUBLIC_API_URL can point a build at another server. */
 const LIVE_API_URL = 'https://lotmore-wins.vercel.app/api';
 
-const baseUrl = (process.env.EXPO_PUBLIC_API_URL || LIVE_API_URL).replace(/\/+$/, '');
+/** The Android emulator reaches the host machine's localhost through 10.0.2.2. */
+const toDeviceUrl = (url: string) =>
+  Platform.OS === 'android' ? url.replace(/\/\/(localhost|127\.0\.0\.1)(?=[:/]|$)/, '//10.0.2.2') : url;
+
+const baseUrl = toDeviceUrl(process.env.EXPO_PUBLIC_API_URL || LIVE_API_URL).replace(/\/+$/, '');
 
 export const apiClient = createApiClient({
   baseUrl,

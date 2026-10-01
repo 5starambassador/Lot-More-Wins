@@ -1,193 +1,240 @@
-import { useState } from 'react';
-import { Pressable, RefreshControl, Share, StyleSheet, View } from 'react-native';
+import type { ComponentProps } from 'react';
+import { Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
-import type { QRCodeType } from '@lotmorewins/types';
+import type { Outlet } from '@lotmorewins/types';
 import * as Haptics from '../../lib/haptics';
-import { Badge, Button, Screen, Segmented, Skeleton, Txt } from '../../components/ui';
-import { QrPanel } from '../../components/qr/QrPanel';
-import { BrandLogo } from '../../components/brand/Brand';
+import { Avatar, Glass, ListSkeleton, Screen, SectionLabel, StateView, Txt } from '../../components/ui';
+import { OutletLogo } from '../../components/outlets/OutletLogo';
+import { BrandLogo, Wordmark } from '../../components/brand/Brand';
+import { WelcomeGift } from '../../components/home/WelcomeGift';
+import { ReferralProgress } from '../../components/home/ReferralProgress';
+import { HomeStats, InviteCard } from '../../components/home/HomeExtras';
 import { useAuthStore } from '../../store/auth-store';
-import { useWallet } from '../../lib/queries';
-import { firstName, formatINR, formatPoints, greeting, tierLabel } from '../../lib/format';
-import { colors, radius, space } from '../../theme/tokens';
+import { describeError, useHome, useOutlets, useWallet } from '../../lib/queries';
+import { firstName, greeting } from '../../lib/format';
+import { colors, fonts, goldFrame, space } from '../../theme/tokens';
 
-const COPY: Record<QRCodeType, { title: string; body: string }> = {
-  DEFAULT_DISCOUNT: {
-    title: 'Your discount code',
-    body: 'Show this at the billing counter of any participating outlet to receive your partner discount.',
-  },
-  REFERRAL: {
-    title: 'Your referral code',
-    body: 'Share it with family and friends. You earn points whenever they shop with it.',
-  },
-};
+type IconName = ComponentProps<typeof Ionicons>['name'];
 
-function BalanceStrip() {
-  const router = useRouter();
-  const wallet = useWallet();
+/** Shown until the server's goal arrives. */
+const DEFAULT_REFERRAL_GOAL = 10;
 
+function QrButton({ icon, title, caption, onPress }: { icon: IconName; title: string; caption: string; onPress: () => void }) {
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="Open rewards"
-      onPress={() => {
-        Haptics.selectionAsync();
-        router.push('/rewards');
-      }}
-      style={({ pressed }) => [styles.balance, pressed && { backgroundColor: colors.surfacePressed }]}
-    >
-      <View style={styles.flex}>
-        <Txt variant="overline" tone="muted">
-          Rewards balance
-        </Txt>
-        {wallet.isLoading ? (
-          <Skeleton width={120} height={24} style={{ marginTop: 6 }} />
-        ) : wallet.isError ? (
-          <Txt variant="small" tone="secondary" style={{ marginTop: 4 }}>
-            Balance unavailable · tap to retry
-          </Txt>
-        ) : (
-          <View style={styles.balanceRow}>
-            <Txt variant="heading" tone="gold">
-              {formatPoints(wallet.data?.balancePoints ?? 0)} pts
-            </Txt>
-            <Txt variant="small" tone="secondary">
-              ≈ {formatINR(wallet.data?.rupeeValue ?? 0)}
-            </Txt>
-          </View>
-        )}
+    <Glass onPress={onPress} accessibilityLabel={title} style={styles.qrButton}>
+      <View style={styles.qrIcon}>
+        <Ionicons name={icon} size={22} color={colors.gold} />
       </View>
+      <Txt variant="bodyMedium" style={styles.qrTitle}>
+        {title}
+      </Txt>
+      <View style={styles.qrCaption}>
+        <Txt variant="caption" tone="muted" style={styles.flex}>
+          {caption}
+        </Txt>
+        <Ionicons name="arrow-forward" size={14} color={colors.textMuted} />
+      </View>
+    </Glass>
+  );
+}
+
+function OutletButton({ outlet, onPress }: { outlet: Outlet; onPress: () => void }) {
+  return (
+    <Glass onPress={onPress} accessibilityLabel={outlet.name} style={styles.outlet}>
+      <OutletLogo outlet={outlet} size={48} />
+      <Txt variant="bodyMedium" numberOfLines={1} style={styles.flex}>
+        {outlet.name}
+      </Txt>
       <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-    </Pressable>
+    </Glass>
   );
 }
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { partner, qrCodes } = useAuthStore();
+  const { partner, welcome, setWelcome } = useAuthStore();
+  const home = useHome();
+  const outlets = useOutlets();
   const wallet = useWallet();
-  const [activeTab, setActiveTab] = useState<QRCodeType>('DEFAULT_DISCOUNT');
 
-  const currentQr = qrCodes.find((q) => q.type === activeTab);
-
-  const handleShare = async (code: string, title: string) => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    try {
-      await Share.share({
-        message: `Join Lot More Wins with my partner referral code: ${code}! Enjoy exclusive discounts across participating stores.`,
-        title: `Lot More Wins — ${title}`,
-      });
-    } catch (error) {
-      console.error('Error sharing QR:', error);
-    }
-  };
+  const unread = home.data?.unreadNotifications ?? 0;
+  const refreshing = home.isRefetching || outlets.isRefetching;
 
   return (
-    <Screen
-      edges={['top']}
-      refreshControl={<RefreshControl refreshing={wallet.isRefetching} onRefresh={() => wallet.refetch()} tintColor={colors.gold} />}
-    >
-      <Animated.View entering={FadeIn.duration(400)} style={styles.header}>
-        <BrandLogo size={44} />
-        <View style={styles.flex}>
+    <>
+      <Screen
+        edges={['top']}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              home.refetch();
+              outlets.refetch();
+              wallet.refetch();
+            }}
+            tintColor={colors.gold}
+          />
+        }
+      >
+        <Animated.View entering={FadeIn.duration(400)} style={styles.navbar}>
+          <BrandLogo size={40} />
+          <View style={styles.flex}>
+            <Wordmark size="sm" />
+            <View style={styles.tag}>
+              <Txt style={styles.tagText}>PARTNER APP</Txt>
+            </View>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
+            hitSlop={8}
+            onPress={() => {
+              Haptics.selectionAsync();
+              router.push('/notifications');
+            }}
+            style={({ pressed }) => [styles.bell, goldFrame, pressed && { opacity: 0.6 }]}
+          >
+            <View style={styles.bellFace}>
+              <Ionicons name="notifications-outline" size={20} color={colors.text} />
+            </View>
+            {unread > 0 ? (
+              <View style={styles.dot}>
+                <Txt style={styles.dotText}>{unread > 9 ? '9+' : unread}</Txt>
+              </View>
+            ) : null}
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Profile" hitSlop={6} onPress={() => router.navigate('/profile')}>
+            <Avatar name={partner?.name} photoUrl={partner?.photoUrl} size={40} />
+          </Pressable>
+        </Animated.View>
+
+        <View style={styles.greeting}>
           <Txt variant="small" tone="secondary">
             {greeting()},
           </Txt>
           <Txt variant="title">{firstName(partner?.name)}</Txt>
         </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Settings"
-          hitSlop={10}
-          onPress={() => router.push('/settings')}
-          style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.6 }]}
-        >
-          <Ionicons name="settings-outline" size={20} color={colors.text} />
-        </Pressable>
-      </Animated.View>
-      <View style={styles.tierRow}>
-        <Badge label={tierLabel(partner)} />
-        <Txt variant="caption" tone="muted">
-          {partner?.partnerCode}
-        </Txt>
-      </View>
 
-      <Animated.View entering={FadeInDown.delay(80).duration(400)}>
-        <BalanceStrip />
-      </Animated.View>
+        <Animated.View entering={FadeInDown.delay(80).duration(400)} style={styles.qrRow}>
+          <QrButton
+            icon="qr-code-outline"
+            title="Personal Discount QR"
+            caption="Show it at billing"
+            onPress={() => router.push({ pathname: '/qr/[type]', params: { type: 'discount' } })}
+          />
+          <QrButton
+            icon="people-outline"
+            title="Referral QR"
+            caption="Share and earn points"
+            onPress={() => router.push({ pathname: '/qr/[type]', params: { type: 'referral' } })}
+          />
+        </Animated.View>
 
-      <Animated.View entering={FadeInDown.delay(160).duration(400)} style={styles.qrSection}>
-        <Segmented
-          value={activeTab}
-          onChange={setActiveTab}
-          options={[
-            { value: 'DEFAULT_DISCOUNT', label: 'Discount' },
-            { value: 'REFERRAL', label: 'Referral' },
-          ]}
-        />
+        <Animated.View entering={FadeInDown.delay(140).duration(400)}>
+          <ReferralProgress
+            successful={home.data?.referrals.successful ?? 0}
+            goal={home.data?.referrals.goal ?? DEFAULT_REFERRAL_GOAL}
+            rewardAvailable={home.data?.referrals.rewardAvailable ?? false}
+            rewardDiscount={home.data?.referrals.rewardDiscount}
+            loading={home.isLoading}
+            onUseReward={() => router.push({ pathname: '/qr/[type]', params: { type: 'discount' } })}
+          />
+        </Animated.View>
 
-        <View style={styles.qrBody}>
-          <Txt variant="heading" align="center">
-            {COPY[activeTab].title}
-          </Txt>
-          <Txt variant="small" tone="secondary" align="center" style={styles.qrCopy}>
-            {COPY[activeTab].body}
-          </Txt>
-
-          <View style={styles.qrWrap}>
-            <QrPanel code={currentQr?.code} />
-          </View>
-
-          {activeTab === 'REFERRAL' && currentQr ? (
-            <Button
-              label="Share referral code"
-              variant="secondary"
-              icon={<Ionicons name="share-outline" size={18} color={colors.gold} />}
-              onPress={() => handleShare(currentQr.code, 'Referral QR')}
+        <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.outlets}>
+          <SectionLabel label="Outlets" />
+          {outlets.isLoading ? (
+            <ListSkeleton rows={4} />
+          ) : outlets.isError ? (
+            <StateView
+              tone="error"
+              icon="cloud-offline-outline"
+              title="Couldn’t load outlets"
+              message={describeError(outlets.error)}
+              actionLabel="Try again"
+              onAction={() => outlets.refetch()}
             />
-          ) : (
-            <View style={styles.hint}>
-              <Ionicons name="lock-closed-outline" size={14} color={colors.textMuted} />
-              <Txt variant="caption" tone="muted">
-                Permanent code — it never changes
-              </Txt>
+          ) : outlets.data && outlets.data.length > 0 ? (
+            <View style={styles.outletList}>
+              {outlets.data.map((outlet) => (
+                <OutletButton
+                  key={outlet.id}
+                  outlet={outlet}
+                  onPress={() => router.push({ pathname: '/outlet/[id]', params: { id: outlet.id } })}
+                />
+              ))}
             </View>
+          ) : (
+            <StateView icon="storefront-outline" title="No outlets yet" message="Participating outlets will appear here as they join." />
           )}
-        </View>
-      </Animated.View>
-    </Screen>
+        </Animated.View>
+
+        <Animated.View entering={FadeInDown.delay(260).duration(400)} style={styles.extras}>
+          <HomeStats home={home.data} wallet={wallet.data} />
+          <InviteCard partnerName={partner?.name} downloadUrl={home.data?.appDownloadUrl} />
+        </Animated.View>
+      </Screen>
+
+      {welcome ? (
+        <WelcomeGift
+          firstTimeDiscount={home.data?.offers.firstTimeDiscount}
+          claimedPoints={welcome.claimedPoints}
+          onClose={() => setWelcome(null)}
+        />
+      ) : null}
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingTop: space.lg },
-  iconBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+  tag: {
+    alignSelf: 'flex-start',
+    marginTop: 2,
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: colors.line,
+    borderColor: colors.goldLine,
+    backgroundColor: colors.goldSoft,
+  },
+  tagText: { fontFamily: fonts.semibold, fontSize: 9, lineHeight: 13, letterSpacing: 1.2, color: colors.gold },
+  navbar: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingTop: space.md },
+  // The gradient gold ring; the face sits inside it.
+  bell: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  bellFace: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  dot: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: colors.gold,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tierRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: space.sm, marginBottom: space.xl },
-  balance: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: space.md,
-    paddingHorizontal: space.md,
+  dotText: { fontFamily: fonts.semibold, fontSize: 10, lineHeight: 14, color: colors.textOnGold },
+  greeting: { marginTop: space.xl, marginBottom: space.lg },
+  qrRow: { flexDirection: 'row', gap: space.sm },
+  qrButton: { flex: 1, padding: space.md, minHeight: 148 },
+  qrIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: colors.goldLine,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.goldSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  balanceRow: { flexDirection: 'row', alignItems: 'baseline', gap: space.sm, marginTop: 2 },
-  qrSection: { marginTop: space.xxl },
-  qrBody: { paddingTop: space.xl },
-  qrCopy: { marginTop: space.xs, marginHorizontal: space.md },
-  qrWrap: { marginVertical: space.xl },
-  hint: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 54 },
+  qrTitle: { marginTop: space.sm, flex: 1 },
+  qrCaption: { flexDirection: 'row', alignItems: 'center', gap: space.xxs },
+  outlets: { marginTop: space.xxl },
+  outletList: { gap: space.sm },
+  extras: { marginTop: space.xxl, gap: space.lg },
+  outlet: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm, paddingHorizontal: space.md },
 });

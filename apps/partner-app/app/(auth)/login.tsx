@@ -89,7 +89,7 @@ export default function PartnerLoginScreen() {
               hitSlop={8}
               onPress={() => {
                 resetOnboarding();
-                router.replace('/onboarding/association');
+                router.replace('/onboarding/details');
               }}
             >
               <Txt variant="smallMedium" tone="gold">

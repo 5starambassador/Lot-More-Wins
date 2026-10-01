@@ -5,7 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { outletProfileUpdateSchema } from '@lotmorewins/validation';
+import { MAX_OUTLET_IMAGES, outletProfileUpdateSchema } from '@lotmorewins/validation';
 import type { MediaUploadPayload, Outlet } from '@lotmorewins/types';
 import * as Haptics from '../../lib/haptics';
 import { Badge, Button, Divider, Field, FullScreenLoader, ListRow, Notice, Screen, SectionLabel, StateView, Txt } from '../../components/ui';
@@ -14,7 +14,7 @@ import apiClient, { describeError } from '../../lib/api';
 import { useSession } from '../../store/session-store';
 import { colors, fonts, radius, space } from '../../theme/tokens';
 
-const MAX_IMAGES = 10;
+const MAX_IMAGES = MAX_OUTLET_IMAGES;
 
 async function pickAndUpload(square: boolean): Promise<string | null> {
   const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -41,11 +41,24 @@ interface FormState {
   name: string;
   email: string;
   mobile: string;
+  /** Empty string clears the value. */
+  description: string;
+  address: string;
+  mapUrl: string;
   logoUrl: string | null;
   images: string[];
 }
 
-const toForm = (o: Outlet): FormState => ({ name: o.name, email: o.email, mobile: o.mobile, logoUrl: o.logoUrl, images: o.images });
+const toForm = (o: Outlet): FormState => ({
+  name: o.name,
+  email: o.email,
+  mobile: o.mobile,
+  description: o.description ?? '',
+  address: o.address ?? '',
+  mapUrl: o.mapUrl ?? '',
+  logoUrl: o.logoUrl,
+  images: o.images,
+});
 
 function initials(name: string) {
   return name
@@ -199,6 +212,39 @@ export default function ProfileScreen() {
           keyboardType="phone-pad"
           maxLength={14}
         />
+        <Field
+          label="Description"
+          value={form.description}
+          onChangeText={(description) => setForm({ ...form, description })}
+          error={errors.description}
+          placeholder="What partners should know about this outlet"
+          multiline
+          maxLength={1000}
+          textAlignVertical="top"
+          style={styles.multiline}
+        />
+        <Field
+          label="Address"
+          value={form.address}
+          onChangeText={(address) => setForm({ ...form, address })}
+          error={errors.address}
+          placeholder="Street, area, city, pincode"
+          multiline
+          maxLength={300}
+          textAlignVertical="top"
+          style={styles.address}
+        />
+        <Field
+          label="Map link"
+          value={form.mapUrl}
+          onChangeText={(mapUrl) => setForm({ ...form, mapUrl })}
+          error={errors.mapUrl}
+          placeholder="https://maps.google.com/…"
+          keyboardType="url"
+          autoCapitalize="none"
+          autoCorrect={false}
+          hint="Optional. Partners open this for directions; the address is searched when it is empty."
+        />
       </Animated.View>
 
       <Animated.View entering={FadeInDown.delay(160).duration(400)} style={styles.section}>
@@ -230,6 +276,11 @@ export default function ProfileScreen() {
             </Pressable>
           )}
         </View>
+        {form.images.length >= MAX_IMAGES ? (
+          <Txt variant="caption" tone="muted" style={{ marginTop: space.xs }}>
+            You have added the maximum of {MAX_IMAGES} images. Remove one to add another.
+          </Txt>
+        ) : null}
         {errors.images ? (
           <Txt variant="caption" tone="danger" style={{ marginTop: space.xs }}>
             {errors.images}
@@ -287,6 +338,8 @@ const styles = StyleSheet.create({
   badges: { flexDirection: 'row', gap: space.xs, marginTop: space.sm },
   signedIn: { marginTop: space.sm },
   section: { marginTop: space.xl },
+  multiline: { minHeight: 110 },
+  address: { minHeight: 76 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   thumb: {
     width: THUMB,

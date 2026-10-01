@@ -6,7 +6,7 @@ import type { BillCalculation, BillRecord, ReferredCustomerInput, ScanResult } f
 import * as Haptics from '../../lib/haptics';
 import { Button, Divider, Field, IconMark, InfoRow, Notice, Panel, Txt } from '../ui';
 import apiClient, { describeError, errorCode, isAuthError } from '../../lib/api';
-import { formatINR, formatPercent, formatPoints, newIdempotencyKey, purchaseRecipientLabel } from '../../lib/format';
+import { birthdayBonusLabel, referralRewardLabel, formatINR, formatPercent, formatPoints, newIdempotencyKey, purchaseRecipientLabel } from '../../lib/format';
 import { colors, fonts, space } from '../../theme/tokens';
 
 const PREVIEW_DEBOUNCE_MS = 450;
@@ -30,10 +30,22 @@ function PointsLine({ title, hint, points }: { title: string; hint: string; poin
 /** Server-calculated breakdown. Every figure comes from the Super Admin settings via the server. */
 export function Breakdown({ calc, partnerName }: { calc: BillCalculation | BillRecord; partnerName: string }) {
   const isReferral = calc.transactionType === 'REFERRAL';
+  const bonus = birthdayBonusLabel(calc.birthdayBonusPercentage);
+  const reward = referralRewardLabel(calc.referralRewardPercentage);
   return (
     <View>
       <InfoRow label="Bill amount" value={formatINR(calc.billAmount)} />
       <InfoRow label={`Discount (${formatPercent(calc.discountPercentage)})`} value={`− ${formatINR(calc.discountAmount)}`} tone="success" />
+      {reward && (
+        <Txt variant="caption" tone="gold">
+          {reward}
+        </Txt>
+      )}
+      {bonus && (
+        <Txt variant="caption" tone="gold">
+          {bonus}
+        </Txt>
+      )}
       <View style={styles.totalGap}>
         <Divider />
       </View>

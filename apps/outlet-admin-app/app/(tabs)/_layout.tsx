@@ -1,5 +1,6 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, fonts } from '../../theme/tokens';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -11,7 +12,10 @@ const TABS: { name: string; title: string; icon: IconName; active: IconName }[] 
   { name: 'profile', title: 'Outlet', icon: 'storefront-outline', active: 'storefront' },
 ];
 
+const TAB_BAR_HEIGHT = 64;
+
 export default function TabsLayout() {
+  const insets = useSafeAreaInsets();
   return (
     <Tabs
       initialRouteName="index"
@@ -20,10 +24,13 @@ export default function TabsLayout() {
         tabBarActiveTintColor: colors.gold,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: {
-          backgroundColor: colors.canvas,
+          backgroundColor: colors.canvasDeep,
           borderTopColor: colors.hairline,
           borderTopWidth: 1,
           paddingTop: 6,
+          // The default 49pt bar clips the Poppins labels; size it for icon + label + system inset.
+          height: TAB_BAR_HEIGHT + insets.bottom,
+          paddingBottom: insets.bottom + 6,
         },
         tabBarLabelStyle: { fontFamily: fonts.medium, fontSize: 11 },
         sceneStyle: { backgroundColor: colors.canvas },

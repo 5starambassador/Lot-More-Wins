@@ -1,4 +1,4 @@
--- CreateEnum
+npx expo start -c --port 8081-- CreateEnum
 CREATE TYPE "MessagingChannel" AS ENUM ('EMAIL', 'WHATSAPP');
 
 -- CreateEnum

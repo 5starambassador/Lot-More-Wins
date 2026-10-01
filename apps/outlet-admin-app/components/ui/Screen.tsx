@@ -3,7 +3,7 @@ import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, GUTTER, space } from '../../theme/tokens';
+import { canvasFill, colors, GUTTER, space } from '../../theme/tokens';
 import { Txt } from './Txt';
 import { BrandLogo } from '../brand/Brand';
 
@@ -41,7 +41,7 @@ export function Screen({
 
   return (
     <SafeAreaView edges={edges} style={styles.root}>
-      <KeyboardAvoidingView style={styles.grow} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         {body}
         {footer ? <View style={styles.footer}>{footer}</View> : null}
       </KeyboardAvoidingView>
@@ -92,7 +92,7 @@ export function TopBar({
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.canvas },
+  root: { flex: 1, ...canvasFill },
   grow: { flexGrow: 1 },
   padded: { paddingHorizontal: GUTTER, paddingBottom: space.xl },
   footer: {
@@ -101,7 +101,7 @@ const styles = StyleSheet.create({
     paddingBottom: space.md,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.hairline,
-    backgroundColor: colors.canvas,
+    backgroundColor: 'transparent',
   },
   topBar: { height: 52, flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.sm },
   topSide: { width: 48, justifyContent: 'center' },

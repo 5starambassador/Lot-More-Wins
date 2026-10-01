@@ -11,7 +11,7 @@ import { Badge, Divider, ListSkeleton, Segmented, StatTile, StateView, Txt } fro
 import { BrandLogo } from '../../components/brand/Brand';
 import apiClient, { describeError } from '../../lib/api';
 import { formatDateTime, formatINR, formatINRCompact, formatPoints, formatTime, notificationBadge } from '../../lib/format';
-import { colors, GUTTER, space } from '../../theme/tokens';
+import { canvasFill, colors, GUTTER, space } from '../../theme/tokens';
 
 const PAGE_SIZE = 20;
 
@@ -151,7 +151,7 @@ export default function HistoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.canvas },
+  root: { flex: 1, ...canvasFill },
   content: { paddingHorizontal: GUTTER, paddingBottom: space.xl, flexGrow: 1 },
   flex: { flex: 1, gap: 1 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: space.lg, marginBottom: space.lg },

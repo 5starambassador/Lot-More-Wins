@@ -35,7 +35,7 @@ export default function WelcomeScreen() {
             label="Become a partner"
             onPress={() => {
               resetOnboarding();
-              router.push('/onboarding/association');
+              router.push('/onboarding/details');
             }}
           />
           <Button label="I already have an account" variant="ghost" onPress={() => router.push('/(auth)/login')} />

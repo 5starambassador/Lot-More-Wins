@@ -53,42 +53,13 @@ export interface HealthCheckResponse {
 }
 
 // ============================================================================
-// Phase 2: Partner Onboarding, Roles, & QR Code Types
+// Phase 2: Partner Onboarding & QR Code Types
 // ============================================================================
 
-export type PartnerRole = 'NON_ACHARIYA' | 'STAFF' | 'TEACHER' | 'PARENT';
-export type AchariyaRole = 'STAFF' | 'TEACHER';
 export type QRCodeType = 'DEFAULT_DISCOUNT' | 'REFERRAL';
 export type QRCodeStatus = 'ACTIVE' | 'REVOKED';
 export type PartnerStatus = 'ACTIVE' | 'PENDING' | 'SUSPENDED' | 'REJECTED';
 export type MessagingMode = 'email' | 'whatsapp';
-
-export interface ValidateEmployeePayload {
-  employeeId: string;
-  role?: AchariyaRole;
-}
-
-export interface ValidateEmployeeResponse {
-  employeeId: string;
-  name: string;
-  email?: string | null;
-  phone?: string | null;
-  role: AchariyaRole;
-  department?: string | null;
-}
-
-export interface ValidateAdmissionPayload {
-  admissionNumber: string;
-}
-
-export interface ValidateAdmissionResponse {
-  admissionNumber: string;
-  studentName: string;
-  parentName?: string | null;
-  parentEmail?: string | null;
-  parentPhone?: string | null;
-  grade?: string | null;
-}
 
 export interface OtpSendPayload {
   identifier: string; // phone or email
@@ -115,14 +86,16 @@ export interface OtpVerifyResponse {
   verificationToken?: string;
 }
 
+/** Every partner registers the same way; there is a single partner role. */
 export interface PartnerOnboardingPayload {
-  isAchariyaAssociated: boolean;
-  role: PartnerRole;
   name: string;
   mobile: string;
   email: string;
-  employeeId?: string;
-  admissionNumber?: string;
+  city: string;
+  state: string;
+  pincode: string;
+  /** YYYY-MM-DD. Optional: the birthday step can be skipped. */
+  dateOfBirth?: string | null;
   password: string;
   confirmPassword: string;
   otp: string;
@@ -144,12 +117,29 @@ export interface PartnerProfile {
   name: string;
   mobile: string;
   email: string;
-  role: PartnerRole;
-  isAchariyaAssociated: boolean;
-  employeeId?: string | null;
-  admissionNumber?: string | null;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
+  /** YYYY-MM-DD */
+  dateOfBirth: string | null;
+  photoUrl: string | null;
   status: PartnerStatus;
   createdAt: string;
+}
+
+/**
+ * Profile edit. Changing mobile or email requires a code verified within the last 15 minutes
+ * (POST then PUT /auth/otp) for the new mobile, or for the current mobile when only the email changes.
+ */
+export interface UpdatePartnerProfilePayload {
+  name?: string;
+  mobile?: string;
+  email?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  dateOfBirth?: string | null;
+  photoUrl?: string | null;
 }
 
 export interface PartnerOnboardingResponse {
@@ -274,15 +264,8 @@ export interface AuditLog {
 // Phase 3: Settings, Outlets, Scanning & Billing
 // ============================================================================
 
-/** Derived server-side from Partner.isAchariyaAssociated. Never client-supplied. */
-export type PartnerClassification = 'ACHARIYA' | 'NON_ACHARIYA';
 export type OutletStatus = 'ACTIVE' | 'INACTIVE';
 export type BillTransactionType = 'DIRECT_PARTNER' | 'REFERRAL';
-
-export interface ClassificationPercentages {
-  achariya: number;
-  nonAchariya: number;
-}
 
 /** Amount that purchase and referral point percentages are applied to. */
 export type PointsBasis = 'BILL_AMOUNT' | 'PAYABLE_AMOUNT';
@@ -290,16 +273,22 @@ export type PointsBasis = 'BILL_AMOUNT' | 'PAYABLE_AMOUNT';
 export interface ProgramSettings {
   messagingMode: MessagingMode;
   /** Direct partner QR: discount on the partner's first ever bill. */
-  firstTimeDiscount: ClassificationPercentages;
+  firstTimeDiscount: number;
   /** Days after registration a partner can still use the first-time discount. 0 = no expiry. */
   firstTimeValidityDays: number;
   /** Direct partner QR: discount on every later bill. */
-  repeatDiscount: ClassificationPercentages;
-  /** Referral QR: discount for the referred customer, by the referring partner's type. */
-  referralDiscount: ClassificationPercentages;
+  repeatDiscount: number;
+  /** Direct partner QR: extra discount added on the partner's birthday. */
+  birthdayBonusDiscount: number;
+  /** Referral QR: discount for the referred customer. */
+  referralDiscount: number;
+  /** Successful referrals needed for one referral reward. */
+  referralRewardGoal: number;
+  /** Referral reward: special discount on the partner's next own purchase (Personal Discount QR). */
+  referralRewardDiscount: number;
   pointsToRupees: { points: number; rupees: number };
-  /** Referral QR: points percentage credited to the referring partner, by that partner's type. */
-  referralPoints: ClassificationPercentages;
+  /** Referral QR: points percentage credited to the referring partner. */
+  referralPointsPercentage: number;
   /** Purchase points percentage credited to whoever made the purchase. */
   purchasePointsPercentage: number;
   /** Days earned purchase points stay in the wallet. 0 = no expiry. */
@@ -327,6 +316,10 @@ export interface Outlet extends Timestamps {
   name: string;
   email: string;
   mobile: string;
+  description: string | null;
+  address: string | null;
+  /** Maps link for the outlet; the address is searched when null. */
+  mapUrl: string | null;
   logoUrl: string | null;
   images: string[];
   status: OutletStatus;
@@ -341,6 +334,9 @@ export interface CreateOutletPayload {
   name: string;
   email: string;
   mobile: string;
+  description?: string | null;
+  address?: string | null;
+  mapUrl?: string | null;
   logoUrl?: string | null;
   images?: string[];
   status?: OutletStatus;
@@ -352,13 +348,19 @@ export interface UpdateOutletPayload {
   name?: string;
   email?: string;
   mobile?: string;
+  description?: string | null;
+  address?: string | null;
+  mapUrl?: string | null;
   logoUrl?: string | null;
   images?: string[];
   status?: OutletStatus;
   adminPassword?: string;
 }
 
-export type UpdateOutletProfilePayload = Pick<UpdateOutletPayload, 'name' | 'email' | 'mobile' | 'logoUrl' | 'images'>;
+export type UpdateOutletProfilePayload = Pick<
+  UpdateOutletPayload,
+  'name' | 'email' | 'mobile' | 'description' | 'address' | 'mapUrl' | 'logoUrl' | 'images'
+>;
 
 export interface MediaUploadPayload {
   mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
@@ -387,15 +389,18 @@ export interface ScannedPartner {
   name: string;
   mobile: string;
   email: string;
-  classification: PartnerClassification;
 }
 
 /** Server-computed discount basis, taken from the Super Admin settings. */
 export interface DiscountBasis {
-  classification: PartnerClassification;
   /** Direct QR: partner's first bill ever. Referral QR: null until the customer is known. */
   isFirstTime: boolean | null;
+  /** Total discount, birthday bonus included. */
   discountPercentage: number;
+  /** Direct QR on the partner's birthday: the bonus included in discountPercentage. Otherwise 0. */
+  birthdayBonusPercentage: number;
+  /** Direct QR with a referral reward waiting: the special discount used in place of the usual one. Otherwise 0. */
+  referralRewardPercentage: number;
 }
 
 export interface ScanResult {
@@ -456,10 +461,14 @@ export interface BillCreatePayload extends BillPreviewPayload {
 
 export interface BillCalculation {
   transactionType: BillTransactionType;
-  classification: PartnerClassification;
   isFirstTime: boolean;
   billAmount: number;
+  /** Total discount, birthday bonus included. */
   discountPercentage: number;
+  /** Part of discountPercentage that is the partner's birthday bonus; 0 on any other day. */
+  birthdayBonusPercentage: number;
+  /** Referral reward (special discount) used on this bill in place of the usual discount; 0 when none. */
+  referralRewardPercentage: number;
   discountAmount: number;
   finalAmount: number;
   pointsBasis: PointsBasis;
@@ -515,13 +524,137 @@ export interface PointsLedgerEntry {
   createdAt: string;
 }
 
+/** Points spent at an outlet through the partner's redeem QR. */
+export interface PointsRedemptionRecord {
+  id: ID;
+  points: number;
+  rupeeValue: number;
+  outletName: string;
+  createdAt: string;
+}
+
 export interface PartnerWallet {
+  /** Purchase + referral points still available (unexpired, not yet redeemed). */
   balancePoints: number;
   /** Balance converted with the current Super Admin points-to-rupees ratio. */
   rupeeValue: number;
   pointsRatio: { points: number; rupees: number };
+  /** Available points by source. */
   totals: { purchasePoints: number; referralPoints: number };
   entries: PointsLedgerEntry[];
+  redemptions: PointsRedemptionRecord[];
+}
+
+/** Short-lived QR the partner shows at an outlet to spend wallet points. */
+export interface RedeemQr {
+  /** Value to render as the QR. Single use. */
+  code: string;
+  expiresAt: string;
+  partner: { id: ID; partnerCode: string; name: string; mobile: string };
+  /** Wallet snapshot when the QR was generated; the outlet always sees the live balance. */
+  balancePoints: number;
+  rupeeValue: number;
+  pointsRatio: { points: number; rupees: number };
+}
+
+/** What the Outlet Admin sees after scanning a redeem QR. */
+export interface RedeemScanResult {
+  partner: ScannedPartner;
+  balancePoints: number;
+  rupeeValue: number;
+  pointsRatio: { points: number; rupees: number };
+  expiresAt: string;
+}
+
+export interface RedeemPayload {
+  qrCode: string;
+  /** Rupee value to take off the customer's bill; converted to points with the current ratio. */
+  rupees: number;
+}
+
+export interface RedemptionReceipt {
+  id: ID;
+  points: number;
+  rupeeValue: number;
+  partner: ScannedPartner;
+  outlet: { id: ID; name: string };
+  /** Wallet balance after the redemption. */
+  balancePoints: number;
+  balanceRupeeValue: number;
+  createdAt: string;
+  /** true when this response replays an already-completed redemption of the same QR. */
+  replayed: boolean;
+}
+
+// ============================================================================
+// Partner home, notifications & push
+// ============================================================================
+
+/** Programme offers shown while registering; public. */
+export interface PartnerOffers {
+  firstTimeDiscount: number;
+  birthdayBonusDiscount: number;
+}
+
+export interface PartnerHome {
+  referrals: {
+    /** Successful referrals (bills closed with this partner's referral QR) towards the next reward. Back to 0 once a reward is used. */
+    successful: number;
+    goal: number;
+    /** Every successful referral ever, rewards used or not. */
+    total: number;
+    /** The goal is reached: the special discount applies to the next purchase with the Personal Discount QR. */
+    rewardAvailable: boolean;
+    /** The special discount percentage of the reward. */
+    rewardDiscount: number;
+  };
+  offers: {
+    /** Discount on the partner's first purchase. */
+    firstTimeDiscount: number;
+    /** false once the first purchase is made or the offer window has passed. */
+    firstTimeAvailable: boolean;
+    /** When the first-purchase offer lapses; null when it never does. */
+    firstTimeExpiresAt: string | null;
+    /** Extra discount on the partner's birthday. */
+    birthdayBonusDiscount: number;
+    repeatDiscount: number;
+    /** Discount a referred customer gets by showing the partner's referral QR. */
+    referralDiscount: number;
+  };
+  unreadNotifications: number;
+  /** Partner app download link shared with the referral QR. */
+  appDownloadUrl: string | null;
+}
+
+export type PartnerNotificationType =
+  | 'PURCHASE_POINTS'
+  | 'REFERRAL_POINTS'
+  | 'POINTS_CLAIMED'
+  | 'POINTS_REDEEMED'
+  | 'REFERRAL_REWARD';
+
+export interface PartnerNotification {
+  id: ID;
+  type: PartnerNotificationType;
+  title: string;
+  body: string;
+  points: number | null;
+  /** Validity of the points the notification is about; null when they never expire or it does not apply. */
+  expiresAt: string | null;
+  read: boolean;
+  createdAt: string;
+}
+
+export interface PartnerNotificationPage {
+  notifications: PartnerNotification[];
+  unread: number;
+  meta: PaginationMeta;
+}
+
+export interface PushTokenPayload {
+  /** Expo push token of this device. */
+  token: string;
+  platform?: 'ios' | 'android' | 'web';
 }
 
 export interface BillCreateResponse {
@@ -543,6 +676,22 @@ export interface BillTotals {
   referralPoints: number;
 }
 
+/** One bucket of the dashboard trend: an IST day (YYYY-MM-DD) or month (YYYY-MM). */
+export interface AdminTrendPoint {
+  date: string;
+  billCount: number;
+  billAmount: number;
+  discountAmount: number;
+  /** Bills closed with a referral QR (successful referrals). */
+  referralBills: number;
+  /** Taps of "Share QR" on the referral QR page. */
+  referralShares: number;
+  newPartners: number;
+  /** Purchase + referral points issued on bills. */
+  pointsCredited: number;
+  pointsRedeemed: number;
+}
+
 export interface DailySalesPoint {
   /** IST calendar day, YYYY-MM-DD */
   date: string;
@@ -550,13 +699,53 @@ export interface DailySalesPoint {
   billAmount: number;
 }
 
+/** Inclusive IST date filter shared by the admin lists; either end may be left out. */
+export interface AdminDateRangeQuery {
+  /** YYYY-MM-DD */
+  from?: string;
+  /** YYYY-MM-DD */
+  to?: string;
+}
+
 export interface AdminDashboard {
   generatedAt: string;
+  /** The period every "in period" figure and chart below covers. */
+  range: { from: string; to: string; days: number; granularity: 'day' | 'month' };
+  /** The headline programme figures for the period (the two rows of tiles above the charts). */
+  programMetrics: {
+    /** Partners who registered in the period. */
+    appRegistrations: number;
+    /** Bills in the period that used an offer: first-purchase discount, referral reward or birthday bonus. */
+    offerRedemptions: number;
+    /** Partners who used an offer in the period, as a percentage of all registered partners. */
+    offerRedemptionRate: number;
+    /** Bills closed with a referral QR in the period. */
+    successfulReferrals: number;
+    /** Rupee cost of referral rewards in the period: referral points credited plus referral-reward discounts given. */
+    referralBonus: number;
+    /** Not recorded anywhere in the database yet; null until a source exists. */
+    socialFollowersAdded: number | null;
+    billingCount: number;
+    /** Amount collected on programme bills in the period. */
+    attributedSales: number;
+  };
+  /** Bill totals for the period, and for the equally long period just before it. */
+  period: BillTotals;
+  previousPeriod: BillTotals;
+  trend: AdminTrendPoint[];
+  periodByType: Record<BillTransactionType, { billCount: number; billAmount: number }>;
+  /** Partners whose referral QR brought in the most bills in the period. */
+  topReferrers: { id: ID; name: string; partnerCode: string; referralCount: number; billAmount: number; referralPoints: number }[];
+  /** Referral funnel in the period. */
+  referrals: { shares: number; successful: number; uniqueCustomers: number; rewardsUsed: number };
+  /** Points issued on bills vs spent through redeem QRs, in the period. */
+  pointsFlow: { credited: number; redeemed: number; redemptionCount: number; redeemedRupees: number };
   partners: {
     total: number;
     byStatus: Record<PartnerStatus, number>;
-    byRole: Record<PartnerRole, number>;
     newLast30Days: number;
+    /** Registered within the period. */
+    newInPeriod: number;
   };
   outlets: { total: number; active: number; inactive: number };
   transactions: {
@@ -587,6 +776,12 @@ export interface AdminDashboard {
   };
 }
 
+/** Dashboard search: partners and outlets matching one query. */
+export interface AdminSearchResult {
+  partners: AdminPartnerListItem[];
+  outlets: AdminOutlet[];
+}
+
 export type AdminPartnerSort = 'newest' | 'oldest' | 'name';
 
 export interface AdminPartnerListQuery {
@@ -594,8 +789,12 @@ export interface AdminPartnerListQuery {
   limit?: number;
   search?: string;
   status?: PartnerStatus;
-  role?: PartnerRole;
+  /** Partners with / without at least one successful referral. */
+  referrals?: 'with' | 'without';
   sort?: AdminPartnerSort;
+  /** Registration date range. */
+  from?: string;
+  to?: string;
 }
 
 export interface AdminPartnerListItem {
@@ -604,25 +803,113 @@ export interface AdminPartnerListItem {
   name: string;
   mobile: string;
   email: string;
-  role: PartnerRole;
-  isAchariyaAssociated: boolean;
+  city: string | null;
   status: PartnerStatus;
   pointsBalance: number;
   directBillCount: number;
   referredBillCount: number;
+  /** Taps of "Share QR" on the partner's referral QR page. */
+  referralShareCount: number;
   createdAt: string;
 }
 
+/** All-time referral tracking of one partner. */
+export interface AdminPartnerReferralTracking {
+  /** Every successful referral (bill closed with the partner's referral QR). */
+  total: number;
+  uniqueCustomers: number;
+  /** Successful referrals towards the next reward; goes back down when a reward is used. */
+  progress: number;
+  goal: number;
+  rewardAvailable: boolean;
+  rewardDiscount: number;
+  /** Own bills that used a referral reward. */
+  rewardsUsed: number;
+  /** Taps of "Share QR". */
+  shares: number;
+}
+
+export type AdminPartnerActivityKind = 'PURCHASE' | 'REFERRAL' | 'REDEMPTION' | 'SHARE';
+
+/** One line of a partner's activity log. */
+export interface AdminPartnerActivityRow {
+  id: ID;
+  kind: AdminPartnerActivityKind;
+  createdAt: string;
+  billNumber: string | null;
+  outletName: string | null;
+  /** REFERRAL: the referred customer. */
+  customerName: string | null;
+  customerMobile: string | null;
+  billAmount: number | null;
+  discountPercentage: number | null;
+  discountAmount: number | null;
+  finalAmount: number | null;
+  /** Points this activity gave the partner; negative for a redemption. */
+  points: number;
+  /** REDEMPTION: rupee value taken off the bill. */
+  rupeeValue: number | null;
+  /** e.g. "First bill", "Birthday bonus +5%", "Referral reward 20%". */
+  note: string | null;
+}
+
+/** Totals for the partner's activity under the current date / outlet filter (all kinds). */
+export interface AdminPartnerActivitySummary {
+  purchases: { count: number; billAmount: number; discountAmount: number; points: number };
+  referrals: { count: number; uniqueCustomers: number; billAmount: number; points: number };
+  redemptions: { count: number; points: number; rupeeValue: number };
+  shares: number;
+}
+
+export interface AdminPartnerActivityQuery extends AdminDateRangeQuery {
+  page?: number;
+  limit?: number;
+  outletId?: string;
+  kind?: AdminPartnerActivityKind;
+}
+
+export interface AdminPartnerActivityPage {
+  rows: AdminPartnerActivityRow[];
+  meta: PaginationMeta;
+  summary: AdminPartnerActivitySummary;
+}
+
+export interface AdminOutletListQuery extends AdminDateRangeQuery {
+  search?: string;
+  status?: OutletStatus;
+}
+
+export interface AdminOutletRedemption {
+  id: ID;
+  createdAt: string;
+  partner: { id: ID; name: string; partnerCode: string; mobile: string };
+  points: number;
+  rupeeValue: number;
+}
+
+export interface AdminOutletRedemptionsQuery extends AdminDateRangeQuery {
+  page?: number;
+  limit?: number;
+}
+
+export interface AdminOutletRedemptionsPage {
+  redemptions: AdminOutletRedemption[];
+  meta: PaginationMeta;
+  summary: { count: number; points: number; rupeeValue: number };
+}
+
 export interface AdminPartnerDetail extends AdminPartnerListItem {
-  employeeId: string | null;
-  admissionNumber: string | null;
-  /** Name / department / grade of the matched Achariya record, when there is one. */
-  achariyaRecord: { name: string; detail: string | null } | null;
+  state: string | null;
+  pincode: string | null;
+  /** YYYY-MM-DD */
+  dateOfBirth: string | null;
+  photoUrl: string | null;
   qrCodes: { id: ID; code: string; type: QRCodeType; status: QRCodeStatus; createdAt: string }[];
   wallet: PartnerWallet;
   directTotals: BillTotals;
   referredTotals: BillTotals;
   recentBills: BillRecord[];
+  referralTracking: AdminPartnerReferralTracking;
   updatedAt: string;
 }
 
@@ -637,6 +924,9 @@ export interface AdminTransactionListQuery {
   type?: BillTransactionType;
   notification?: BillNotificationStatus;
   range?: AdminTransactionRange;
+  /** Explicit date range; combined with `range` when both are given. */
+  from?: string;
+  to?: string;
 }
 
 export interface AdminTransactionPage {

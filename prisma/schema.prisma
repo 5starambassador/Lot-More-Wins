@@ -27,18 +27,6 @@ model SystemHealth {
 // PHASE 2: Partner Onboarding & Permanent QR Entities
 // ============================================================================
 
-enum PartnerRole {
-  NON_ACHARIYA
-  STAFF
-  TEACHER
-  PARENT
-}
-
-enum AchariyaRole {
-  STAFF
-  TEACHER
-}
-
 enum PartnerStatus {
   ACTIVE
   PENDING
@@ -56,62 +44,34 @@ enum QRCodeStatus {
   REVOKED
 }
 
-model AchariyaEmployee {
-  id         String       @id @default(uuid())
-  employeeId String       @unique @map("employee_id")
-  name       String
-  email      String?
-  phone      String?
-  role       AchariyaRole
-  department String?
-  isActive   Boolean      @default(true) @map("is_active")
-  createdAt  DateTime     @default(now()) @map("created_at")
-  updatedAt  DateTime     @updatedAt @map("updated_at")
-
-  partners Partner[]
-
-  @@map("achariya_employees")
-}
-
-model AchariyaStudent {
-  id              String   @id @default(uuid())
-  admissionNumber String   @unique @map("admission_number")
-  studentName     String   @map("student_name")
-  parentName      String?  @map("parent_name")
-  parentEmail     String?  @map("parent_email")
-  parentPhone     String?  @map("parent_phone")
-  grade           String?
-  isActive        Boolean  @default(true) @map("is_active")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-
-  partners Partner[]
-
-  @@map("achariya_students")
-}
-
 model Partner {
-  id                   String        @id @default(uuid())
-  partnerCode          String        @unique @map("partner_code")
-  name                 String
-  mobile               String        @unique
-  email                String        @unique
-  passwordHash         String        @map("password_hash")
-  isAchariyaAssociated Boolean       @default(false) @map("is_achariya_associated")
-  role                 PartnerRole   @default(NON_ACHARIYA)
-  employeeId           String?       @map("employee_id")
-  admissionNumber      String?       @map("admission_number")
-  status               PartnerStatus @default(ACTIVE)
-  createdAt            DateTime      @default(now()) @map("created_at")
-  updatedAt            DateTime      @updatedAt @map("updated_at")
+  id           String        @id @default(uuid())
+  partnerCode  String        @unique @map("partner_code")
+  name         String
+  mobile       String        @unique
+  email        String        @unique
+  passwordHash String        @map("password_hash")
+  city         String?
+  state        String?
+  pincode      String?
+  /// Calendar date only. Drives the birthday bonus discount.
+  dateOfBirth  DateTime?     @map("date_of_birth") @db.Date
+  /// Set when the date of birth is added or changed after registration (null = given at registration).
+  dobChangedAt DateTime?     @map("dob_changed_at")
+  photoUrl     String?       @map("photo_url")
+  status       PartnerStatus @default(ACTIVE)
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
 
-  achariyaEmployee AchariyaEmployee? @relation(fields: [employeeId], references: [employeeId])
-  achariyaStudent  AchariyaStudent?  @relation(fields: [admissionNumber], references: [admissionNumber])
-  qrCodes          QRCode[]
-  directBills      Bill[]            @relation("BillPartner")
-  referredBills    Bill[]            @relation("BillReferrer")
-  customer         Customer?
-  pointEntries     PointsEntry[]
+  qrCodes        QRCode[]
+  directBills    Bill[]             @relation("BillPartner")
+  referredBills  Bill[]             @relation("BillReferrer")
+  customer       Customer?
+  pointEntries   PointsEntry[]
+  redemptions    PointsRedemption[]
+  notifications  Notification[]
+  pushDevices    PushDevice[]
+  referralShares ReferralShare[]
 
   @@map("partners")
 }
@@ -186,29 +146,31 @@ model SuperAdmin {
 /// Singleton row (id = "GLOBAL"). When absent, runtime defaults apply and the
 /// messaging mode falls back to the MESSAGING_MODE environment variable.
 model ProgramSetting {
-  id                           String           @id @default("GLOBAL")
-  messagingMode                MessagingChannel @map("messaging_mode")
-  firstTimeDiscountAchariya    Decimal          @default(0) @map("first_time_discount_achariya") @db.Decimal(5, 2)
-  firstTimeDiscountNonAchariya Decimal          @default(0) @map("first_time_discount_non_achariya") @db.Decimal(5, 2)
+  id                         String           @id @default("GLOBAL")
+  messagingMode              MessagingChannel @map("messaging_mode")
+  firstTimeDiscount          Decimal          @default(20) @map("first_time_discount") @db.Decimal(5, 2)
   /// Days after partner registration the first-time discount stays usable. 0 = no expiry.
-  firstTimeValidityDays        Int              @default(0) @map("first_time_validity_days")
-  repeatDiscountAchariya       Decimal          @default(0) @map("repeat_discount_achariya") @db.Decimal(5, 2)
-  repeatDiscountNonAchariya    Decimal          @default(0) @map("repeat_discount_non_achariya") @db.Decimal(5, 2)
-  pointsRatioPoints            Decimal          @default(10) @map("points_ratio_points") @db.Decimal(12, 2)
-  pointsRatioRupees            Decimal          @default(1) @map("points_ratio_rupees") @db.Decimal(12, 2)
-  referralPointsAchariya       Decimal          @default(0) @map("referral_points_achariya") @db.Decimal(5, 2)
-  referralPointsNonAchariya    Decimal          @default(0) @map("referral_points_non_achariya") @db.Decimal(5, 2)
-  purchasePointsPercentage     Decimal          @default(0) @map("purchase_points_percentage") @db.Decimal(5, 2)
+  firstTimeValidityDays      Int              @default(0) @map("first_time_validity_days")
+  repeatDiscount             Decimal          @default(10) @map("repeat_discount") @db.Decimal(5, 2)
+  /// Extra discount added to a partner's own bill on their birthday.
+  birthdayBonusDiscount      Decimal          @default(5) @map("birthday_bonus_discount") @db.Decimal(5, 2)
+  pointsRatioPoints          Decimal          @default(10) @map("points_ratio_points") @db.Decimal(12, 2)
+  pointsRatioRupees          Decimal          @default(1) @map("points_ratio_rupees") @db.Decimal(12, 2)
+  referralPointsPercentage   Decimal          @default(0) @map("referral_points_percentage") @db.Decimal(5, 2)
+  purchasePointsPercentage   Decimal          @default(0) @map("purchase_points_percentage") @db.Decimal(5, 2)
   /// Days earned points stay in the wallet before they expire. 0 = no expiry.
-  purchasePointsValidityDays   Int              @default(0) @map("purchase_points_validity_days")
-  referralPointsValidityDays   Int              @default(0) @map("referral_points_validity_days")
-  referralDiscountAchariya     Decimal          @default(0) @map("referral_discount_achariya") @db.Decimal(5, 2)
-  referralDiscountNonAchariya  Decimal          @default(0) @map("referral_discount_non_achariya") @db.Decimal(5, 2)
-  pointsBasis                  PointsBasis      @default(PAYABLE_AMOUNT) @map("points_basis")
-  appDownloadUrl               String?          @map("app_download_url")
-  updatedBy                   String?          @map("updated_by")
-  createdAt                    DateTime         @default(now()) @map("created_at")
-  updatedAt                    DateTime         @updatedAt @map("updated_at")
+  purchasePointsValidityDays Int              @default(0) @map("purchase_points_validity_days")
+  referralPointsValidityDays Int              @default(0) @map("referral_points_validity_days")
+  referralDiscount           Decimal          @default(10) @map("referral_discount") @db.Decimal(5, 2)
+  /// Successful referrals (bills closed with the partner's referral QR) needed for one referral reward.
+  referralRewardGoal         Int              @default(10) @map("referral_reward_goal")
+  /// Special discount on the partner's next own purchase once the goal is reached.
+  referralRewardDiscount     Decimal          @default(20) @map("referral_reward_discount") @db.Decimal(5, 2)
+  pointsBasis                PointsBasis      @default(PAYABLE_AMOUNT) @map("points_basis")
+  appDownloadUrl             String?          @map("app_download_url")
+  updatedBy                  String?          @map("updated_by")
+  createdAt                  DateTime         @default(now()) @map("created_at")
+  updatedAt                  DateTime         @updatedAt @map("updated_at")
 
   @@map("program_settings")
 }
@@ -225,18 +187,23 @@ model MediaAsset {
 }
 
 model Outlet {
-  id        String       @id @default(uuid())
-  name      String
-  email     String
-  mobile    String
-  logoUrl   String?      @map("logo_url")
-  images    String[]     @default([])
-  status    OutletStatus @default(ACTIVE)
-  createdAt DateTime     @default(now()) @map("created_at")
-  updatedAt DateTime     @updatedAt @map("updated_at")
+  id          String       @id @default(uuid())
+  name        String
+  email       String
+  mobile      String
+  description String?
+  address     String?
+  /// Optional maps link; the address is searched when absent.
+  mapUrl      String?      @map("map_url")
+  logoUrl     String?      @map("logo_url")
+  images      String[]     @default([])
+  status      OutletStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
 
-  admins OutletAdmin[]
-  bills  Bill[]
+  admins      OutletAdmin[]
+  bills       Bill[]
+  redemptions PointsRedemption[]
 
   @@index([status])
   @@map("outlets")
@@ -251,8 +218,9 @@ model OutletAdmin {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  outlet Outlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
-  bills  Bill[]
+  outlet      Outlet             @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  bills       Bill[]
+  redemptions PointsRedemption[]
 
   @@index([outletId])
   @@map("outlet_admins")
@@ -291,21 +259,23 @@ enum BillNotificationStatus {
   SKIPPED
 }
 
-/// Points ledger. The balance of a partner is the sum of entries with their partnerId.
-/// An entry with customerId and no partnerId is pending: it is claimed (partnerId set)
-/// when a partner registers with that customer's mobile. An entry past its expiresAt
-/// no longer counts towards any balance (null = never expires).
+/// Points ledger. The balance of a partner is the sum of (points - redeemedPoints) over
+/// their unexpired entries. An entry with customerId and no partnerId is pending: it is
+/// claimed (partnerId set) when a partner registers with that customer's mobile. An entry
+/// past its expiresAt no longer counts towards any balance (null = never expires).
 model PointsEntry {
-  id         String          @id @default(uuid())
-  type       PointsEntryType
-  points     Decimal         @db.Decimal(14, 2)
-  billId     String          @map("bill_id")
-  partnerId  String?         @map("partner_id")
-  customerId String?         @map("customer_id")
-  claimedAt  DateTime?       @map("claimed_at")
+  id             String          @id @default(uuid())
+  type           PointsEntryType
+  points         Decimal         @db.Decimal(14, 2)
+  /// Part of this entry already spent through redemptions (soonest-expiring entries are spent first).
+  redeemedPoints Decimal         @default(0) @map("redeemed_points") @db.Decimal(14, 2)
+  billId         String          @map("bill_id")
+  partnerId      String?         @map("partner_id")
+  customerId     String?         @map("customer_id")
+  claimedAt      DateTime?       @map("claimed_at")
   /// Stamped when earned, from the validity setting at that time.
-  expiresAt  DateTime?       @map("expires_at")
-  createdAt  DateTime        @default(now()) @map("created_at")
+  expiresAt      DateTime?       @map("expires_at")
+  createdAt      DateTime        @default(now()) @map("created_at")
 
   bill     Bill      @relation(fields: [billId], references: [id], onDelete: Cascade)
   partner  Partner?  @relation(fields: [partnerId], references: [id])
@@ -318,32 +288,38 @@ model PointsEntry {
 }
 
 model Bill {
-  id                 String              @id @default(uuid())
-  billNumber         String              @unique @map("bill_number")
-  outletId           String              @map("outlet_id")
-  qrCodeId           String              @map("qr_code_id")
-  transactionType    BillTransactionType @map("transaction_type")
+  id                       String              @id @default(uuid())
+  billNumber               String              @unique @map("bill_number")
+  outletId                 String              @map("outlet_id")
+  qrCodeId                 String              @map("qr_code_id")
+  transactionType          BillTransactionType @map("transaction_type")
   /// DIRECT_PARTNER: the partner who is purchasing.
-  partnerId          String?             @map("partner_id")
+  partnerId                String?             @map("partner_id")
   /// REFERRAL: the partner who owns the scanned referral QR.
-  referrerPartnerId  String?             @map("referrer_partner_id")
+  referrerPartnerId        String?             @map("referrer_partner_id")
   /// REFERRAL: the referred customer who is purchasing.
-  customerId         String?             @map("customer_id")
-  isFirstTime        Boolean             @map("is_first_time")
-  billAmount         Decimal             @map("bill_amount") @db.Decimal(12, 2)
-  discountPercentage Decimal             @map("discount_percentage") @db.Decimal(5, 2)
-  discountAmount     Decimal             @map("discount_amount") @db.Decimal(12, 2)
-  finalAmount        Decimal             @map("final_amount") @db.Decimal(12, 2)
+  customerId               String?             @map("customer_id")
+  isFirstTime              Boolean             @map("is_first_time")
+  billAmount               Decimal             @map("bill_amount") @db.Decimal(12, 2)
+  discountPercentage       Decimal             @map("discount_percentage") @db.Decimal(5, 2)
+  /// Part of discountPercentage that is the partner's birthday bonus (0 on any other day).
+  birthdayBonusPercentage  Decimal             @default(0) @map("birthday_bonus_percentage") @db.Decimal(5, 2)
+  /// Referral reward (special discount) this bill was given instead of the usual discount; 0 when none.
+  referralRewardPercentage Decimal             @default(0) @map("referral_reward_percentage") @db.Decimal(5, 2)
+  /// Successful referrals this bill's reward used up (the goal at the time); 0 when no reward was used.
+  referralRewardReferrals  Int                 @default(0) @map("referral_reward_referrals")
+  discountAmount           Decimal             @map("discount_amount") @db.Decimal(12, 2)
+  finalAmount              Decimal             @map("final_amount") @db.Decimal(12, 2)
 
   // Settings snapshot: the Super Admin values this bill was calculated with.
-  settingsVersion            DateTime?   @map("settings_version")
-  purchasePointsPercentage   Decimal     @default(0) @map("purchase_points_percentage") @db.Decimal(5, 2)
-  referralPointsPercentage   Decimal     @default(0) @map("referral_points_percentage") @db.Decimal(5, 2)
-  pointsRatioPoints          Decimal     @default(0) @map("points_ratio_points") @db.Decimal(12, 2)
-  pointsRatioRupees          Decimal     @default(0) @map("points_ratio_rupees") @db.Decimal(12, 2)
-  pointsBasis                PointsBasis @default(PAYABLE_AMOUNT) @map("points_basis")
-  purchasePoints             Decimal     @default(0) @map("purchase_points") @db.Decimal(14, 2)
-  referralPoints             Decimal     @default(0) @map("referral_points") @db.Decimal(14, 2)
+  settingsVersion          DateTime?   @map("settings_version")
+  purchasePointsPercentage Decimal     @default(0) @map("purchase_points_percentage") @db.Decimal(5, 2)
+  referralPointsPercentage Decimal     @default(0) @map("referral_points_percentage") @db.Decimal(5, 2)
+  pointsRatioPoints        Decimal     @default(0) @map("points_ratio_points") @db.Decimal(12, 2)
+  pointsRatioRupees        Decimal     @default(0) @map("points_ratio_rupees") @db.Decimal(12, 2)
+  pointsBasis              PointsBasis @default(PAYABLE_AMOUNT) @map("points_basis")
+  purchasePoints           Decimal     @default(0) @map("purchase_points") @db.Decimal(14, 2)
+  referralPoints           Decimal     @default(0) @map("referral_points") @db.Decimal(14, 2)
 
   // Bill message (WhatsApp / email) delivery.
   notificationStatus    BillNotificationStatus @default(PENDING) @map("notification_status")
@@ -353,17 +329,18 @@ model Bill {
   notificationAttempts  Int                    @default(0) @map("notification_attempts")
   notificationSentAt    DateTime?              @map("notification_sent_at")
 
-  idempotencyKey     String              @map("idempotency_key")
-  createdByAdminId   String              @map("created_by_admin_id")
-  createdAt          DateTime            @default(now()) @map("created_at")
+  idempotencyKey   String   @map("idempotency_key")
+  createdByAdminId String   @map("created_by_admin_id")
+  createdAt        DateTime @default(now()) @map("created_at")
 
-  outlet          Outlet        @relation(fields: [outletId], references: [id])
-  qrCode          QRCode        @relation(fields: [qrCodeId], references: [id])
-  partner         Partner?      @relation("BillPartner", fields: [partnerId], references: [id])
-  referrerPartner Partner?      @relation("BillReferrer", fields: [referrerPartnerId], references: [id])
-  customer        Customer?     @relation(fields: [customerId], references: [id])
-  createdByAdmin  OutletAdmin   @relation(fields: [createdByAdminId], references: [id])
+  outlet          Outlet         @relation(fields: [outletId], references: [id])
+  qrCode          QRCode         @relation(fields: [qrCodeId], references: [id])
+  partner         Partner?       @relation("BillPartner", fields: [partnerId], references: [id])
+  referrerPartner Partner?       @relation("BillReferrer", fields: [referrerPartnerId], references: [id])
+  customer        Customer?      @relation(fields: [customerId], references: [id])
+  createdByAdmin  OutletAdmin    @relation(fields: [createdByAdminId], references: [id])
   pointEntries    PointsEntry[]
+  notifications   Notification[]
 
   @@unique([outletId, idempotencyKey])
   @@index([outletId, createdAt])
@@ -387,4 +364,90 @@ model LoginAttempt {
   @@index([scope, ip, createdAt])
   @@index([createdAt])
   @@map("login_attempts")
+}
+
+// ============================================================================
+// Wallet redemption, partner notifications & push devices
+// ============================================================================
+
+/// Points spent at an outlet through a partner's short-lived redeem QR.
+model PointsRedemption {
+  id                String   @id @default(uuid())
+  partnerId         String   @map("partner_id")
+  outletId          String   @map("outlet_id")
+  createdByAdminId  String   @map("created_by_admin_id")
+  points            Decimal  @db.Decimal(14, 2)
+  rupeeValue        Decimal  @map("rupee_value") @db.Decimal(12, 2)
+  /// Points-to-rupees ratio the redemption was valued with.
+  pointsRatioPoints Decimal  @map("points_ratio_points") @db.Decimal(12, 2)
+  pointsRatioRupees Decimal  @map("points_ratio_rupees") @db.Decimal(12, 2)
+  /// Id of the redeem QR token: each generated QR can be redeemed once.
+  tokenId           String   @unique @map("token_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  partner        Partner     @relation(fields: [partnerId], references: [id])
+  outlet         Outlet      @relation(fields: [outletId], references: [id])
+  createdByAdmin OutletAdmin @relation(fields: [createdByAdminId], references: [id])
+
+  @@index([partnerId, createdAt])
+  @@index([outletId, createdAt])
+  @@map("points_redemptions")
+}
+
+enum NotificationType {
+  PURCHASE_POINTS
+  REFERRAL_POINTS
+  POINTS_CLAIMED
+  POINTS_REDEEMED
+  /// Reached the referral goal: a special discount is waiting on the Personal Discount QR.
+  REFERRAL_REWARD
+}
+
+/// Partner activity feed, also delivered as a push notification.
+model Notification {
+  id        String           @id @default(uuid())
+  partnerId String           @map("partner_id")
+  type      NotificationType
+  title     String
+  body      String
+  points    Decimal?         @db.Decimal(14, 2)
+  /// Validity of the points this notification is about (null = never expire / not applicable).
+  expiresAt DateTime?        @map("expires_at")
+  billId    String?          @map("bill_id")
+  readAt    DateTime?        @map("read_at")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  bill    Bill?   @relation(fields: [billId], references: [id], onDelete: SetNull)
+
+  @@index([partnerId, createdAt])
+  @@index([billId])
+  @@map("notifications")
+}
+
+/// Expo push token of a device the partner is signed in on.
+model PushDevice {
+  id        String   @id @default(uuid())
+  partnerId String   @map("partner_id")
+  token     String   @unique
+  platform  String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@index([partnerId])
+  @@map("push_devices")
+}
+
+/// One row each time a partner taps "Share QR" on their referral QR page.
+model ReferralShare {
+  id        String   @id @default(uuid())
+  partnerId String   @map("partner_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@index([partnerId, createdAt])
+  @@map("referral_shares")
 }

@@ -1,19 +1,24 @@
-import { StyleSheet } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
-import { colors, fonts } from '../../theme/tokens';
+import { colors, fonts, goldFrame } from '../../theme/tokens';
 import { Txt } from '../ui/Txt';
 
 const LOGO = require('../../assets/brand/logo.png');
 
-/** The Lot More logo on its white tile, edged with a fine gold ring so it sits cleanly on the maroon canvas. */
+const RING = 2;
+/** The square artwork is drawn a little smaller than its white disc so the round crop never touches it. */
+const ART_SCALE = 0.8;
+
+/** The Lot More logo on a round white disc inside the gradient gold ring. */
 export function BrandLogo({ size = 64 }: { size?: number }) {
+  const disc = size - RING * 2;
+  const art = Math.round(disc * ART_SCALE);
   return (
-    <Image
-      source={LOGO}
-      accessibilityLabel="Lot More"
-      contentFit="contain"
-      style={[styles.logo, { width: size, height: size, borderRadius: Math.round(size * 0.22) }]}
-    />
+    <View style={[styles.ring, goldFrame, { width: size, height: size, borderRadius: size / 2 }]}>
+      <View style={[styles.disc, { width: disc, height: disc, borderRadius: disc / 2 }]}>
+        <Image source={LOGO} accessibilityLabel="Lot More" contentFit="contain" style={{ width: art, height: art }} />
+      </View>
+    </View>
   );
 }
 
@@ -28,5 +33,6 @@ export function Wordmark({ size = 'md' }: { size?: 'sm' | 'md' }) {
 }
 
 const styles = StyleSheet.create({
-  logo: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: colors.gold },
+  ring: { alignItems: 'center', justifyContent: 'center' },
+  disc: { backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
 });
