@@ -22,7 +22,11 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.lotmorewins.outletadmin"
+      "package": "com.lotmorewins.outletadmin",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -53,9 +57,10 @@
         "origin": false
       },
       "eas": {
-        "projectId": "lot-more-wins-outletadmin-phase1"
+        "projectId": "e2961132-9eb2-44a2-9df9-c570e9923cbe"
       }
     },
-    "backgroundColor": "#750505"
+    "backgroundColor": "#750505",
+    "owner": "webdeveloperachariya"
   }
 }

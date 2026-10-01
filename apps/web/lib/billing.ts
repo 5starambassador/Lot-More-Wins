@@ -85,9 +85,17 @@ type ResolvedQr = Awaited<ReturnType<typeof resolveQr>>;
  * a direct partner is first-time until they have a completed DIRECT_PARTNER bill (this is
  * the register bonus, and also applies to a customer who later registers as a partner);
  * a referred customer is first-time until their mobile has a completed bill.
+ * The register bonus lapses settings.firstTimeValidityDays after the partner registered
+ * (0 = never), after which their first bill is treated as a repeat sale.
  */
-async function isFirstTimeDirect(db: Db, partnerId: string) {
-  return (await db.bill.count({ where: { partnerId, transactionType: 'DIRECT_PARTNER' } })) === 0;
+async function isFirstTimeDirect(db: Db, partner: { id: string; createdAt: Date }, validityDays: number) {
+  if (validityDays > 0 && Date.now() > partner.createdAt.getTime() + validityDays * 86_400_000) return false;
+  return (await db.bill.count({ where: { partnerId: partner.id, transactionType: 'DIRECT_PARTNER' } })) === 0;
+}
+
+/** Expiry stamped on points when they are earned; null when the validity setting is 0 (never). */
+function pointsExpiry(validityDays: number): Date | null {
+  return validityDays > 0 ? new Date(Date.now() + validityDays * 86_400_000) : null;
 }
 
 async function isFirstTimeCustomer(db: Db, mobile: string) {
@@ -186,13 +194,20 @@ async function partnerIdForMobile(db: Db, mobile: string): Promise<string | null
   return partner?.id ?? null;
 }
 
-async function buildContext(db: Db, qr: ResolvedQr, customer: ReferredCustomerInput | undefined) {
+async function buildContext(
+  db: Db,
+  settings: ConfiguredProgramSettings,
+  qr: ResolvedQr,
+  customer: ReferredCustomerInput | undefined
+) {
   const isDirect = qr.type === 'DEFAULT_DISCOUNT';
   const customerPartnerId = !isDirect && customer ? await partnerIdForMobile(db, customer.mobile) : null;
   const ctx: BillContext = {
     qrType: qr.type,
     classification: classify(qr.partner),
-    isFirstTime: isDirect ? await isFirstTimeDirect(db, qr.partner.id) : await isFirstTimeCustomer(db, customer!.mobile),
+    isFirstTime: isDirect
+      ? await isFirstTimeDirect(db, qr.partner, settings.firstTimeValidityDays)
+      : await isFirstTimeCustomer(db, customer!.mobile),
     customerIsPartner: customerPartnerId !== null,
   };
   return { ctx, customerPartnerId };
@@ -210,7 +225,8 @@ export async function scanQr(outlet: OutletRow, rawValue: string): Promise<ScanR
 
   // Referral discount depends only on the referring partner; first-time status of a
   // referred customer is unknown until their mobile is entered.
-  const isFirstTime = qr.type === 'DEFAULT_DISCOUNT' ? await isFirstTimeDirect(prisma, qr.partner.id) : null;
+  const isFirstTime =
+    qr.type === 'DEFAULT_DISCOUNT' ? await isFirstTimeDirect(prisma, qr.partner, settings.firstTimeValidityDays) : null;
   const discountPercentage = discountPercentageFor(settings, qr.type, classification, isFirstTime ?? false);
 
   return {
@@ -248,7 +264,7 @@ export async function previewBill(
   const settings = await requireConfiguredSettings();
   const qr = await resolveQr(prisma, input.qrCode);
   assertCustomerMatchesQr(qr, input.customer);
-  const { ctx } = await buildContext(prisma, qr, input.customer);
+  const { ctx } = await buildContext(prisma, settings, qr, input.customer);
   return calculateBill(settings, ctx, input.billAmount);
 }
 
@@ -387,7 +403,7 @@ export async function createBill(
         // Settings are read inside the transaction; this bill is calculated and stored with exactly these values.
         const settings = await requireConfiguredSettings(tx);
         // Calculate before creating the customer so first-time status reflects prior bills only.
-        const { ctx, customerPartnerId } = await buildContext(tx, qr, input.customer);
+        const { ctx, customerPartnerId } = await buildContext(tx, settings, qr, input.customer);
         const calc = calculateBill(settings, ctx, input.billAmount);
 
         if (input.settingsVersion && input.settingsVersion !== settings.updatedAt) {
@@ -452,18 +468,31 @@ export async function createBill(
         if (calc.purchasePoints > 0) {
           entries.push(
             isDirect
-              ? { type: 'PURCHASE', points: calc.purchasePoints, billId: created.id, partnerId: qr.partner.id }
+              ? {
+                  type: 'PURCHASE',
+                  points: calc.purchasePoints,
+                  billId: created.id,
+                  partnerId: qr.partner.id,
+                  expiresAt: pointsExpiry(settings.purchasePointsValidityDays),
+                }
               : {
                   type: 'PURCHASE',
                   points: calc.purchasePoints,
                   billId: created.id,
                   customerId,
                   partnerId: customerPartnerId,
+                  expiresAt: pointsExpiry(settings.purchasePointsValidityDays),
                 }
           );
         }
         if (calc.referralPoints > 0) {
-          entries.push({ type: 'REFERRAL', points: calc.referralPoints, billId: created.id, partnerId: qr.partner.id });
+          entries.push({
+            type: 'REFERRAL',
+            points: calc.referralPoints,
+            billId: created.id,
+            partnerId: qr.partner.id,
+            expiresAt: pointsExpiry(settings.referralPointsValidityDays),
+          });
         }
         if (entries.length) await tx.pointsEntry.createMany({ data: entries });
 

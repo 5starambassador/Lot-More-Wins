@@ -158,17 +158,28 @@ const ratioPartSchema = z
   .max(1_000_000, 'Ratio value is too large')
   .refine(hasAtMostTwoDecimals, 'Ratio can have at most 2 decimal places');
 
+/** 0 means no expiry. */
+const validityDaysSchema = z
+  .number({ invalid_type_error: 'Validity must be a number of days' })
+  .int('Validity must be a whole number of days')
+  .min(0, 'Validity cannot be negative')
+  .max(3650, 'Validity cannot exceed 3650 days')
+  .default(0);
+
 export const programSettingsUpdateSchema = z
   .object({
     messagingMode: z.enum(['email', 'whatsapp'], {
       errorMap: () => ({ message: 'Messaging mode must be "email" or "whatsapp"' }),
     }),
     firstTimeDiscount: classificationPercentagesSchema,
+    firstTimeValidityDays: validityDaysSchema,
     repeatDiscount: classificationPercentagesSchema,
     referralDiscount: classificationPercentagesSchema,
     pointsToRupees: z.object({ points: ratioPartSchema, rupees: ratioPartSchema }).strict(),
     referralPoints: classificationPercentagesSchema,
     purchasePointsPercentage: percentageSchema,
+    purchasePointsValidityDays: validityDaysSchema,
+    referralPointsValidityDays: validityDaysSchema,
     pointsBasis: z.enum(['BILL_AMOUNT', 'PAYABLE_AMOUNT'], {
       errorMap: () => ({ message: 'Points basis must be "BILL_AMOUNT" or "PAYABLE_AMOUNT"' }),
     }),

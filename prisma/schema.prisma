@@ -190,6 +190,8 @@ model ProgramSetting {
   messagingMode                MessagingChannel @map("messaging_mode")
   firstTimeDiscountAchariya    Decimal          @default(0) @map("first_time_discount_achariya") @db.Decimal(5, 2)
   firstTimeDiscountNonAchariya Decimal          @default(0) @map("first_time_discount_non_achariya") @db.Decimal(5, 2)
+  /// Days after partner registration the first-time discount stays usable. 0 = no expiry.
+  firstTimeValidityDays        Int              @default(0) @map("first_time_validity_days")
   repeatDiscountAchariya       Decimal          @default(0) @map("repeat_discount_achariya") @db.Decimal(5, 2)
   repeatDiscountNonAchariya    Decimal          @default(0) @map("repeat_discount_non_achariya") @db.Decimal(5, 2)
   pointsRatioPoints            Decimal          @default(10) @map("points_ratio_points") @db.Decimal(12, 2)
@@ -197,6 +199,9 @@ model ProgramSetting {
   referralPointsAchariya       Decimal          @default(0) @map("referral_points_achariya") @db.Decimal(5, 2)
   referralPointsNonAchariya    Decimal          @default(0) @map("referral_points_non_achariya") @db.Decimal(5, 2)
   purchasePointsPercentage     Decimal          @default(0) @map("purchase_points_percentage") @db.Decimal(5, 2)
+  /// Days earned points stay in the wallet before they expire. 0 = no expiry.
+  purchasePointsValidityDays   Int              @default(0) @map("purchase_points_validity_days")
+  referralPointsValidityDays   Int              @default(0) @map("referral_points_validity_days")
   referralDiscountAchariya     Decimal          @default(0) @map("referral_discount_achariya") @db.Decimal(5, 2)
   referralDiscountNonAchariya  Decimal          @default(0) @map("referral_discount_non_achariya") @db.Decimal(5, 2)
   pointsBasis                  PointsBasis      @default(PAYABLE_AMOUNT) @map("points_basis")
@@ -288,7 +293,8 @@ enum BillNotificationStatus {
 
 /// Points ledger. The balance of a partner is the sum of entries with their partnerId.
 /// An entry with customerId and no partnerId is pending: it is claimed (partnerId set)
-/// when a partner registers with that customer's mobile.
+/// when a partner registers with that customer's mobile. An entry past its expiresAt
+/// no longer counts towards any balance (null = never expires).
 model PointsEntry {
   id         String          @id @default(uuid())
   type       PointsEntryType
@@ -297,6 +303,8 @@ model PointsEntry {
   partnerId  String?         @map("partner_id")
   customerId String?         @map("customer_id")
   claimedAt  DateTime?       @map("claimed_at")
+  /// Stamped when earned, from the validity setting at that time.
+  expiresAt  DateTime?       @map("expires_at")
   createdAt  DateTime        @default(now()) @map("created_at")
 
   bill     Bill      @relation(fields: [billId], references: [id], onDelete: Cascade)

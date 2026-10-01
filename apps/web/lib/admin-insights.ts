@@ -15,7 +15,7 @@ import type {
 import prisma from './prisma';
 import { HttpError } from './auth';
 import { billInclude, serializeBill, startOfTodayIst } from './billing';
-import { getPartnerWallet } from './points';
+import { getPartnerWallet, unexpiredPoints } from './points';
 import { getProgramSettings } from './settings';
 
 /**
@@ -97,7 +97,7 @@ async function pointBalances(partnerIds: string[]): Promise<Map<string, number>>
   if (partnerIds.length === 0) return new Map();
   const sums = await prisma.pointsEntry.groupBy({
     by: ['partnerId'],
-    where: { partnerId: { in: partnerIds } },
+    where: { partnerId: { in: partnerIds }, ...unexpiredPoints() },
     _sum: { points: true },
   });
   return new Map(sums.map((s) => [s.partnerId as string, n(s._sum.points)]));
@@ -344,7 +344,8 @@ export async function getDashboard(): Promise<AdminDashboard> {
     prisma.$queryRaw<{ credited: Num; pending: Num }[]>`
       SELECT SUM(points) FILTER (WHERE partner_id IS NOT NULL) AS credited,
              SUM(points) FILTER (WHERE partner_id IS NULL) AS pending
-      FROM points_entries`,
+      FROM points_entries
+      WHERE expires_at IS NULL OR expires_at > NOW()`,
     billSummary(today, last30, prev30),
   ]);
   const [daily, topOutlets, recentBills, recentPartners] = await Promise.all([

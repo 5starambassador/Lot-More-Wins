@@ -7,7 +7,13 @@ import { getProgramSettings } from './settings';
  * Points wallet. The ledger (PointsEntry) is the only record of points; a partner's balance
  * is the sum of their entries. Points earned as a referred customer are held against the
  * customer's mobile (partnerId null) and claimed when a partner registers with that mobile.
+ * Entries past their expiresAt stay in the ledger as history but count towards no balance.
  */
+
+/** Filter for entries that still count towards a balance. */
+export function unexpiredPoints(now = new Date()): Prisma.PointsEntryWhereInput {
+  return { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] };
+}
 
 /**
  * Links the customer with this mobile to the new partner and claims their pending points.
@@ -22,7 +28,7 @@ export async function claimPendingPoints(tx: Prisma.TransactionClient, partnerId
 
   await tx.customer.update({ where: { id: customer.id }, data: { partnerId } });
   const pending = await tx.pointsEntry.aggregate({
-    where: { customerId: customer.id, partnerId: null },
+    where: { customerId: customer.id, partnerId: null, ...unexpiredPoints() },
     _sum: { points: true },
   });
   const claimed = await tx.pointsEntry.updateMany({
@@ -33,9 +39,10 @@ export async function claimPendingPoints(tx: Prisma.TransactionClient, partnerId
 }
 
 export async function getPartnerWallet(partnerId: string, limit = 50): Promise<PartnerWallet> {
+  const now = new Date();
   const [settings, byType, entries] = await Promise.all([
     getProgramSettings(),
-    prisma.pointsEntry.groupBy({ by: ['type'], where: { partnerId }, _sum: { points: true } }),
+    prisma.pointsEntry.groupBy({ by: ['type'], where: { partnerId, ...unexpiredPoints(now) }, _sum: { points: true } }),
     prisma.pointsEntry.findMany({
       where: { partnerId },
       orderBy: { createdAt: 'desc' },
@@ -61,6 +68,8 @@ export async function getPartnerWallet(partnerId: string, limit = 50): Promise<P
       billNumber: e.bill.billNumber,
       outletName: e.bill.outlet.name,
       claimedAt: e.claimedAt?.toISOString() ?? null,
+      expiresAt: e.expiresAt?.toISOString() ?? null,
+      expired: e.expiresAt !== null && e.expiresAt <= now,
       createdAt: e.createdAt.toISOString(),
     })),
   };

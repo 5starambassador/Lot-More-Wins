@@ -1,6 +1,6 @@
 import 'react-native-gesture-handler';
 import '../global.css';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack, useRootNavigationState, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -26,17 +26,19 @@ function useAuthGate() {
   const { token, isRestoring, restore } = useSession();
   const segments = useSegments();
   const router = useRouter();
+  // The Stack only mounts once fonts load; navigating before then throws and blanks the app.
+  const navigatorReady = !!useRootNavigationState()?.key;
 
   useEffect(() => {
     restore();
   }, [restore]);
 
   useEffect(() => {
-    if (isRestoring) return;
+    if (isRestoring || !navigatorReady) return;
     const inAuth = segments[0] === '(auth)';
     if (!token && !inAuth) router.replace('/(auth)/login');
     else if (token && inAuth) router.replace('/(tabs)');
-  }, [token, isRestoring, segments, router]);
+  }, [token, isRestoring, navigatorReady, segments, router]);
 
   return isRestoring;
 }

@@ -291,6 +291,8 @@ export interface ProgramSettings {
   messagingMode: MessagingMode;
   /** Direct partner QR: discount on the partner's first ever bill. */
   firstTimeDiscount: ClassificationPercentages;
+  /** Days after registration a partner can still use the first-time discount. 0 = no expiry. */
+  firstTimeValidityDays: number;
   /** Direct partner QR: discount on every later bill. */
   repeatDiscount: ClassificationPercentages;
   /** Referral QR: discount for the referred customer, by the referring partner's type. */
@@ -300,6 +302,10 @@ export interface ProgramSettings {
   referralPoints: ClassificationPercentages;
   /** Purchase points percentage credited to whoever made the purchase. */
   purchasePointsPercentage: number;
+  /** Days earned purchase points stay in the wallet. 0 = no expiry. */
+  purchasePointsValidityDays: number;
+  /** Days earned referral points stay in the wallet. 0 = no expiry. */
+  referralPointsValidityDays: number;
   pointsBasis: PointsBasis;
   /** Partner app download / Play Store link sent in bill messages. */
   appDownloadUrl: string | null;
@@ -502,6 +508,10 @@ export interface PointsLedgerEntry {
   outletName: string;
   /** Set when the points were earned as a customer before registering and claimed on registration. */
   claimedAt: string | null;
+  /** When these points leave the wallet; null when they never expire. */
+  expiresAt: string | null;
+  /** true once expiresAt has passed: the points no longer count towards the balance. */
+  expired: boolean;
   createdAt: string;
 }
 

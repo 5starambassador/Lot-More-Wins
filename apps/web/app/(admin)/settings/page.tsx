@@ -21,6 +21,7 @@ interface FormState {
   messagingMode: MessagingMode;
   firstAchariya: string;
   firstNonAchariya: string;
+  firstValidityDays: string;
   repeatAchariya: string;
   repeatNonAchariya: string;
   referralDiscountAchariya: string;
@@ -30,6 +31,8 @@ interface FormState {
   referralAchariya: string;
   referralNonAchariya: string;
   purchasePoints: string;
+  purchaseValidityDays: string;
+  referralValidityDays: string;
   pointsBasis: PointsBasis;
   appDownloadUrl: string;
 }
@@ -39,6 +42,7 @@ function toForm(s: ProgramSettings): FormState {
     messagingMode: s.messagingMode,
     firstAchariya: String(s.firstTimeDiscount.achariya),
     firstNonAchariya: String(s.firstTimeDiscount.nonAchariya),
+    firstValidityDays: String(s.firstTimeValidityDays),
     repeatAchariya: String(s.repeatDiscount.achariya),
     repeatNonAchariya: String(s.repeatDiscount.nonAchariya),
     referralDiscountAchariya: String(s.referralDiscount.achariya),
@@ -48,10 +52,14 @@ function toForm(s: ProgramSettings): FormState {
     referralAchariya: String(s.referralPoints.achariya),
     referralNonAchariya: String(s.referralPoints.nonAchariya),
     purchasePoints: String(s.purchasePointsPercentage),
+    purchaseValidityDays: String(s.purchasePointsValidityDays),
+    referralValidityDays: String(s.referralPointsValidityDays),
     pointsBasis: s.pointsBasis,
     appDownloadUrl: s.appDownloadUrl ?? '',
   };
 }
+
+const formatDays = (v: string) => (Number(v) > 0 ? `${formatNumber(Number(v))} day${Number(v) === 1 ? '' : 's'}` : 'No expiry');
 
 const BASIS_LABEL: Record<PointsBasis, string> = { PAYABLE_AMOUNT: 'Payable amount', BILL_AMOUNT: 'Bill amount' };
 const MODE_LABEL: Record<MessagingMode, string> = { email: 'Email', whatsapp: 'WhatsApp' };
@@ -60,6 +68,7 @@ const MODE_LABEL: Record<MessagingMode, string> = { email: 'Email', whatsapp: 'W
 const FIELDS: { key: keyof FormState; label: string; unit?: string; format?: (v: string) => string }[] = [
   { key: 'firstAchariya', label: 'First-time discount · Achariya', unit: '%' },
   { key: 'firstNonAchariya', label: 'First-time discount · Non-Achariya', unit: '%' },
+  { key: 'firstValidityDays', label: 'First-time discount · Validity', format: formatDays },
   { key: 'repeatAchariya', label: 'Repeat discount · Achariya', unit: '%' },
   { key: 'repeatNonAchariya', label: 'Repeat discount · Non-Achariya', unit: '%' },
   { key: 'referralDiscountAchariya', label: 'Referral discount · Achariya', unit: '%' },
@@ -67,6 +76,8 @@ const FIELDS: { key: keyof FormState; label: string; unit?: string; format?: (v:
   { key: 'referralAchariya', label: 'Referral points · Achariya', unit: '%' },
   { key: 'referralNonAchariya', label: 'Referral points · Non-Achariya', unit: '%' },
   { key: 'purchasePoints', label: 'Purchase points', unit: '%' },
+  { key: 'purchaseValidityDays', label: 'Purchase points · Validity', format: formatDays },
+  { key: 'referralValidityDays', label: 'Referral points · Validity', format: formatDays },
   { key: 'ratioPoints', label: 'Conversion · points' },
   { key: 'ratioRupees', label: 'Conversion · rupees', unit: '₹' },
   { key: 'pointsBasis', label: 'Points calculated on', format: (v) => BASIS_LABEL[v as PointsBasis] },
@@ -108,6 +119,37 @@ function PercentInput({
       onChange={(e) => onChange(e.target.value)}
       suffix="%"
       className={cn('tabular text-right font-medium', changed && 'border-gold-400 bg-gold-50/50')}
+    />
+  );
+}
+
+function DaysInput({
+  id,
+  value,
+  onChange,
+  changed,
+  label,
+}: {
+  id: string;
+  value: string;
+  onChange: (v: string) => void;
+  changed: boolean;
+  label: string;
+}) {
+  return (
+    <Input
+      id={id}
+      aria-label={label}
+      type="number"
+      inputMode="numeric"
+      step="1"
+      min="0"
+      max="3650"
+      required
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      suffix="days"
+      className={cn('tabular pr-12 text-right font-medium', changed && 'border-gold-400 bg-gold-50/50')}
     />
   );
 }
@@ -224,6 +266,7 @@ export default function SettingsPage() {
       const res = await adminApi.updateAdminSettings({
         messagingMode: values.messagingMode,
         firstTimeDiscount: { achariya: Number(values.firstAchariya), nonAchariya: Number(values.firstNonAchariya) },
+        firstTimeValidityDays: Number(values.firstValidityDays),
         repeatDiscount: { achariya: Number(values.repeatAchariya), nonAchariya: Number(values.repeatNonAchariya) },
         referralDiscount: {
           achariya: Number(values.referralDiscountAchariya),
@@ -232,6 +275,8 @@ export default function SettingsPage() {
         pointsToRupees: { points: Number(values.ratioPoints), rupees: Number(values.ratioRupees) },
         referralPoints: { achariya: Number(values.referralAchariya), nonAchariya: Number(values.referralNonAchariya) },
         purchasePointsPercentage: Number(values.purchasePoints),
+        purchasePointsValidityDays: Number(values.purchaseValidityDays),
+        referralPointsValidityDays: Number(values.referralValidityDays),
         pointsBasis: values.pointsBasis,
         appDownloadUrl: values.appDownloadUrl.trim() || null,
       });
@@ -325,12 +370,13 @@ export default function SettingsPage() {
                 description="Percentage taken off the bill. The column is picked by the Achariya status of the QR owner — the partner for their own QR, the referring partner for a referral QR."
               />
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[520px] text-[13px]">
+                <table className="w-full min-w-[680px] text-[13px]">
                   <thead>
                     <tr className="border-b border-stone-150 text-[11px] uppercase tracking-[0.06em] text-stone-500">
                       <th className="px-5 py-2.5 text-left font-semibold">Rule</th>
                       <th className="w-36 px-3 py-2.5 text-right font-semibold">Achariya</th>
-                      <th className="w-36 px-5 py-2.5 text-right font-semibold">Non-Achariya</th>
+                      <th className="w-36 px-3 py-2.5 text-right font-semibold">Non-Achariya</th>
+                      <th className="w-36 px-5 py-2.5 text-right font-semibold">Validity</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100">
@@ -349,8 +395,24 @@ export default function SettingsPage() {
                         <td className="px-3 py-3.5">
                           <PercentInput id={a} label={`${title} Achariya`} value={values[a]} onChange={set(a)} changed={changed(a)} />
                         </td>
-                        <td className="px-5 py-3.5">
+                        <td className="px-3 py-3.5">
                           <PercentInput id={b} label={`${title} Non-Achariya`} value={values[b]} onChange={set(b)} changed={changed(b)} />
+                        </td>
+                        <td className="px-5 py-3.5">
+                          {a === 'firstAchariya' ? (
+                            <>
+                              <DaysInput
+                                id="firstValidityDays"
+                                label="First-time sale validity in days"
+                                value={values.firstValidityDays}
+                                onChange={set('firstValidityDays')}
+                                changed={changed('firstValidityDays')}
+                              />
+                              <p className="mt-1 text-right text-[11px] text-stone-400">From registration · 0 = no expiry</p>
+                            </>
+                          ) : (
+                            <p className="text-right text-stone-300">—</p>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -377,6 +439,27 @@ export default function SettingsPage() {
                     </Field>
                     <Field label="Referral · Non-Achariya" htmlFor="referralNonAchariya" hint="Referring partner">
                       <PercentInput id="referralNonAchariya" label="Referral points Non-Achariya" value={values.referralNonAchariya} onChange={set('referralNonAchariya')} changed={changed('referralNonAchariya')} />
+                    </Field>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <Field label="Purchase points validity" htmlFor="purchaseValidityDays" hint="From the bill date · 0 = no expiry">
+                      <DaysInput
+                        id="purchaseValidityDays"
+                        label="Purchase points validity in days"
+                        value={values.purchaseValidityDays}
+                        onChange={set('purchaseValidityDays')}
+                        changed={changed('purchaseValidityDays')}
+                      />
+                    </Field>
+                    <Field label="Referral points validity" htmlFor="referralValidityDays" hint="From the bill date · 0 = no expiry">
+                      <DaysInput
+                        id="referralValidityDays"
+                        label="Referral points validity in days"
+                        value={values.referralValidityDays}
+                        onChange={set('referralValidityDays')}
+                        changed={changed('referralValidityDays')}
+                      />
                     </Field>
                   </div>
 
