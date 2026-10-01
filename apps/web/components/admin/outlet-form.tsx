@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { Eye, EyeOff, KeyRound, Store } from 'lucide-react';
 import type { AdminOutlet } from '@lotmorewins/types';
-import { normalizeIndianMobile } from '@lotmorewins/validation';
+import { MAX_OUTLET_IMAGES, normalizeIndianMobile } from '@lotmorewins/validation';
 import { Button, buttonClass } from '@/components/ui/button';
 import { Alert } from '@/components/ui/feedback';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,9 @@ export interface OutletFormValues {
   name: string;
   email: string;
   mobile: string;
+  description: string;
+  address: string;
+  mapUrl: string;
   logoUrl: string | null;
   images: string[];
   adminEmail: string;
@@ -28,6 +31,9 @@ export function emptyOutletForm(outlet?: AdminOutlet): OutletFormValues {
     name: outlet?.name ?? '',
     email: outlet?.email ?? '',
     mobile: outlet?.mobile ?? '',
+    description: outlet?.description ?? '',
+    address: outlet?.address ?? '',
+    mapUrl: outlet?.mapUrl ?? '',
     logoUrl: outlet?.logoUrl ?? null,
     images: outlet?.images ?? [],
     adminEmail: outlet?.adminEmail ?? '',
@@ -87,7 +93,7 @@ export function OutletForm({
   const [touched, setTouched] = useState(false);
 
   const set = <K extends keyof OutletFormValues>(key: K, value: OutletFormValues[K]) => setValues((v) => ({ ...v, [key]: value }));
-  const text = (key: 'name' | 'email' | 'mobile' | 'adminEmail' | 'adminPassword') => ({
+  const text = (key: 'name' | 'email' | 'mobile' | 'address' | 'mapUrl' | 'adminEmail' | 'adminPassword') => ({
     id: key,
     name: key,
     value: values[key],
@@ -99,6 +105,7 @@ export function OutletForm({
     if (values.name.trim().length < 2) e.name = 'Enter the outlet name (at least 2 characters).';
     if (!/^\S+@\S+\.\S+$/.test(values.email.trim())) e.email = 'Enter a valid email address.';
     if (!MOBILE.test(normalizeIndianMobile(values.mobile))) e.mobile = 'Enter a 10-digit Indian mobile number.';
+    if (values.mapUrl.trim() && !/^https?:\/\/\S+$/i.test(values.mapUrl.trim())) e.mapUrl = 'Enter a link starting with http:// or https://.';
     if (mode === 'create' && !/^\S+@\S+\.\S+$/.test(values.adminEmail.trim())) e.adminEmail = 'Enter the login email.';
     if ((mode === 'create' || (resetting && values.adminPassword)) && values.adminPassword.length < 8) {
       e.adminPassword = 'Use at least 8 characters.';
@@ -138,15 +145,33 @@ export function OutletForm({
             <Field label="Mobile" htmlFor="mobile" required error={show('mobile')}>
               <Input {...text('mobile')} type="tel" inputMode="numeric" prefix="+91" placeholder="9876543210" aria-invalid={!!show('mobile')} />
             </Field>
+            <Field label="Description" htmlFor="description" hint="A short introduction shown on the outlet's page." className="sm:col-span-2">
+              <textarea
+                id="description"
+                name="description"
+                rows={3}
+                maxLength={1000}
+                value={values.description}
+                onChange={(e) => set('description', e.target.value)}
+                placeholder="What the outlet offers, opening hours, anything partners should know."
+                className="block w-full rounded-md border border-stone-200 bg-white px-3 py-2 text-[13px] text-stone-900 placeholder:text-stone-400 focus:border-maroon-700 focus:outline-none focus:ring-1 focus:ring-maroon-700"
+              />
+            </Field>
+            <Field label="Address" htmlFor="address" hint="Shown as the outlet's location." className="sm:col-span-2">
+              <Input {...text('address')} maxLength={300} placeholder="Door no., street, area, city, pincode" />
+            </Field>
+            <Field label="Map link" htmlFor="mapUrl" error={show('mapUrl')} hint="Optional. The address is searched in Maps when empty." className="sm:col-span-2">
+              <Input {...text('mapUrl')} type="url" inputMode="url" placeholder="https://maps.app.goo.gl/…" aria-invalid={!!show('mapUrl')} />
+            </Field>
           </div>
         </FormSection>
 
-        <FormSection title="Branding" description="A square logo and up to 10 photos. JPEG, PNG or WebP, under 3 MB each.">
+        <FormSection title="Branding" description={`A square logo and up to ${MAX_OUTLET_IMAGES} photos. JPEG, PNG or WebP, under 3 MB each.`}>
           <div className="space-y-5">
             <Field label="Logo">
               <LogoUpload value={values.logoUrl} onChange={(url) => set('logoUrl', url)} />
             </Field>
-            <Field label="Photos" hint={`${values.images.length} of 10 added`}>
+            <Field label="Photos" hint={`${values.images.length} of ${MAX_OUTLET_IMAGES} added`}>
               <GalleryUpload value={values.images} onChange={(urls) => set('images', urls)} />
             </Field>
           </div>

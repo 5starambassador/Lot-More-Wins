@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { ImagePlus, Loader2, X } from 'lucide-react';
+import { MAX_OUTLET_IMAGES } from '@lotmorewins/validation';
 import { adminApi, errorMessage, fileToBase64 } from '@/lib/admin-client';
 
 const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp'] as const;
@@ -98,7 +99,7 @@ export function GalleryUpload({ value, onChange }: { value: string[]; onChange: 
         {value.map((url, i) => (
           <Thumb key={url} url={url} label={`image ${i + 1}`} onRemove={() => onChange(value.filter((u) => u !== url))} />
         ))}
-        {value.length < 10 && (
+        {value.length < MAX_OUTLET_IMAGES && (
           <AddTile
             busy={busy}
             label="Add photo"
@@ -116,6 +117,11 @@ export function GalleryUpload({ value, onChange }: { value: string[]; onChange: 
           />
         )}
       </div>
+      {value.length >= MAX_OUTLET_IMAGES && (
+        <p className="text-xs text-stone-500">
+          This outlet has the maximum of {MAX_OUTLET_IMAGES} photos. Remove one to add another.
+        </p>
+      )}
       {error && <p className="text-xs text-red-700">{error}</p>}
     </div>
   );

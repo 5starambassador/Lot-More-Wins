@@ -1,14 +1,23 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowDownRight,
   ArrowRight,
   ArrowUpRight,
+  BadgePercent,
   CalendarDays,
   CheckCircle2,
   Coins,
+  Gift,
+  IndianRupee,
+  Receipt,
+  Share2,
+  ThumbsUp,
+  TrendingUp,
+  UserPlus,
   Database,
   Mail,
   MessageCircle,
@@ -18,18 +27,22 @@ import {
   Users,
 } from 'lucide-react';
 import type { AdminDashboard, BillRecord } from '@lotmorewins/types';
-import { BarList, SalesChart, SplitMeter } from '@/components/admin/charts';
+import { BarList, SplitMeter, TrendChart } from '@/components/admin/charts';
 import { BillDrawer, BillsTable } from '@/components/admin/bills';
+import { DateRangeFilter, FilterBar, dateQuery, lastDays, readDateRange } from '@/components/admin/filter-bar';
+import { GlobalSearch } from '@/components/admin/global-search';
 import { Badge, Tag } from '@/components/ui/badge';
 import { buttonClass, Button } from '@/components/ui/button';
 import { Alert, Skeleton } from '@/components/ui/feedback';
 import { PageHeader } from '@/components/ui/page-header';
 import { Panel, PanelBody, PanelHeader } from '@/components/ui/panel';
 import { adminApi, useAdminQuery } from '@/lib/admin-client';
-import { PARTNER_ROLE_LABEL, PARTNER_STATUS } from '@/lib/admin-labels';
+import { BILL_TYPE_LABEL, PARTNER_STATUS } from '@/lib/admin-labels';
 import { cn } from '@/lib/utils';
 import {
+  formatCompact,
   formatCompactINR,
+  formatDate,
   formatDateTime,
   formatINR,
   formatINRWhole,
@@ -40,10 +53,11 @@ import {
   percentChange,
 } from '@/lib/format';
 
-function Delta({ current, previous, label }: { current: number; previous: number; label: string }) {
-  if (current === 0 && previous === 0) return <span className="text-xs text-stone-500">No sales in the last 60 days</span>;
+function Delta({ current, previous, days }: { current: number; previous: number; days: number }) {
+  const before = `the ${formatNumber(days)} day${days === 1 ? '' : 's'} before`;
+  if (current === 0 && previous === 0) return <span className="text-xs text-stone-500">No sales in this period or {before}</span>;
   const pct = percentChange(current, previous);
-  if (pct === null) return <span className="text-xs text-stone-500">No sales in the {label} before</span>;
+  if (pct === null) return <span className="text-xs text-stone-500">No sales in {before}</span>;
   const up = pct >= 0;
   const Icon = up ? ArrowUpRight : ArrowDownRight;
   return (
@@ -57,7 +71,7 @@ function Delta({ current, previous, label }: { current: number; previous: number
         <Icon className="h-3.5 w-3.5" />
         {Math.abs(pct).toFixed(1)}%
       </span>
-      vs previous 30 days
+      vs {before}
     </span>
   );
 }
@@ -98,9 +112,77 @@ function Kpi({
   );
 }
 
+/** A row of small labelled figures under a chart. */
+function Stats({ items }: { items: { label: string; value: string; hint?: string }[] }) {
+  return (
+    <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-stone-150 pt-4 sm:grid-cols-4">
+      {items.map((i) => (
+        <div key={i.label} title={i.hint}>
+          <dt className="text-xs text-stone-500">{i.label}</dt>
+          <dd className="tabular mt-0.5 text-sm font-semibold text-stone-900">{i.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * Placeholder until a real comparison source exists: this one figure is NOT read from the
+ * database. Every other tile is.
+ */
+const SAMPLE_BUSINESS_GROWTH_PERCENT = 18.7;
+
+/** The eight headline programme figures: two rows of four, above the charts. */
+function ProgramMetrics({ d }: { d: AdminDashboard }) {
+  const m = d.programMetrics;
+  const tiles: { icon: React.ComponentType<{ className?: string }>; label: string; value: string; caption: string; sample?: boolean }[] = [
+    { icon: UserPlus, label: 'App Registrations', value: formatNumber(m.appRegistrations), caption: 'New partners in this period' },
+    {
+      icon: Gift,
+      label: 'Offer Redemptions',
+      value: formatNumber(m.offerRedemptions),
+      caption: `${m.offerRedemptionRate}% of registered`,
+    },
+    { icon: Share2, label: 'Successful Referrals', value: formatNumber(m.successfulReferrals), caption: 'Verified conversions' },
+    { icon: BadgePercent, label: 'Referral Bonus', value: formatCompactINR(m.referralBonus), caption: 'Total reward cost' },
+    {
+      icon: ThumbsUp,
+      label: 'Social Followers Added',
+      value: m.socialFollowersAdded === null ? '—' : `+${formatCompact(m.socialFollowersAdded)}`,
+      caption: m.socialFollowersAdded === null ? 'Not tracked yet' : 'Across all channels',
+    },
+    { icon: Receipt, label: 'Billing Count', value: formatNumber(m.billingCount), caption: 'Attributed bills' },
+    { icon: IndianRupee, label: 'Attributed Sales', value: formatCompactINR(m.attributedSales), caption: 'Program-linked revenue' },
+    {
+      icon: TrendingUp,
+      label: 'Business Growth',
+      value: `+${SAMPLE_BUSINESS_GROWTH_PERCENT}%`,
+      caption: 'Vs comparison period',
+      sample: true,
+    },
+  ];
+  return (
+    <Panel className="overflow-hidden" aria-label="Programme metrics">
+      <div className="grid grid-cols-2 gap-px bg-stone-150 sm:grid-cols-4">
+        {tiles.map((t) => (
+          <div key={t.label} className="bg-white p-5">
+            <p className="flex items-center gap-2 text-xs font-medium text-stone-500">
+              <t.icon className="h-4 w-4 text-gold-600" />
+              {t.label}
+              {t.sample && <Tag>Sample</Tag>}
+            </p>
+            <p className="tabular mt-3 text-[26px] font-semibold leading-none tracking-[-0.01em] text-stone-900">{t.value}</p>
+            <p className="mt-2 text-xs text-stone-500">{t.caption}</p>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
 type Attention = { tone: 'danger' | 'warning' | 'info'; title: string; body: string; href?: string; cta?: string };
 
-function attentionItems(d: AdminDashboard): Attention[] {
+function attentionItems(d: AdminDashboard, rangeQuery: string): Attention[] {
   const items: Attention[] = [];
   if (d.system.database !== 'connected') {
     items.push({ tone: 'danger', title: 'Database unreachable', body: 'Some figures may be missing or out of date.' });
@@ -118,8 +200,8 @@ function attentionItems(d: AdminDashboard): Attention[] {
     items.push({
       tone: 'danger',
       title: `${formatNumber(d.notifications.FAILED)} bill message${d.notifications.FAILED === 1 ? '' : 's'} failed`,
-      body: 'Customers did not receive their bill summary.',
-      href: '/transactions?notification=FAILED',
+      body: 'Customers did not receive their bill summary in this period.',
+      href: `/transactions?notification=FAILED&${rangeQuery}`,
       cta: 'Review',
     });
   }
@@ -156,30 +238,62 @@ const dotTone = { danger: 'bg-red-500', warning: 'bg-amber-500', info: 'bg-stone
 function DashboardSkeleton() {
   return (
     <div className="space-y-6">
+      <Skeleton className="h-[230px] w-full rounded-lg" />
       <Skeleton className="h-[340px] w-full rounded-lg" />
       <Skeleton className="h-[150px] w-full rounded-lg" />
-      <div className="grid gap-6 xl:grid-cols-3">
-        <Skeleton className="h-[380px] rounded-lg xl:col-span-2" />
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Skeleton className="h-[380px] rounded-lg" />
         <Skeleton className="h-[380px] rounded-lg" />
       </div>
     </div>
   );
 }
 
-export default function DashboardPage() {
-  const { data: d, error, loading, reload } = useAdminQuery(() => adminApi.getAdminDashboard().then((r) => r.data), []);
+const DEFAULT_RANGE_DAYS = 30;
+
+function DashboardView() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+
+  // The dashboard always has a period: the last 30 days unless the URL names another.
+  const [dates, setDates] = useState(() => readDateRange(params, lastDays(DEFAULT_RANGE_DAYS)));
+  const complete = Boolean(dates.from && dates.to);
+  const isDefault = dates.from === lastDays(DEFAULT_RANGE_DAYS).from && dates.to === lastDays(DEFAULT_RANGE_DAYS).to;
+
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (!isDefault && dates.from) next.set('from', dates.from);
+    if (!isDefault && dates.to) next.set('to', dates.to);
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [dates, isDefault, pathname, router]);
+
+  const { data: d, error, loading, reload } = useAdminQuery(
+    // While a custom range is half-typed, keep showing the last complete period.
+    () => adminApi.getAdminDashboard(complete ? dateQuery(dates) : dateQuery(lastDays(DEFAULT_RANGE_DAYS))).then((r) => r.data),
+    [complete ? `${dates.from}:${dates.to}` : 'incomplete']
+  );
   const [selected, setSelected] = useState<BillRecord | null>(null);
 
-  const last30 = d?.transactions.last30Days;
-  const avgBill = last30 && last30.billCount ? last30.billAmount / last30.billCount : 0;
+  const period = d?.period;
+  const avgBill = period && period.billCount ? period.billAmount / period.billCount : 0;
   const pointsValue = d ? (d.points.creditedPoints * d.points.pointsRatio.rupees) / (d.points.pointsRatio.points || 1) : 0;
-  const attention = d ? attentionItems(d) : [];
+  const rangeQuery = d ? `from=${d.range.from}&to=${d.range.to}` : '';
+  const attention = d ? attentionItems(d, rangeQuery) : [];
+  const periodLabel = d
+    ? d.range.from === d.range.to
+      ? formatDate(d.range.from)
+      : `${formatDate(d.range.from)} – ${formatDate(d.range.to)}`
+    : '';
+  const shareToReferral = d && d.referrals.shares > 0 ? (d.referrals.successful / d.referrals.shares) * 100 : null;
+  const notificationTotal = d ? Object.values(d.notifications).reduce((a, b) => a + b, 0) : 0;
 
   return (
     <>
       <PageHeader
         title="Programme overview"
-        description="Sales, network health and anything that needs your attention, across every outlet."
+        description="Sales, referrals, points and network health for the period you choose, across every outlet."
         actions={
           <Button variant="secondary" onClick={reload} loading={loading && !!d}>
             {!(loading && d) && <RefreshCw className="h-4 w-4" />}
@@ -187,6 +301,21 @@ export default function DashboardPage() {
           </Button>
         }
       />
+
+      <FilterBar
+        onClear={!isDefault && (() => setDates(lastDays(DEFAULT_RANGE_DAYS)))}
+        exportCsv={{ path: '/admin/dashboard', params: { ...dateQuery(complete ? dates : lastDays(DEFAULT_RANGE_DAYS)) } }}
+      >
+        <GlobalSearch />
+        <DateRangeFilter label="Period" value={dates} onChange={setDates} allowAll={false} />
+        {d && (
+          <p className="text-xs text-stone-500">
+            Showing <span className="font-medium text-stone-800">{periodLabel}</span> · {formatNumber(d.range.days)} day
+            {d.range.days === 1 ? '' : 's'}
+            {d.range.granularity === 'month' && ' · charts by month'}
+          </p>
+        )}
+      </FilterBar>
 
       {error && (
         <Alert tone="danger" className="mb-6" action={<Button size="sm" variant="secondary" onClick={reload}>Retry</Button>}>
@@ -197,24 +326,26 @@ export default function DashboardPage() {
       {!d ? (
         !error && <DashboardSkeleton />
       ) : (
-        <div className="space-y-6 animate-rise-in">
-          {/* Hero: 30-day sales */}
+        <div className={cn('space-y-6 animate-rise-in', loading && 'opacity-60 transition-opacity')}>
+          <ProgramMetrics d={d} />
+
+          {/* Hero: sales in the period */}
           <Panel className="overflow-hidden">
             <div className="grid lg:grid-cols-[320px_minmax(0,1fr)]">
               <div className="border-b border-stone-150 bg-gradient-to-b from-maroon-50/60 to-transparent p-6 lg:border-b-0 lg:border-r">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-gold-600">Gross sales · last 30 days</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-gold-600">Gross sales · {periodLabel}</p>
                 <p className="mt-3 text-[44px] font-semibold leading-none tracking-[-0.02em] text-stone-900">
-                  {formatINRWhole(last30!.billAmount)}
+                  {formatINRWhole(period!.billAmount)}
                 </p>
                 <div className="mt-3">
-                  <Delta current={last30!.billAmount} previous={d.transactions.previous30Days.billAmount} label="30 days" />
+                  <Delta current={period!.billAmount} previous={d.previousPeriod.billAmount} days={d.range.days} />
                 </div>
                 <dl className="mt-8 space-y-3 border-t border-stone-150 pt-5 text-[13px]">
                   {[
-                    ['Bills', formatNumber(last30!.billCount)],
+                    ['Bills', formatNumber(period!.billCount)],
                     ['Average bill', formatINR(avgBill)],
-                    ['Discounts given', formatINR(last30!.discountAmount)],
-                    ['Collected by outlets', formatINR(last30!.finalAmount)],
+                    ['Discounts given', formatINR(period!.discountAmount)],
+                    ['Collected by outlets', formatINR(period!.finalAmount)],
                   ].map(([k, v]) => (
                     <div key={k} className="flex items-baseline justify-between gap-4">
                       <dt className="text-stone-500">{k}</dt>
@@ -224,7 +355,15 @@ export default function DashboardPage() {
                 </dl>
               </div>
               <div className="min-w-0 p-6">
-                <SalesChart data={d.transactions.daily} />
+                <TrendChart
+                  data={d.trend}
+                  emptyLabel="No sales in this period"
+                  metrics={[
+                    { key: 'billAmount', label: 'Gross sales', format: formatINR, tick: formatCompactINR },
+                    { key: 'discountAmount', label: 'Discounts', format: formatINR, tick: formatCompactINR },
+                    { key: 'billCount', label: 'Bills' },
+                  ]}
+                />
               </div>
             </div>
           </Panel>
@@ -240,7 +379,7 @@ export default function DashboardPage() {
                 ))}
               </div>
               <p className="mt-1.5 text-[11px] text-stone-500">
-                <span className="font-medium text-gold-700">+{formatNumber(d.partners.newLast30Days)}</span> joined in 30 days
+                <span className="font-medium text-gold-700">+{formatNumber(d.partners.newInPeriod)}</span> joined in this period
               </p>
             </Kpi>
             <Kpi icon={Store} label="Outlets" value={formatNumber(d.outlets.total)} href="/outlets">
@@ -267,19 +406,194 @@ export default function DashboardPage() {
             </Kpi>
           </Panel>
 
+          {/* Referrals and points over the period */}
+          <div className="grid gap-6 xl:grid-cols-2">
+            <Panel className="min-w-0">
+              <PanelHeader
+                title="Referrals"
+                description="Taps of “Share QR” in the Partner App, and the bills customers then closed with a referral QR."
+              />
+              <PanelBody>
+                <TrendChart
+                  height={190}
+                  data={d.trend}
+                  emptyLabel="No referral activity in this period"
+                  metrics={[
+                    { key: 'referralBills', label: 'Successful referrals' },
+                    { key: 'referralShares', label: 'QR shares' },
+                  ]}
+                />
+                <Stats
+                  items={[
+                    { label: 'QR shares', value: formatNumber(d.referrals.shares) },
+                    { label: 'Successful referrals', value: formatNumber(d.referrals.successful) },
+                    {
+                      label: 'Referrals per 100 shares',
+                      value: shareToReferral === null ? '—' : formatNumber(Math.round(shareToReferral)),
+                      hint: 'Successful referrals in the period for every 100 Share QR taps in the period',
+                    },
+                    { label: 'Rewards used', value: formatNumber(d.referrals.rewardsUsed), hint: 'Own bills that used a referral reward discount' },
+                  ]}
+                />
+              </PanelBody>
+            </Panel>
+
+            <Panel className="min-w-0">
+              <PanelHeader title="Points" description="Points issued on bills, and points partners spent with their redeem QR." />
+              <PanelBody>
+                <TrendChart
+                  height={190}
+                  data={d.trend}
+                  emptyLabel="No points movement in this period"
+                  metrics={[
+                    { key: 'pointsCredited', label: 'Credited' },
+                    { key: 'pointsRedeemed', label: 'Redeemed' },
+                  ]}
+                />
+                <Stats
+                  items={[
+                    { label: 'Credited', value: formatNumber(d.pointsFlow.credited) },
+                    { label: 'Redeemed', value: formatNumber(d.pointsFlow.redeemed) },
+                    { label: 'Redemptions', value: formatNumber(d.pointsFlow.redemptionCount) },
+                    { label: 'Redeemed value', value: formatINR(d.pointsFlow.redeemedRupees) },
+                  ]}
+                />
+              </PanelBody>
+            </Panel>
+          </div>
+
+          {/* Rankings and mix for the period */}
+          <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
+            <Panel>
+              <PanelHeader title="Top outlets" description="By gross sales in this period" />
+              <PanelBody>
+                <BarList
+                  format={formatCompactINR}
+                  emptyLabel="No sales in this period"
+                  items={d.topOutlets.map((o) => ({
+                    key: o.id,
+                    label: (
+                      <Link href={`/outlets/${o.id}?${rangeQuery}`} className="hover:text-maroon-700">
+                        {o.name}
+                        {o.status === 'INACTIVE' && <span className="ml-1.5 text-[11px] text-stone-400">(inactive)</span>}
+                      </Link>
+                    ),
+                    value: o.billAmount,
+                    hint: `${formatNumber(o.billCount)} bills · ${formatINR(o.billAmount)}`,
+                  }))}
+                />
+              </PanelBody>
+            </Panel>
+
+            <Panel>
+              <PanelHeader title="Top referrers" description="By successful referrals in this period" />
+              <PanelBody>
+                <BarList
+                  emptyLabel="No referral bills in this period"
+                  items={d.topReferrers.map((r) => ({
+                    key: r.id,
+                    label: (
+                      <Link href={`/partners/${r.id}?kind=REFERRAL&${rangeQuery}`} className="hover:text-maroon-700">
+                        {r.name} <span className="font-mono text-[11px] text-stone-400">{r.partnerCode}</span>
+                      </Link>
+                    ),
+                    value: r.referralCount,
+                    hint: `${formatINR(r.billAmount)} sales · ${formatNumber(r.referralPoints)} referral points`,
+                  }))}
+                />
+              </PanelBody>
+            </Panel>
+
+            <Panel className="lg:col-span-2 xl:col-span-1">
+              <PanelHeader title="Bills by type" description="Gross sales in this period" />
+              <PanelBody>
+                <BarList
+                  format={formatCompactINR}
+                  emptyLabel="No sales in this period"
+                  items={(['DIRECT_PARTNER', 'REFERRAL'] as const).map((t) => ({
+                    key: t,
+                    label: (
+                      <Link href={`/transactions?type=${t}&${rangeQuery}`} className="hover:text-maroon-700">
+                        {BILL_TYPE_LABEL[t]}{' '}
+                        <span className="text-[11px] text-stone-400">{formatNumber(d.periodByType[t].billCount)} bills</span>
+                      </Link>
+                    ),
+                    value: d.periodByType[t].billAmount,
+                    hint: formatINR(d.periodByType[t].billAmount),
+                  }))}
+                />
+                <div className="mt-5 border-t border-stone-150 pt-4">
+                  <div className="mb-2 flex items-center justify-between text-xs text-stone-500">
+                    <span>Bill messages delivered</span>
+                    <span className="tabular">
+                      {formatNumber(d.notifications.SENT)} / {formatNumber(notificationTotal)}
+                    </span>
+                  </div>
+                  <SplitMeter a={d.notifications.SENT} b={notificationTotal - d.notifications.SENT} aLabel="Sent" bLabel="Not sent" />
+                </div>
+              </PanelBody>
+            </Panel>
+          </div>
+
+          {/* Network growth */}
+          <div className="grid gap-6 xl:grid-cols-3">
+            <Panel className="min-w-0 xl:col-span-2">
+              <PanelHeader title="New partners" description="Registrations in the Partner App over this period" />
+              <PanelBody>
+                <TrendChart
+                  height={190}
+                  data={d.trend}
+                  emptyLabel="No registrations in this period"
+                  metrics={[{ key: 'newPartners', label: 'New partners', tick: formatCompact }]}
+                />
+              </PanelBody>
+            </Panel>
+
+            <Panel>
+              <PanelHeader
+                title="Newest partners"
+                actions={
+                  <Link href="/partners" className={buttonClass('ghost', 'sm')}>
+                    All <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
+                }
+              />
+              {d.recentPartners.length === 0 ? (
+                <p className="px-5 py-8 text-center text-xs text-stone-400">No partners have registered yet</p>
+              ) : (
+                <ul className="divide-y divide-stone-100">
+                  {d.recentPartners.map((p) => (
+                    <li key={p.id}>
+                      <Link href={`/partners/${p.id}`} className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-stone-25">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-maroon-50 text-[11px] font-semibold text-maroon-700">
+                          {initials(p.name)}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] font-medium text-stone-900">{p.name}</p>
+                          <p className="truncate text-xs text-stone-500">{p.city ?? p.partnerCode}</p>
+                        </div>
+                        <span className="shrink-0 text-xs text-stone-400">{formatRelative(p.createdAt)}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Panel>
+          </div>
+
           {/* Activity + attention */}
           <div className="grid gap-6 xl:grid-cols-3">
             <Panel className="min-w-0 xl:col-span-2">
               <PanelHeader
-                title="Recent transactions"
-                description="Latest bills across all outlets. Select a row for the full breakdown."
+                title="Latest transactions"
+                description="Most recent bills in this period. Select a row for the full breakdown."
                 actions={
-                  <Link href="/transactions" className={buttonClass('ghost', 'sm')}>
+                  <Link href={`/transactions?${rangeQuery}`} className={buttonClass('ghost', 'sm')}>
                     View all <ArrowRight className="h-3.5 w-3.5" />
                   </Link>
                 }
               />
-              <BillsTable bills={d.recentBills} onSelect={setSelected} />
+              <BillsTable bills={d.recentBills} onSelect={setSelected} emptyTitle="No transactions in this period" emptyDescription="Try a wider period." />
             </Panel>
 
             <div className="space-y-6">
@@ -347,109 +661,22 @@ export default function DashboardPage() {
                       <Badge tone="danger">Not saved</Badge>
                     )}
                   </li>
-                  <li className="px-5 py-3">
-                    <div className="mb-2 flex items-center justify-between text-xs text-stone-500">
-                      <span>Bill messages delivered</span>
-                      <span className="tabular">
-                        {formatNumber(d.notifications.SENT)} / {formatNumber(Object.values(d.notifications).reduce((a, b) => a + b, 0))}
-                      </span>
-                    </div>
-                    <SplitMeter
-                      a={d.notifications.SENT}
-                      b={d.notifications.FAILED + d.notifications.PENDING + d.notifications.SKIPPED}
-                      aLabel="Sent"
-                      bLabel="Not sent"
-                    />
-                  </li>
                 </ul>
               </Panel>
             </div>
-          </div>
-
-          {/* Breakdowns */}
-          <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
-            <Panel>
-              <PanelHeader title="Top outlets" description="By gross sales, all time" />
-              <PanelBody>
-                <BarList
-                  format={formatCompactINR}
-                  emptyLabel="No sales recorded yet"
-                  items={d.topOutlets.map((o) => ({
-                    key: o.id,
-                    label: (
-                      <Link href={`/outlets/${o.id}`} className="hover:text-maroon-700">
-                        {o.name}
-                        {o.status === 'INACTIVE' && <span className="ml-1.5 text-[11px] text-stone-400">(inactive)</span>}
-                      </Link>
-                    ),
-                    value: o.billAmount,
-                    hint: `${formatNumber(o.billCount)} bills · ${formatINR(o.billAmount)}`,
-                  }))}
-                />
-              </PanelBody>
-            </Panel>
-
-            <Panel>
-              <PanelHeader title="Partner mix" description="Registered partners by affiliation" />
-              <PanelBody>
-                <BarList
-                  emptyLabel="No partners yet"
-                  items={(['NON_ACHARIYA', 'STAFF', 'TEACHER', 'PARENT'] as const).map((r) => ({
-                    key: r,
-                    label: (
-                      <Link href={`/partners?role=${r}`} className="hover:text-maroon-700">
-                        {PARTNER_ROLE_LABEL[r]}
-                      </Link>
-                    ),
-                    value: d.partners.byRole[r],
-                  }))}
-                />
-                <div className="mt-5 grid grid-cols-2 gap-3 border-t border-stone-150 pt-4 text-xs text-stone-500">
-                  <div>
-                    Direct bills <p className="tabular text-sm font-semibold text-stone-900">{formatNumber(d.transactions.byType.DIRECT_PARTNER)}</p>
-                  </div>
-                  <div>
-                    Referral bills <p className="tabular text-sm font-semibold text-stone-900">{formatNumber(d.transactions.byType.REFERRAL)}</p>
-                  </div>
-                </div>
-              </PanelBody>
-            </Panel>
-
-            <Panel className="lg:col-span-2 xl:col-span-1">
-              <PanelHeader
-                title="Newest partners"
-                actions={
-                  <Link href="/partners" className={buttonClass('ghost', 'sm')}>
-                    All <ArrowRight className="h-3.5 w-3.5" />
-                  </Link>
-                }
-              />
-              {d.recentPartners.length === 0 ? (
-                <p className="px-5 py-8 text-center text-xs text-stone-400">No partners have registered yet</p>
-              ) : (
-                <ul className="divide-y divide-stone-100">
-                  {d.recentPartners.map((p) => (
-                    <li key={p.id}>
-                      <Link href={`/partners/${p.id}`} className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-stone-25">
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-maroon-50 text-[11px] font-semibold text-maroon-700">
-                          {initials(p.name)}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[13px] font-medium text-stone-900">{p.name}</p>
-                          <p className="truncate text-xs text-stone-500">{PARTNER_ROLE_LABEL[p.role]}</p>
-                        </div>
-                        <span className="shrink-0 text-xs text-stone-400">{formatRelative(p.createdAt)}</span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Panel>
           </div>
         </div>
       )}
 
       <BillDrawer bill={selected} onClose={() => setSelected(null)} />
     </>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense>
+      <DashboardView />
+    </Suspense>
   );
 }

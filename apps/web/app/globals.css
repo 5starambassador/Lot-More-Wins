@@ -21,7 +21,7 @@
     --destructive-foreground: 0 0% 100%;
     --border: 34 21% 88%; /* stone-150 */
     --input: 33 18% 83%; /* stone-200 */
-    --ring: 41 57% 47%; /* gold-500 */
+    --ring: 44 87% 48%; /* gold-500 */
     --radius: 0.5rem;
     color-scheme: light;
   }
@@ -39,11 +39,11 @@
     font-feature-settings: 'kern';
   }
   ::selection {
-    background: #f5eccf;
+    background: #fff2bf;
     color: #26060e;
   }
   :focus-visible {
-    outline: 2px solid #be9332;
+    outline: 2px solid #e5ac10;
     outline-offset: 2px;
   }
   input[type='number']::-webkit-inner-spin-button,
@@ -63,7 +63,7 @@
   /* Thin scrollbar used inside the navigation rail and tables. */
   .scroll-thin {
     scrollbar-width: thin;
-    scrollbar-color: rgba(209, 170, 74, 0.25) transparent;
+    scrollbar-color: rgba(247, 197, 49, 0.3) transparent;
   }
 }
 

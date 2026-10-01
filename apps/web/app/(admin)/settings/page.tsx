@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Coins, Link2, Mail, MessageCircle, Percent, RotateCcw } from 'lucide-react';
+import { Coins, Gift, Link2, Mail, MessageCircle, Percent, RotateCcw } from 'lucide-react';
 import type { MessagingMode, PointsBasis, ProgramSettings } from '@lotmorewins/types';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
@@ -19,17 +19,16 @@ import { cn } from '@/lib/utils';
 /** Numeric inputs are kept as strings while editing; the server validates the submitted numbers. */
 interface FormState {
   messagingMode: MessagingMode;
-  firstAchariya: string;
-  firstNonAchariya: string;
+  firstDiscount: string;
   firstValidityDays: string;
-  repeatAchariya: string;
-  repeatNonAchariya: string;
-  referralDiscountAchariya: string;
-  referralDiscountNonAchariya: string;
+  repeatDiscount: string;
+  birthdayBonus: string;
+  referralDiscount: string;
+  rewardGoal: string;
+  rewardDiscount: string;
   ratioPoints: string;
   ratioRupees: string;
-  referralAchariya: string;
-  referralNonAchariya: string;
+  referralPoints: string;
   purchasePoints: string;
   purchaseValidityDays: string;
   referralValidityDays: string;
@@ -40,17 +39,16 @@ interface FormState {
 function toForm(s: ProgramSettings): FormState {
   return {
     messagingMode: s.messagingMode,
-    firstAchariya: String(s.firstTimeDiscount.achariya),
-    firstNonAchariya: String(s.firstTimeDiscount.nonAchariya),
+    firstDiscount: String(s.firstTimeDiscount),
     firstValidityDays: String(s.firstTimeValidityDays),
-    repeatAchariya: String(s.repeatDiscount.achariya),
-    repeatNonAchariya: String(s.repeatDiscount.nonAchariya),
-    referralDiscountAchariya: String(s.referralDiscount.achariya),
-    referralDiscountNonAchariya: String(s.referralDiscount.nonAchariya),
+    repeatDiscount: String(s.repeatDiscount),
+    birthdayBonus: String(s.birthdayBonusDiscount),
+    referralDiscount: String(s.referralDiscount),
+    rewardGoal: String(s.referralRewardGoal),
+    rewardDiscount: String(s.referralRewardDiscount),
     ratioPoints: String(s.pointsToRupees.points),
     ratioRupees: String(s.pointsToRupees.rupees),
-    referralAchariya: String(s.referralPoints.achariya),
-    referralNonAchariya: String(s.referralPoints.nonAchariya),
+    referralPoints: String(s.referralPointsPercentage),
     purchasePoints: String(s.purchasePointsPercentage),
     purchaseValidityDays: String(s.purchasePointsValidityDays),
     referralValidityDays: String(s.referralPointsValidityDays),
@@ -66,15 +64,14 @@ const MODE_LABEL: Record<MessagingMode, string> = { email: 'Email', whatsapp: 'W
 
 /** Labels used in the review dialog, in display order. */
 const FIELDS: { key: keyof FormState; label: string; unit?: string; format?: (v: string) => string }[] = [
-  { key: 'firstAchariya', label: 'First-time discount · Achariya', unit: '%' },
-  { key: 'firstNonAchariya', label: 'First-time discount · Non-Achariya', unit: '%' },
+  { key: 'firstDiscount', label: 'First-time discount', unit: '%' },
   { key: 'firstValidityDays', label: 'First-time discount · Validity', format: formatDays },
-  { key: 'repeatAchariya', label: 'Repeat discount · Achariya', unit: '%' },
-  { key: 'repeatNonAchariya', label: 'Repeat discount · Non-Achariya', unit: '%' },
-  { key: 'referralDiscountAchariya', label: 'Referral discount · Achariya', unit: '%' },
-  { key: 'referralDiscountNonAchariya', label: 'Referral discount · Non-Achariya', unit: '%' },
-  { key: 'referralAchariya', label: 'Referral points · Achariya', unit: '%' },
-  { key: 'referralNonAchariya', label: 'Referral points · Non-Achariya', unit: '%' },
+  { key: 'repeatDiscount', label: 'Repeat discount', unit: '%' },
+  { key: 'birthdayBonus', label: 'Birthday bonus discount', unit: '%' },
+  { key: 'referralDiscount', label: 'Referral discount', unit: '%' },
+  { key: 'rewardGoal', label: 'Referral reward · Successful referrals needed' },
+  { key: 'rewardDiscount', label: 'Referral reward · Special discount', unit: '%' },
+  { key: 'referralPoints', label: 'Referral points', unit: '%' },
   { key: 'purchasePoints', label: 'Purchase points', unit: '%' },
   { key: 'purchaseValidityDays', label: 'Purchase points · Validity', format: formatDays },
   { key: 'referralValidityDays', label: 'Referral points · Validity', format: formatDays },
@@ -87,6 +84,7 @@ const FIELDS: { key: keyof FormState; label: string; unit?: string; format?: (v:
 
 const SECTIONS = [
   { id: 'discounts', label: 'Discounts', icon: Percent },
+  { id: 'referral-reward', label: 'Referral reward', icon: Gift },
   { id: 'rewards', label: 'Rewards & points', icon: Coins },
   { id: 'messaging', label: 'Messaging', icon: MessageCircle },
   { id: 'app', label: 'Partner app', icon: Link2 },
@@ -211,10 +209,10 @@ const EXAMPLE_BILL = 1000;
 function PointsExample({ form }: { form: FormState }) {
   const n = (v: string) => (Number.isFinite(Number(v)) ? Number(v) : 0);
   const pointsPerRupee = n(form.ratioRupees) > 0 ? n(form.ratioPoints) / n(form.ratioRupees) : 0;
-  const discount = (EXAMPLE_BILL * n(form.referralDiscountNonAchariya)) / 100;
+  const discount = (EXAMPLE_BILL * n(form.referralDiscount)) / 100;
   const base = form.pointsBasis === 'BILL_AMOUNT' ? EXAMPLE_BILL : EXAMPLE_BILL - discount;
   const purchase = ((base * n(form.purchasePoints)) / 100) * pointsPerRupee;
-  const referral = ((base * n(form.referralNonAchariya)) / 100) * pointsPerRupee;
+  const referral = ((base * n(form.referralPoints)) / 100) * pointsPerRupee;
   const fmt = (v: number) => v.toLocaleString('en-IN', { maximumFractionDigits: 2 });
   const rows = [
     ['Customer discount', `₹${fmt(discount)}`],
@@ -226,7 +224,7 @@ function PointsExample({ form }: { form: FormState }) {
   return (
     <div className="rounded-md border border-gold-200 bg-gold-50/40">
       <p className="border-b border-gold-200/70 px-4 py-2.5 text-xs font-medium text-gold-800">
-        Live example · ₹{fmt(EXAMPLE_BILL)} bill on a Non-Achariya partner&apos;s referral QR
+        Live example · ₹{fmt(EXAMPLE_BILL)} bill on a partner&apos;s referral QR
       </p>
       <dl className="divide-y divide-gold-200/50 px-4 text-[13px]">
         {rows.map(([k, v]) => (
@@ -265,15 +263,15 @@ export default function SettingsPage() {
     try {
       const res = await adminApi.updateAdminSettings({
         messagingMode: values.messagingMode,
-        firstTimeDiscount: { achariya: Number(values.firstAchariya), nonAchariya: Number(values.firstNonAchariya) },
+        firstTimeDiscount: Number(values.firstDiscount),
         firstTimeValidityDays: Number(values.firstValidityDays),
-        repeatDiscount: { achariya: Number(values.repeatAchariya), nonAchariya: Number(values.repeatNonAchariya) },
-        referralDiscount: {
-          achariya: Number(values.referralDiscountAchariya),
-          nonAchariya: Number(values.referralDiscountNonAchariya),
-        },
+        repeatDiscount: Number(values.repeatDiscount),
+        birthdayBonusDiscount: Number(values.birthdayBonus),
+        referralDiscount: Number(values.referralDiscount),
+        referralRewardGoal: Number(values.rewardGoal),
+        referralRewardDiscount: Number(values.rewardDiscount),
         pointsToRupees: { points: Number(values.ratioPoints), rupees: Number(values.ratioRupees) },
-        referralPoints: { achariya: Number(values.referralAchariya), nonAchariya: Number(values.referralNonAchariya) },
+        referralPointsPercentage: Number(values.referralPoints),
         purchasePointsPercentage: Number(values.purchasePoints),
         purchasePointsValidityDays: Number(values.purchaseValidityDays),
         referralPointsValidityDays: Number(values.referralValidityDays),
@@ -367,39 +365,36 @@ export default function SettingsPage() {
               <PanelHeader
                 eyebrow="High impact"
                 title="Discount rates"
-                description="Percentage taken off the bill. The column is picked by the Achariya status of the QR owner — the partner for their own QR, the referring partner for a referral QR."
+                description="Percentage taken off the bill. Every partner gets the same rates; the rule is picked by the QR that was scanned."
               />
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[680px] text-[13px]">
+                <table className="w-full min-w-[540px] text-[13px]">
                   <thead>
                     <tr className="border-b border-stone-150 text-[11px] uppercase tracking-[0.06em] text-stone-500">
                       <th className="px-5 py-2.5 text-left font-semibold">Rule</th>
-                      <th className="w-36 px-3 py-2.5 text-right font-semibold">Achariya</th>
-                      <th className="w-36 px-3 py-2.5 text-right font-semibold">Non-Achariya</th>
+                      <th className="w-36 px-3 py-2.5 text-right font-semibold">Discount</th>
                       <th className="w-36 px-5 py-2.5 text-right font-semibold">Validity</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100">
                     {(
                       [
-                        ['First-time sale', "Partner's first ever bill on their own discount QR, including customers who later register.", 'firstAchariya', 'firstNonAchariya'],
-                        ['Repeat sale', 'Every later bill on the partner’s own discount QR.', 'repeatAchariya', 'repeatNonAchariya'],
-                        ['Referral customer', 'A customer bringing a partner’s referral QR.', 'referralDiscountAchariya', 'referralDiscountNonAchariya'],
+                        ['First-time sale', "Partner's first ever bill on their own discount QR, including customers who later register.", 'firstDiscount'],
+                        ['Repeat sale', 'Every later bill on the partner’s own discount QR.', 'repeatDiscount'],
+                        ['Birthday bonus', 'Added on top of the partner’s own discount on their birthday only.', 'birthdayBonus'],
+                        ['Referral customer', 'A customer bringing a partner’s referral QR.', 'referralDiscount'],
                       ] as const
-                    ).map(([title, hint, a, b]) => (
+                    ).map(([title, hint, a]) => (
                       <tr key={title}>
                         <td className="px-5 py-3.5">
                           <p className="font-medium text-stone-900">{title}</p>
                           <p className="mt-0.5 text-xs text-stone-500">{hint}</p>
                         </td>
                         <td className="px-3 py-3.5">
-                          <PercentInput id={a} label={`${title} Achariya`} value={values[a]} onChange={set(a)} changed={changed(a)} />
-                        </td>
-                        <td className="px-3 py-3.5">
-                          <PercentInput id={b} label={`${title} Non-Achariya`} value={values[b]} onChange={set(b)} changed={changed(b)} />
+                          <PercentInput id={a} label={`${title} discount`} value={values[a]} onChange={set(a)} changed={changed(a)} />
                         </td>
                         <td className="px-5 py-3.5">
-                          {a === 'firstAchariya' ? (
+                          {a === 'firstDiscount' ? (
                             <>
                               <DaysInput
                                 id="firstValidityDays"
@@ -421,6 +416,45 @@ export default function SettingsPage() {
               </div>
             </Panel>
 
+            {/* Referral reward */}
+            <Panel id="referral-reward" className="scroll-mt-24">
+              <PanelHeader
+                eyebrow="High impact"
+                title="Referral reward"
+                description="A successful referral is a bill a customer closes with the partner's referral QR. Reaching the goal gives the partner a special discount on their next own purchase with their Personal Discount QR; using it takes their progress back to zero, so the reward repeats for every goal reached."
+              />
+              <div className="grid gap-4 px-5 py-5 sm:grid-cols-2 xl:grid-cols-3">
+                <Field label="Successful referrals needed" htmlFor="rewardGoal" hint="Shown as the progress bar in the Partner App">
+                  <Input
+                    id="rewardGoal"
+                    type="number"
+                    inputMode="numeric"
+                    step="1"
+                    min="1"
+                    max="1000"
+                    required
+                    value={values.rewardGoal}
+                    onChange={(e) => set('rewardGoal')(e.target.value)}
+                    suffix="referrals"
+                    className={cn('tabular pr-20 text-right font-medium', changed('rewardGoal') && 'border-gold-400 bg-gold-50/50')}
+                  />
+                </Field>
+                <Field
+                  label="Special discount"
+                  htmlFor="rewardDiscount"
+                  hint="Replaces the usual discount on that bill when it is higher; the birthday bonus still adds on top"
+                >
+                  <PercentInput
+                    id="rewardDiscount"
+                    label="Referral reward special discount"
+                    value={values.rewardDiscount}
+                    onChange={set('rewardDiscount')}
+                    changed={changed('rewardDiscount')}
+                  />
+                </Field>
+              </div>
+            </Panel>
+
             {/* Rewards */}
             <Panel id="rewards" className="scroll-mt-24">
               <PanelHeader
@@ -434,11 +468,8 @@ export default function SettingsPage() {
                     <Field label="Purchase points" htmlFor="purchasePoints" hint="Of the points base">
                       <PercentInput id="purchasePoints" label="Purchase points" value={values.purchasePoints} onChange={set('purchasePoints')} changed={changed('purchasePoints')} />
                     </Field>
-                    <Field label="Referral · Achariya" htmlFor="referralAchariya" hint="Referring partner">
-                      <PercentInput id="referralAchariya" label="Referral points Achariya" value={values.referralAchariya} onChange={set('referralAchariya')} changed={changed('referralAchariya')} />
-                    </Field>
-                    <Field label="Referral · Non-Achariya" htmlFor="referralNonAchariya" hint="Referring partner">
-                      <PercentInput id="referralNonAchariya" label="Referral points Non-Achariya" value={values.referralNonAchariya} onChange={set('referralNonAchariya')} changed={changed('referralNonAchariya')} />
+                    <Field label="Referral points" htmlFor="referralPoints" hint="To the referring partner">
+                      <PercentInput id="referralPoints" label="Referral points" value={values.referralPoints} onChange={set('referralPoints')} changed={changed('referralPoints')} />
                     </Field>
                   </div>
 
@@ -564,7 +595,7 @@ export default function SettingsPage() {
             <div
               className={cn(
                 'sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg border px-5 py-3 transition-all',
-                canSave ? 'border-[#5C0404] bg-[#750505] text-white shadow-raised' : 'border-stone-150 bg-white text-stone-500'
+                canSave ? 'border-[#5C0404] bg-brand-gradient text-white shadow-raised' : 'border-stone-150 bg-white text-stone-500'
               )}
             >
               <p className="text-[13px]">

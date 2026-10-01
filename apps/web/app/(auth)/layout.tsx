@@ -3,7 +3,7 @@ import Image from 'next/image';
 import { ShieldCheck } from 'lucide-react';
 
 const PILLARS = [
-  { title: 'Partner network', body: 'Achariya and non-Achariya partners, their QR codes and wallets.' },
+  { title: 'Partner network', body: 'Every partner, their QR codes and wallets.' },
   { title: 'Outlet operations', body: 'Every participating outlet, its admins and billing activity.' },
   { title: 'Programme rules', body: 'Discounts, points and messaging applied to every bill.' },
 ];
@@ -12,12 +12,12 @@ export default function AuthLayout({ children }: { children: ReactNode }): React
   return (
     <div className="grid min-h-screen bg-background lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
       {/* Brand panel */}
-      <aside className="relative hidden overflow-hidden bg-[#750505] text-white lg:flex lg:flex-col lg:justify-between lg:p-12 xl:p-16">
+      <aside className="relative hidden overflow-hidden bg-brand-gradient text-white lg:flex lg:flex-col lg:justify-between lg:p-12 xl:p-16">
         {/* Fine gold rule lines: a quiet texture, not decoration for its own sake */}
         <svg className="pointer-events-none absolute inset-0 h-full w-full opacity-[0.07]" aria-hidden>
           <defs>
             <pattern id="rules" width="56" height="56" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-              <line x1="0" y1="0" x2="0" y2="56" stroke="#D1AA4A" strokeWidth="1" />
+              <line x1="0" y1="0" x2="0" y2="56" stroke="#F7C531" strokeWidth="1" />
             </pattern>
           </defs>
           <rect width="100%" height="100%" fill="url(#rules)" />

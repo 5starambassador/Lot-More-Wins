@@ -31,16 +31,16 @@ const config: Config = {
         },
         /** Brand gold. 400–500 on maroon; 600–700 when gold must read as text on light surfaces. */
         gold: {
-          50: '#FBF7EA',
-          100: '#F5ECCF',
-          200: '#EBD9A0',
-          300: '#DFC270',
-          400: '#D1AA4A',
-          500: '#BE9332',
-          600: '#9C7722',
-          700: '#7A5C19',
-          800: '#5C4513',
-          900: '#3F2F0D',
+          50: '#FFFAE5',
+          100: '#FFF2BF',
+          200: '#FFE68A',
+          300: '#FFD95A',
+          400: '#F7C531',
+          500: '#E5AC10',
+          600: '#B8860B',
+          700: '#8F6708',
+          800: '#6B4D0A',
+          900: '#473308',
         },
         /** Warm neutrals for the workspace. */
         stone: {
@@ -71,6 +71,10 @@ const config: Config = {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 3px)',
+      },
+      backgroundImage: {
+        /** Dark-red chrome (navigation, brand panel, toasts) as a top-to-bottom gradient. */
+        'brand-gradient': 'linear-gradient(180deg, #8C0A0A 0%, #750505 40%, #430202 100%)',
       },
       boxShadow: {
         panel: '0 1px 0 rgba(28, 25, 22, 0.04)',

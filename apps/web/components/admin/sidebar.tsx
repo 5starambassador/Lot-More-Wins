@@ -156,7 +156,7 @@ export function AdminSidebar({ adminName, adminEmail }: { adminName: string; adm
   const pathname = usePathname();
   useEffect(() => setOpen(false), [pathname]);
 
-  const chrome = 'flex flex-col bg-[#750505] text-white';
+  const chrome = 'flex flex-col bg-brand-gradient text-white';
 
   return (
     <>
@@ -170,7 +170,7 @@ export function AdminSidebar({ adminName, adminEmail }: { adminName: string; adm
       </aside>
 
       {/* Mobile bar + drawer */}
-      <div className="sticky top-0 z-40 flex h-14 items-center justify-between bg-[#750505] px-4 lg:hidden">
+      <div className="sticky top-0 z-40 flex h-14 items-center justify-between bg-brand-gradient px-4 lg:hidden">
         <Brand />
         <button
           type="button"

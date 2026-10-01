@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { Suspense, useMemo, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { MoreHorizontal, Plus, Power, Search, Store, X } from 'lucide-react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { MoreHorizontal, Plus, Power, Search, Store } from 'lucide-react';
 import type { AdminOutlet, OutletStatus } from '@lotmorewins/types';
+import { DateRangeFilter, FilterBar, NO_DATES, dateQuery, readDateRange } from '@/components/admin/filter-bar';
 import { Badge, Tag } from '@/components/ui/badge';
 import { Button, buttonClass } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
@@ -12,9 +13,9 @@ import { Alert, EmptyState } from '@/components/ui/feedback';
 import { Input } from '@/components/ui/input';
 import { PageHeader, Segmented } from '@/components/ui/page-header';
 import { Panel } from '@/components/ui/panel';
-import { Pagination, SkeletonRows, SortTH, TBody, TD, TH, THead, TR, Table, TableScroll, TableToolbar } from '@/components/ui/table';
+import { Pagination, SkeletonRows, SortTH, TBody, TD, TH, THead, TR, Table, TableScroll } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
-import { adminApi, errorMessage, isUnauthenticated, useAdminQuery } from '@/lib/admin-client';
+import { adminApi, errorMessage, isUnauthenticated, useAdminQuery, useDebounced } from '@/lib/admin-client';
 import { OUTLET_STATUS } from '@/lib/admin-labels';
 import { OutletLogo } from '@/components/admin/outlet-form';
 import { formatDate, formatNumber } from '@/lib/format';
@@ -24,13 +25,33 @@ type SortKey = 'name' | 'billCount' | 'createdAt';
 
 function OutletsView() {
   const router = useRouter();
+  const pathname = usePathname();
   const params = useSearchParams();
   const toast = useToast();
-  const { data: outlets, error, reload, setData } = useAdminQuery(() => adminApi.listAdminOutlets().then((r) => r.data), []);
 
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(params.get('q') ?? '');
+  const [dates, setDates] = useState(() => readDateRange(params));
   const [status, setStatus] = useState<'ALL' | OutletStatus>(
     params.get('status') === 'INACTIVE' ? 'INACTIVE' : params.get('status') === 'ACTIVE' ? 'ACTIVE' : 'ALL'
+  );
+  const q = useDebounced(search.trim());
+
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (q) next.set('q', q);
+    if (dates.from) next.set('from', dates.from);
+    if (dates.to) next.set('to', dates.to);
+    if (status !== 'ALL') next.set('status', status);
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [q, dates, status, pathname, router]);
+
+  // Search and the "added" date are filtered by the server; status is narrowed here so the
+  // Active / Inactive counts always describe the same result.
+  const serverFilters = { search: q || undefined, ...dateQuery(dates) };
+  const { data: outlets, error, reload, setData } = useAdminQuery(
+    () => adminApi.listAdminOutlets(serverFilters).then((r) => r.data),
+    [q, dates.from, dates.to]
   );
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'createdAt', dir: 'desc' });
   const [page, setPage] = useState(1);
@@ -48,19 +69,14 @@ function OutletsView() {
 
   const rows = useMemo(() => {
     if (!outlets) return null;
-    const term = search.trim().toLowerCase();
-    const list = outlets.filter(
-      (o) =>
-        (status === 'ALL' || o.status === status) &&
-        (!term || [o.name, o.email, o.mobile, o.adminEmail ?? ''].some((v) => v.toLowerCase().includes(term)))
-    );
+    const list = outlets.filter((o) => status === 'ALL' || o.status === status);
     const dir = sort.dir === 'asc' ? 1 : -1;
     return list.sort((a, b) => {
       if (sort.key === 'name') return a.name.localeCompare(b.name) * dir;
       if (sort.key === 'billCount') return (a.billCount - b.billCount) * dir;
       return (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) * dir;
     });
-  }, [outlets, search, status, sort]);
+  }, [outlets, status, sort]);
 
   const totalPages = Math.max(1, Math.ceil((rows?.length ?? 0) / PAGE_SIZE));
   const current = Math.min(page, totalPages);
@@ -87,7 +103,13 @@ function OutletsView() {
     }
   };
 
-  const filtered = Boolean(search.trim() || status !== 'ALL');
+  const filtered = Boolean(search.trim() || status !== 'ALL' || dates.from || dates.to);
+  const clearAll = () => {
+    setSearch('');
+    setStatus('ALL');
+    setDates(NO_DATES);
+    setPage(1);
+  };
 
   return (
     <>
@@ -107,12 +129,14 @@ function OutletsView() {
         </Alert>
       )}
 
-      <Panel className="animate-rise-in">
-        <TableToolbar>
-          <div className="w-full lg:max-w-xs">
+      <FilterBar
+        onClear={filtered && clearAll}
+        exportCsv={{ path: '/admin/outlets', params: { ...serverFilters, status: status === 'ALL' ? undefined : status } }}
+      >
+          <div className="w-full sm:w-64">
             <Input
               icon={Search}
-              placeholder="Name, email, mobile or admin login"
+              placeholder="Name, email, mobile, address or admin login"
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -133,12 +157,21 @@ function OutletsView() {
               { value: 'ACTIVE', label: 'Active', count: counts.ACTIVE },
               { value: 'INACTIVE', label: 'Inactive', count: counts.INACTIVE },
             ]}
-            className="lg:ml-auto"
           />
-        </TableToolbar>
+          <DateRangeFilter
+            label="Added"
+            value={dates}
+            onChange={(v) => {
+              setDates(v);
+              setPage(1);
+            }}
+          />
+      </FilterBar>
+
+      <Panel className="animate-rise-in">
 
         {rows && rows.length === 0 ? (
-          outlets?.length === 0 ? (
+          outlets?.length === 0 && !filtered ? (
             <EmptyState
               icon={Store}
               title="No outlets yet"
@@ -153,20 +186,8 @@ function OutletsView() {
             <EmptyState
               icon={Search}
               title="No outlets match"
-              description="Try another search term or status."
-              action={
-                filtered && (
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      setSearch('');
-                      setStatus('ALL');
-                    }}
-                  >
-                    <X className="h-4 w-4" /> Clear filters
-                  </Button>
-                )
-              }
+              description="Try another search term, status or date range."
+              action={filtered && <Button variant="secondary" onClick={clearAll}>Clear filters</Button>}
             />
           )
         ) : (

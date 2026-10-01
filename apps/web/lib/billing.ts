@@ -6,7 +6,6 @@ import type {
   BillRecord,
   BillTransactionType,
   CustomerLookup,
-  PartnerClassification,
   PurchasePointsRecipient,
   ReferredCustomerInput,
   ScanResult,
@@ -14,11 +13,14 @@ import type {
 import prisma from './prisma';
 import { HttpError } from './auth';
 import { requireConfiguredSettings, type ConfiguredProgramSettings } from './settings';
+import { birthdayBonusFor } from './partners';
+import { billNotificationRows, referralRewardNotificationRow } from './partner-notifications';
+import { referralProgress } from './referral-rewards';
 
 /**
  * Billing engine. Everything that affects money, points or eligibility is decided here,
- * from persisted data only: QR validity/type, partner identity/type/status, first-time
- * status, and every percentage/ratio from the saved Super Admin settings (the single
+ * from persisted data only: QR validity/type, partner identity/status, first-time
+ * status, the partner's birthday, and every percentage/ratio from the saved Super Admin settings (the single
  * source; nothing is hardcoded and billing is refused until settings are saved).
  * Callers pass only the raw scanned value, the bill amount and (for referrals) the
  * referred customer's details.
@@ -36,10 +38,6 @@ export function extractQrToken(raw: string): string {
     value = value.split(/[?#]/)[0].split('/').filter(Boolean).pop() ?? '';
   }
   return value.toUpperCase();
-}
-
-export function classify(partner: Pick<Partner, 'isAchariyaAssociated'>): PartnerClassification {
-  return partner.isAchariyaAssociated ? 'ACHARIYA' : 'NON_ACHARIYA';
 }
 
 function transactionTypeFor(qr: Pick<QRCode, 'type'>): BillTransactionType {
@@ -88,7 +86,7 @@ type ResolvedQr = Awaited<ReturnType<typeof resolveQr>>;
  * The register bonus lapses settings.firstTimeValidityDays after the partner registered
  * (0 = never), after which their first bill is treated as a repeat sale.
  */
-async function isFirstTimeDirect(db: Db, partner: { id: string; createdAt: Date }, validityDays: number) {
+export async function isFirstTimeDirect(db: Db, partner: Pick<Partner, 'id' | 'createdAt'>, validityDays: number) {
   if (validityDays > 0 && Date.now() > partner.createdAt.getTime() + validityDays * 86_400_000) return false;
   return (await db.bill.count({ where: { partnerId: partner.id, transactionType: 'DIRECT_PARTNER' } })) === 0;
 }
@@ -106,22 +104,48 @@ async function isFirstTimeCustomer(db: Db, mobile: string) {
 // Settings -> money and points (the only place this mapping happens)
 // ============================================================================
 
+/** Discount before any birthday bonus. */
 export function discountPercentageFor(
   settings: ConfiguredProgramSettings,
   qrType: QRCode['type'],
-  classification: PartnerClassification,
   isFirstTime: boolean
 ): number {
-  const table =
-    qrType === 'REFERRAL' ? settings.referralDiscount : isFirstTime ? settings.firstTimeDiscount : settings.repeatDiscount;
-  return classification === 'ACHARIYA' ? table.achariya : table.nonAchariya;
+  return qrType === 'REFERRAL' ? settings.referralDiscount : isFirstTime ? settings.firstTimeDiscount : settings.repeatDiscount;
+}
+
+/**
+ * Total discount on a bill and what it is made of. Both extras apply only to the partner's
+ * own (direct QR) bill:
+ * - a waiting referral reward replaces the usual discount when it is the larger of the two
+ *   (so it is never spent on a bill where it would not help);
+ * - the birthday bonus is added on top and never pushes the discount past 100%.
+ */
+export function discountWithBonus(
+  settings: ConfiguredProgramSettings,
+  qrType: QRCode['type'],
+  isFirstTime: boolean,
+  birthdayBonus: number,
+  referralReward = 0
+) {
+  const isDirect = qrType === 'DEFAULT_DISCOUNT';
+  const usual = new Decimal(discountPercentageFor(settings, qrType, isFirstTime));
+  const useReward = isDirect && usual.lt(referralReward);
+  const base = useReward ? new Decimal(referralReward) : usual;
+  const bonus = isDirect ? Decimal.min(new Decimal(birthdayBonus), new Decimal(100).minus(base)) : new Decimal(0);
+  return {
+    discountPercentage: base.plus(bonus).toNumber(),
+    birthdayBonusPercentage: bonus.toNumber(),
+    referralRewardPercentage: useReward ? base.toNumber() : 0,
+  };
 }
 
 export interface BillContext {
   qrType: QRCode['type'];
-  /** Classification of the QR owner (direct partner, or referring partner). */
-  classification: PartnerClassification;
   isFirstTime: boolean;
+  /** Direct QR only: bonus the partner is entitled to today (0 when it is not their birthday). */
+  birthdayBonus: number;
+  /** Direct QR only: special discount of a referral reward the partner has waiting (0 when none). */
+  referralReward: number;
   /** Referral only: the customer's mobile belongs to a registered partner. */
   customerIsPartner: boolean;
 }
@@ -134,7 +158,13 @@ const roundMoney = (d: Prisma.Decimal) => d.toDecimalPlaces(2, Decimal.ROUND_HAL
  * where base is the bill or payable amount according to settings.pointsBasis.
  */
 export function calculateBill(settings: ConfiguredProgramSettings, ctx: BillContext, billAmount: number): BillCalculation {
-  const discountPercentage = discountPercentageFor(settings, ctx.qrType, ctx.classification, ctx.isFirstTime);
+  const { discountPercentage, birthdayBonusPercentage, referralRewardPercentage } = discountWithBonus(
+    settings,
+    ctx.qrType,
+    ctx.isFirstTime,
+    ctx.birthdayBonus,
+    ctx.referralReward
+  );
   const amount = new Decimal(billAmount).toDecimalPlaces(2);
   const discountAmount = roundMoney(amount.mul(discountPercentage).div(100));
   const finalAmount = amount.minus(discountAmount);
@@ -144,11 +174,7 @@ export function calculateBill(settings: ConfiguredProgramSettings, ctx: BillCont
   const pointsFor = (percentage: number) => roundMoney(pointsBase.mul(percentage).div(100).mul(pointsPerRupee));
 
   const isReferral = ctx.qrType === 'REFERRAL';
-  const referralPointsPercentage = isReferral
-    ? ctx.classification === 'ACHARIYA'
-      ? settings.referralPoints.achariya
-      : settings.referralPoints.nonAchariya
-    : 0;
+  const referralPointsPercentage = isReferral ? settings.referralPointsPercentage : 0;
   const purchasePointsRecipient: PurchasePointsRecipient = !isReferral
     ? 'PARTNER'
     : ctx.customerIsPartner
@@ -157,10 +183,11 @@ export function calculateBill(settings: ConfiguredProgramSettings, ctx: BillCont
 
   return {
     transactionType: isReferral ? 'REFERRAL' : 'DIRECT_PARTNER',
-    classification: ctx.classification,
     isFirstTime: ctx.isFirstTime,
     billAmount: amount.toNumber(),
     discountPercentage,
+    birthdayBonusPercentage,
+    referralRewardPercentage,
     discountAmount: discountAmount.toNumber(),
     finalAmount: finalAmount.toNumber(),
     pointsBasis: settings.pointsBasis,
@@ -194,6 +221,12 @@ async function partnerIdForMobile(db: Db, mobile: string): Promise<string | null
   return partner?.id ?? null;
 }
 
+/** Special discount of the referral reward the partner has earned and not yet used; 0 when none. */
+async function waitingReferralReward(db: Db, settings: ConfiguredProgramSettings, partnerId: string): Promise<number> {
+  const { rewardAvailable } = await referralProgress(db, partnerId, settings.referralRewardGoal);
+  return rewardAvailable ? settings.referralRewardDiscount : 0;
+}
+
 async function buildContext(
   db: Db,
   settings: ConfiguredProgramSettings,
@@ -204,7 +237,8 @@ async function buildContext(
   const customerPartnerId = !isDirect && customer ? await partnerIdForMobile(db, customer.mobile) : null;
   const ctx: BillContext = {
     qrType: qr.type,
-    classification: classify(qr.partner),
+    birthdayBonus: isDirect ? birthdayBonusFor(settings, qr.partner) : 0,
+    referralReward: isDirect ? await waitingReferralReward(db, settings, qr.partner.id) : 0,
     isFirstTime: isDirect
       ? await isFirstTimeDirect(db, qr.partner, settings.firstTimeValidityDays)
       : await isFirstTimeCustomer(db, customer!.mobile),
@@ -221,13 +255,18 @@ export async function scanQr(outlet: OutletRow, rawValue: string): Promise<ScanR
   assertOutletCanTransact(outlet);
   const settings = await requireConfiguredSettings();
   const qr = await resolveQr(prisma, rawValue);
-  const classification = classify(qr.partner);
+  const isDirect = qr.type === 'DEFAULT_DISCOUNT';
 
-  // Referral discount depends only on the referring partner; first-time status of a
-  // referred customer is unknown until their mobile is entered.
-  const isFirstTime =
-    qr.type === 'DEFAULT_DISCOUNT' ? await isFirstTimeDirect(prisma, qr.partner, settings.firstTimeValidityDays) : null;
-  const discountPercentage = discountPercentageFor(settings, qr.type, classification, isFirstTime ?? false);
+  // The referral discount is a single programme value; first-time status of a referred
+  // customer is unknown until their mobile is entered.
+  const isFirstTime = isDirect ? await isFirstTimeDirect(prisma, qr.partner, settings.firstTimeValidityDays) : null;
+  const discount = discountWithBonus(
+    settings,
+    qr.type,
+    isFirstTime ?? false,
+    isDirect ? birthdayBonusFor(settings, qr.partner) : 0,
+    isDirect ? await waitingReferralReward(prisma, settings, qr.partner.id) : 0
+  );
 
   return {
     qrType: qr.type,
@@ -238,9 +277,8 @@ export async function scanQr(outlet: OutletRow, rawValue: string): Promise<ScanR
       name: qr.partner.name,
       mobile: qr.partner.mobile,
       email: qr.partner.email,
-      classification,
     },
-    discount: { classification, isFirstTime, discountPercentage },
+    discount: { isFirstTime, ...discount },
     settingsVersion: settings.updatedAt,
   };
 }
@@ -268,7 +306,7 @@ export async function previewBill(
   return calculateBill(settings, ctx, input.billAmount);
 }
 
-const partnerSelect = { id: true, name: true, mobile: true, email: true, partnerCode: true, isAchariyaAssociated: true } as const;
+const partnerSelect = { id: true, name: true, mobile: true, email: true, partnerCode: true } as const;
 
 export const billInclude = {
   outlet: { select: { id: true, name: true } },
@@ -289,7 +327,6 @@ function purchaseRecipientOf(bill: BillWithRelations): PurchasePointsRecipient {
 }
 
 export function serializeBill(bill: BillWithRelations): BillRecord {
-  const owner = bill.partner ?? bill.referrerPartner;
   const person = (p: BillWithRelations['partner']) =>
     p ? { id: p.id, name: p.name, mobile: p.mobile, partnerCode: p.partnerCode } : null;
   return {
@@ -297,10 +334,11 @@ export function serializeBill(bill: BillWithRelations): BillRecord {
     billNumber: bill.billNumber,
     qrType: bill.qrCode.type,
     transactionType: bill.transactionType,
-    classification: owner ? classify(owner) : 'NON_ACHARIYA',
     isFirstTime: bill.isFirstTime,
     billAmount: bill.billAmount.toNumber(),
     discountPercentage: bill.discountPercentage.toNumber(),
+    birthdayBonusPercentage: bill.birthdayBonusPercentage.toNumber(),
+    referralRewardPercentage: bill.referralRewardPercentage.toNumber(),
     discountAmount: bill.discountAmount.toNumber(),
     finalAmount: bill.finalAmount.toNumber(),
     pointsBasis: bill.pointsBasis,
@@ -447,6 +485,10 @@ export async function createBill(
             isFirstTime: calc.isFirstTime,
             billAmount: calc.billAmount,
             discountPercentage: calc.discountPercentage,
+            birthdayBonusPercentage: calc.birthdayBonusPercentage,
+            // Using the reward takes one goal's worth of referrals off the partner's progress.
+            referralRewardPercentage: calc.referralRewardPercentage,
+            referralRewardReferrals: calc.referralRewardPercentage > 0 ? settings.referralRewardGoal : 0,
             discountAmount: calc.discountAmount,
             finalAmount: calc.finalAmount,
             settingsVersion: new Date(settings.updatedAt),
@@ -495,6 +537,30 @@ export async function createBill(
           });
         }
         if (entries.length) await tx.pointsEntry.createMany({ data: entries });
+
+        // Activity feed for every partner whose wallet this bill credited (pushed after commit).
+        const notifications = billNotificationRows({
+          billId: created.id,
+          outletName: currentOutlet.name,
+          customerName: input.customer?.name ?? null,
+          entries,
+        });
+        // This referral completed the goal: tell the partner their special discount is waiting.
+        // (Referral bills of one QR are serialized above, so the goal is crossed exactly once.)
+        if (!isDirect) {
+          const progress = await referralProgress(tx, qr.partner.id, settings.referralRewardGoal);
+          if (progress.successful === settings.referralRewardGoal) {
+            notifications.push(
+              referralRewardNotificationRow({
+                partnerId: qr.partner.id,
+                billId: created.id,
+                goal: settings.referralRewardGoal,
+                discount: settings.referralRewardDiscount,
+              })
+            );
+          }
+        }
+        if (notifications.length) await tx.notification.createMany({ data: notifications });
 
         const bill = await tx.bill.findUniqueOrThrow({ where: { id: created.id }, include: billInclude });
         return { bill: serializeBill(bill), replayed: false };

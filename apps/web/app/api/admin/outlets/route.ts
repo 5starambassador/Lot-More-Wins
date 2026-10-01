@@ -1,20 +1,27 @@
 import { NextRequest } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
-import { outletCreateSchema } from '@lotmorewins/validation';
+import { adminOutletListQuerySchema, outletCreateSchema } from '@lotmorewins/validation';
 import prisma from '@/lib/prisma';
 import { requireSuperAdmin } from '@/lib/auth';
 import { adminOutletInclude, serializeAdminOutlet } from '@/lib/outlets';
+import { listOutlets, outletsCsv } from '@/lib/admin-insights';
+import { csvResponse } from '@/lib/admin-csv';
 import { fail, handleRouteError, ok, readJson, validationError } from '@/lib/api-response';
 
 export const dynamic = 'force-dynamic';
 
-/** GET /api/admin/outlets — all outlets, any status. */
+/**
+ * GET /api/admin/outlets?search&status&from&to — outlets of any status; `from` / `to` filter
+ * by the date the outlet was added. `format=csv` downloads the filtered list.
+ */
 export async function GET(req: NextRequest) {
   try {
     await requireSuperAdmin(req);
-    const outlets = await prisma.outlet.findMany({ include: adminOutletInclude, orderBy: { createdAt: 'desc' } });
-    return ok(outlets.map(serializeAdminOutlet));
+    const parsed = adminOutletListQuerySchema.safeParse(Object.fromEntries(req.nextUrl.searchParams));
+    if (!parsed.success) return validationError(parsed.error);
+    if (parsed.data.format === 'csv') return csvResponse('outlets', await outletsCsv(parsed.data));
+    return ok(await listOutlets(parsed.data));
   } catch (error) {
     return handleRouteError(error, 'GET /api/admin/outlets');
   }
@@ -33,6 +40,9 @@ export async function POST(req: NextRequest) {
         name: fields.name,
         email: fields.email,
         mobile: fields.mobile,
+        description: fields.description ?? null,
+        address: fields.address ?? null,
+        mapUrl: fields.mapUrl ?? null,
         logoUrl: fields.logoUrl ?? null,
         images: fields.images ?? [],
         status: fields.status ?? 'ACTIVE',

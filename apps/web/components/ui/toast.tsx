@@ -41,7 +41,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             <div
               key={t.id}
               role={t.tone === 'error' ? 'alert' : 'status'}
-              className="pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-lg border border-[#5C0404] bg-[#750505] px-4 py-3 text-white shadow-raised animate-rise-in"
+              className="pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-lg border border-[#5C0404] bg-brand-gradient px-4 py-3 text-white shadow-raised animate-rise-in"
             >
               <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', t.tone === 'success' ? 'text-gold-300' : 'text-white')} />
               <div className="min-w-0 flex-1">

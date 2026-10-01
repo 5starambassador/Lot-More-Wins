@@ -16,6 +16,33 @@ export function isUnauthenticated(error: unknown): boolean {
   return error instanceof ApiClientError && (error.status === 401 || error.status === 403);
 }
 
+/**
+ * Downloads `GET /api{path}?…&format=csv` as a file. Every admin list route answers
+ * `format=csv` with the whole filtered result, so the export matches the filters on screen.
+ */
+export async function downloadCsv(path: string, params: Record<string, string | number | undefined> = {}): Promise<void> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== '') query.set(key, String(value));
+  }
+  query.set('format', 'csv');
+
+  const res = await fetch(`/api${path}?${query}`, { credentials: 'same-origin' });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { message?: string; code?: string } | null;
+    throw new ApiClientError(res.status, body?.message ?? 'The export could not be created.', body?.code);
+  }
+  const fileName = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? 'export.csv';
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export async function fileToBase64(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
   let binary = '';

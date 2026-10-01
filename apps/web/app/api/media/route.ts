@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { mediaUploadSchema } from '@lotmorewins/validation';
 import prisma from '@/lib/prisma';
-import { HttpError, requireOutletAdmin, requireSuperAdmin } from '@/lib/auth';
+import { HttpError, requireOutletAdmin, requirePartnerId, requireSuperAdmin } from '@/lib/auth';
+import { cloudinaryConfig, uploadToCloudinary } from '@/lib/cloudinary';
 import { fail, handleRouteError, ok, readJson, validationError } from '@/lib/api-response';
 
 export const dynamic = 'force-dynamic';
@@ -15,7 +16,10 @@ function matchesSignature(mimeType: string, bytes: Buffer): boolean {
   return false;
 }
 
-/** Outlet Admins upload from the app (Bearer); Super Admins from the web panel (cookie). */
+/**
+ * Outlet Admins and partners (profile photo) upload from the apps (Bearer);
+ * Super Admins from the web panel (cookie).
+ */
 async function requireUploader(req: NextRequest) {
   if (req.headers.get('authorization')?.startsWith('Bearer ')) {
     try {
@@ -23,11 +27,19 @@ async function requireUploader(req: NextRequest) {
     } catch (error) {
       if (!(error instanceof HttpError)) throw error;
     }
+    try {
+      return requirePartnerId(req);
+    } catch (error) {
+      if (!(error instanceof HttpError)) throw error;
+    }
   }
   return requireSuperAdmin(req);
 }
 
-/** POST /api/media — upload an outlet logo or gallery image (base64). Returns its URL. */
+/**
+ * POST /api/media — upload an outlet logo, gallery image or partner profile photo (base64).
+ * Returns its URL: a Cloudinary https URL, or /api/media/<id> while Cloudinary is not configured.
+ */
 export async function POST(req: NextRequest) {
   try {
     await requireUploader(req);
@@ -40,6 +52,12 @@ export async function POST(req: NextRequest) {
     }
     if (!matchesSignature(parsed.data.mimeType, data)) {
       return fail(415, 'File content does not match the declared image type', 'UNSUPPORTED_MEDIA');
+    }
+
+    // Cloudinary once its credentials are set; until then the image is kept in the database.
+    const cloudinary = cloudinaryConfig();
+    if (cloudinary) {
+      return ok(await uploadToCloudinary(cloudinary, { mimeType: parsed.data.mimeType, data }), 201);
     }
 
     const asset = await prisma.mediaAsset.create({

@@ -2,22 +2,24 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Search, Users, X } from 'lucide-react';
-import type { AdminPartnerSort, PartnerRole, PartnerStatus } from '@lotmorewins/types';
+import { Search, Users } from 'lucide-react';
+import type { AdminPartnerSort, PartnerStatus } from '@lotmorewins/types';
+import { DateRangeFilter, FilterBar, NO_DATES, dateQuery, readDateRange } from '@/components/admin/filter-bar';
 import { Badge, Tag } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Alert, EmptyState } from '@/components/ui/feedback';
 import { Input, Select } from '@/components/ui/input';
-import { PageHeader, Segmented } from '@/components/ui/page-header';
+import { PageHeader } from '@/components/ui/page-header';
 import { Panel } from '@/components/ui/panel';
-import { Pagination, SkeletonRows, TBody, TD, TH, THead, TR, Table, TableScroll, TableToolbar } from '@/components/ui/table';
+import { Pagination, SkeletonRows, TBody, TD, TH, THead, TR, Table, TableScroll } from '@/components/ui/table';
 import { adminApi, useAdminQuery, useDebounced } from '@/lib/admin-client';
-import { PARTNER_ROLE_LABEL, PARTNER_STATUS } from '@/lib/admin-labels';
+import { PARTNER_STATUS } from '@/lib/admin-labels';
 import { formatDate, formatNumber, initials } from '@/lib/format';
 
 const PAGE_SIZE = 20;
 const STATUSES = ['ACTIVE', 'PENDING', 'SUSPENDED', 'REJECTED'] as const;
-const ROLES = ['NON_ACHARIYA', 'STAFF', 'TEACHER', 'PARENT'] as const;
+const REFERRALS = ['with', 'without'] as const;
+type ReferralFilter = (typeof REFERRALS)[number];
 
 function pick<T extends string>(value: string | null, allowed: readonly T[]): T | undefined {
   return allowed.includes(value as T) ? (value as T) : undefined;
@@ -30,7 +32,8 @@ function PartnersView() {
 
   const [search, setSearch] = useState(params.get('q') ?? '');
   const [status, setStatus] = useState<PartnerStatus | undefined>(pick(params.get('status'), STATUSES));
-  const [role, setRole] = useState<PartnerRole | undefined>(pick(params.get('role'), ROLES));
+  const [referrals, setReferrals] = useState<ReferralFilter | undefined>(pick(params.get('referrals'), REFERRALS));
+  const [dates, setDates] = useState(() => readDateRange(params));
   const [sort, setSort] = useState<AdminPartnerSort>(pick(params.get('sort'), ['newest', 'oldest', 'name'] as const) ?? 'newest');
   const [page, setPage] = useState(Number(params.get('page')) || 1);
   const q = useDebounced(search.trim());
@@ -40,21 +43,31 @@ function PartnersView() {
     const next = new URLSearchParams();
     if (q) next.set('q', q);
     if (status) next.set('status', status);
-    if (role) next.set('role', role);
+    if (referrals) next.set('referrals', referrals);
+    if (dates.from) next.set('from', dates.from);
+    if (dates.to) next.set('to', dates.to);
     if (sort !== 'newest') next.set('sort', sort);
     if (page > 1) next.set('page', String(page));
     const qs = next.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  }, [q, status, role, sort, page, pathname, router]);
+  }, [q, status, referrals, dates, sort, page, pathname, router]);
 
+  const filters = { search: q || undefined, status, referrals, sort, ...dateQuery(dates) };
   const { data, error, loading, reload } = useAdminQuery(
-    () => adminApi.listAdminPartners({ page, limit: PAGE_SIZE, search: q || undefined, status, role, sort }),
-    [page, q, status, role, sort]
+    () => adminApi.listAdminPartners({ page, limit: PAGE_SIZE, ...filters }),
+    [page, q, status, referrals, dates.from, dates.to, sort]
   );
   const partners = data?.data ?? null;
-  const filtered = Boolean(q || status || role);
+  const filtered = Boolean(q || status || referrals || dates.from || dates.to);
   const resetPage = <T,>(set: (v: T) => void) => (v: T) => {
     set(v);
+    setPage(1);
+  };
+  const clearAll = () => {
+    setSearch('');
+    setStatus(undefined);
+    setReferrals(undefined);
+    setDates(NO_DATES);
     setPage(1);
   };
 
@@ -62,9 +75,53 @@ function PartnersView() {
     <>
       <PageHeader
         title="Partners"
-        description="Everyone registered in the Partner App — their affiliation, status, activity and points balance."
+        description="Everyone registered in the Partner App — their location, status, activity, referrals and points balance. Select a partner for their full tracking."
         meta={data && <Tag className="tabular">{formatNumber(data.meta.total)} {filtered ? 'matching' : 'total'}</Tag>}
       />
+
+      <FilterBar onClear={filtered && clearAll} exportCsv={{ path: '/admin/partners', params: filters }}>
+        <div className="w-full sm:w-64">
+          <Input
+            icon={Search}
+            placeholder="Name, mobile, email, ID, code or city"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            aria-label="Search partners"
+          />
+        </div>
+        <DateRangeFilter label="Joined" value={dates} onChange={resetPage(setDates)} />
+        <Select
+          aria-label="Status"
+          value={status ?? ''}
+          onChange={(e) => resetPage(setStatus)((e.target.value || undefined) as PartnerStatus | undefined)}
+          className="w-36"
+        >
+          <option value="">Any status</option>
+          {STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {PARTNER_STATUS[s].label}
+            </option>
+          ))}
+        </Select>
+        <Select
+          aria-label="Referrals"
+          value={referrals ?? ''}
+          onChange={(e) => resetPage(setReferrals)((e.target.value || undefined) as ReferralFilter | undefined)}
+          className="w-52"
+        >
+          <option value="">All partners</option>
+          <option value="with">With successful referrals</option>
+          <option value="without">No successful referrals yet</option>
+        </Select>
+        <Select aria-label="Sort" value={sort} onChange={(e) => resetPage(setSort)(e.target.value as AdminPartnerSort)} className="w-36">
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="name">Name A–Z</option>
+        </Select>
+      </FilterBar>
 
       {error && (
         <Alert tone="danger" className="mb-4" action={<Button size="sm" variant="secondary" onClick={reload}>Retry</Button>}>
@@ -73,48 +130,6 @@ function PartnersView() {
       )}
 
       <Panel className="animate-rise-in">
-        <TableToolbar>
-          <div className="w-full lg:max-w-xs">
-            <Input
-              icon={Search}
-              placeholder="Name, mobile, email or code"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              aria-label="Search partners"
-            />
-          </div>
-          <Segmented<'ALL' | PartnerStatus>
-            label="Status"
-            value={status ?? 'ALL'}
-            onChange={(v) => resetPage(setStatus)(v === 'ALL' ? undefined : v)}
-            options={[{ value: 'ALL', label: 'All' }, ...STATUSES.map((s) => ({ value: s, label: PARTNER_STATUS[s].label }))]}
-            className="max-w-full overflow-x-auto"
-          />
-          <div className="flex gap-2 lg:ml-auto">
-            <Select
-              aria-label="Affiliation"
-              value={role ?? ''}
-              onChange={(e) => resetPage(setRole)((e.target.value || undefined) as PartnerRole | undefined)}
-              className="w-44"
-            >
-              <option value="">All affiliations</option>
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {PARTNER_ROLE_LABEL[r]}
-                </option>
-              ))}
-            </Select>
-            <Select aria-label="Sort" value={sort} onChange={(e) => resetPage(setSort)(e.target.value as AdminPartnerSort)} className="w-36">
-              <option value="newest">Newest first</option>
-              <option value="oldest">Oldest first</option>
-              <option value="name">Name A–Z</option>
-            </Select>
-          </div>
-        </TableToolbar>
-
         {partners && partners.length === 0 && !loading ? (
           <EmptyState
             icon={Users}
@@ -122,31 +137,18 @@ function PartnersView() {
             description={
               filtered ? 'Try a different search or clear the filters.' : 'Partners appear here once they register in the Partner App.'
             }
-            action={
-              filtered && (
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setSearch('');
-                    setStatus(undefined);
-                    setRole(undefined);
-                    setPage(1);
-                  }}
-                >
-                  <X className="h-4 w-4" /> Clear filters
-                </Button>
-              )
-            }
+            action={filtered && <Button variant="secondary" onClick={clearAll}>Clear filters</Button>}
           />
         ) : (
           <TableScroll>
-            <Table className="min-w-[860px]">
+            <Table className="min-w-[960px]">
               <THead>
                 <tr>
                   <TH>Partner</TH>
                   <TH>Contact</TH>
-                  <TH>Affiliation</TH>
-                  <TH align="right">Bills</TH>
+                  <TH>City</TH>
+                  <TH align="right">Own bills</TH>
+                  <TH align="right">Referrals</TH>
                   <TH align="right">Points</TH>
                   <TH>Status</TH>
                   <TH>Joined</TH>
@@ -154,7 +156,7 @@ function PartnersView() {
               </THead>
               <TBody className={loading && partners ? 'opacity-60 transition-opacity' : undefined}>
                 {!partners ? (
-                  <SkeletonRows cols={7} rows={8} />
+                  <SkeletonRows cols={8} rows={8} />
                 ) : (
                   partners.map((p) => (
                     <TR
@@ -179,13 +181,14 @@ function PartnersView() {
                         <p className="tabular text-stone-800">{p.mobile}</p>
                         <p className="max-w-[220px] truncate text-xs text-stone-500">{p.email}</p>
                       </TD>
-                      <TD>
-                        <Tag gold={p.isAchariyaAssociated}>{PARTNER_ROLE_LABEL[p.role]}</Tag>
+                      <TD className="text-stone-700">{p.city ?? <span className="text-stone-300">—</span>}</TD>
+                      <TD align="right" className="text-stone-900">
+                        {formatNumber(p.directBillCount)}
                       </TD>
                       <TD align="right">
-                        <span className="text-stone-900">{formatNumber(p.directBillCount)}</span>
-                        {p.referredBillCount > 0 && (
-                          <span className="block text-[11px] text-stone-400">+{formatNumber(p.referredBillCount)} referred</span>
+                        <span className="text-stone-900">{formatNumber(p.referredBillCount)}</span>
+                        {p.referralShareCount > 0 && (
+                          <span className="block text-[11px] text-stone-400">{formatNumber(p.referralShareCount)} QR shares</span>
                         )}
                       </TD>
                       <TD align="right" className="font-medium text-stone-900">

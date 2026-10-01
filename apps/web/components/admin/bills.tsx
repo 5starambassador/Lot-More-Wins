@@ -91,6 +91,7 @@ export function BillsTable({
                     <div className="flex flex-wrap items-center gap-1">
                       <Tag gold={bill.transactionType === 'REFERRAL'}>{BILL_TYPE_LABEL[bill.transactionType]}</Tag>
                       {bill.isFirstTime && <Tag>First bill</Tag>}
+                      {bill.referralRewardPercentage > 0 && <Tag gold>Referral reward</Tag>}
                     </div>
                   </TD>
                   <TD align="right" className="font-medium text-stone-900">
@@ -145,8 +146,9 @@ export function BillDrawer({ bill, onClose }: { bill: BillRecord | null; onClose
       <div className="border-b border-stone-150 bg-stone-25 px-6 py-5">
         <div className="flex flex-wrap items-center gap-1.5">
           <Tag gold={bill.transactionType === 'REFERRAL'}>{BILL_TYPE_LABEL[bill.transactionType]}</Tag>
-          <Tag>{bill.classification === 'ACHARIYA' ? 'Achariya rate' : 'Non-Achariya rate'}</Tag>
           {bill.isFirstTime && <Tag>First bill</Tag>}
+          {bill.birthdayBonusPercentage > 0 && <Tag gold>Birthday bonus +{formatNumber(bill.birthdayBonusPercentage)}%</Tag>}
+          {bill.referralRewardPercentage > 0 && <Tag gold>Referral reward {formatNumber(bill.referralRewardPercentage)}%</Tag>}
         </div>
         <p className="mt-4 text-xs text-stone-500">Amount paid</p>
         <p className="tabular text-3xl font-semibold tracking-[-0.01em] text-stone-900">{formatINR(bill.finalAmount)}</p>

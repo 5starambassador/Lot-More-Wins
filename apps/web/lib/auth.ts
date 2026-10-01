@@ -8,7 +8,8 @@ import prisma from './prisma';
  * and expiry here — payloads are never trusted without verification.
  */
 
-export type TokenType = 'partner' | 'super_admin' | 'outlet_admin';
+/** 'redeem' tokens are the payload of a partner's redeem QR; they never authenticate a request. */
+export type TokenType = 'partner' | 'super_admin' | 'outlet_admin' | 'redeem';
 
 export interface TokenPayload {
   typ?: TokenType;

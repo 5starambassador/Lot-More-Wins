@@ -1,9 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { DailySalesPoint } from '@lotmorewins/types';
 import { cn } from '@/lib/utils';
-import { formatCompact, formatCompactINR, formatINR, formatNumber } from '@/lib/format';
+import { formatCompact, formatNumber } from '@/lib/format';
 import { Segmented } from '@/components/ui/page-header';
 import { Table, TBody, TD, TH, THead, TR, TableScroll } from '@/components/ui/table';
 
@@ -28,24 +27,46 @@ function niceTicks(max: number, count = 4): number[] {
   return Array.from({ length: count + 1 }, (_, i) => i * step);
 }
 
-const shortDate = (iso: string) =>
-  new Date(`${iso}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+/** Bucket label: an IST day (YYYY-MM-DD) or, for long periods, a month (YYYY-MM). */
+const shortDate = (bucket: string) =>
+  bucket.length === 7
+    ? new Date(`${bucket}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
+    : new Date(`${bucket}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 
-type Metric = 'billAmount' | 'billCount';
+export interface TrendMetric<K extends string> {
+  key: K;
+  label: string;
+  /** Exact value, for the tooltip and the table view. */
+  format?: (v: number) => string;
+  /** Compact value, for the axis. */
+  tick?: (v: number) => string;
+}
 
 /**
- * Daily sales, one series. Metric switch instead of a second axis; hover tooltip on every
- * column; table view for exact values.
+ * One series over time, drawn as columns. Several measures are offered through a metric
+ * switch rather than a second axis; every column has a hover tooltip listing all of them,
+ * and the table view gives the exact values.
  */
-export function SalesChart({ data }: { data: DailySalesPoint[] }) {
-  const [metric, setMetric] = useState<Metric>('billAmount');
+export function TrendChart<K extends string>({
+  data,
+  metrics,
+  height = 220,
+  emptyLabel = 'Nothing in this period yet',
+}: {
+  data: ({ date: string } & Record<K, number>)[];
+  metrics: readonly TrendMetric<K>[];
+  height?: number;
+  emptyLabel?: string;
+}) {
+  const [metricKey, setMetricKey] = useState<K>(metrics[0]!.key);
   const [view, setView] = useState<'chart' | 'table'>('chart');
   const [hover, setHover] = useState<number | null>(null);
   const [ref, width] = useWidth<HTMLDivElement>();
 
-  const height = 220;
+  const metric = metrics.find((m) => m.key === metricKey) ?? metrics[0]!;
+  const fmt = (m: TrendMetric<K>) => m.format ?? formatNumber;
   const pad = { top: 12, right: 8, bottom: 28, left: 48 };
-  const values = data.map((d) => d[metric]);
+  const values = data.map((d) => d[metric.key] as number);
   const ticks = useMemo(() => niceTicks(Math.max(...values, 0)), [values]);
   const yMax = ticks[ticks.length - 1] || 1;
   const innerW = Math.max(0, width - pad.left - pad.right);
@@ -53,23 +74,25 @@ export function SalesChart({ data }: { data: DailySalesPoint[] }) {
   const band = data.length ? innerW / data.length : 0;
   const barW = Math.max(2, Math.min(24, band - 2));
   const y = (v: number) => pad.top + innerH - (v / yMax) * innerH;
-  const fmtValue = metric === 'billAmount' ? formatINR : formatNumber;
-  const fmtTick = metric === 'billAmount' ? formatCompactINR : formatCompact;
-  const labelEvery = band < 22 ? 7 : band < 40 ? 5 : 2;
+  const fmtTick = metric.tick ?? formatCompact;
+  // Aim for a date label roughly every 64px, whatever the number of buckets.
+  const labelEvery = Math.max(1, Math.ceil(64 / Math.max(band, 1)));
   const hovered = hover !== null ? data[hover] : null;
 
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <Segmented<Metric>
-          label="Chart metric"
-          value={metric}
-          onChange={setMetric}
-          options={[
-            { value: 'billAmount', label: 'Gross sales' },
-            { value: 'billCount', label: 'Bills' },
-          ]}
-        />
+        {metrics.length > 1 ? (
+          <Segmented<K>
+            label="Chart metric"
+            value={metric.key}
+            onChange={setMetricKey}
+            options={metrics.map((m) => ({ value: m.key, label: m.label }))}
+            className="max-w-full overflow-x-auto"
+          />
+        ) : (
+          <p className="text-xs font-medium text-stone-500">{metric.label}</p>
+        )}
         <Segmented<'chart' | 'table'>
           label="View"
           value={view}
@@ -82,34 +105,36 @@ export function SalesChart({ data }: { data: DailySalesPoint[] }) {
       </div>
 
       {view === 'table' ? (
-        <TableScroll className="max-h-[220px] overflow-y-auto rounded-md border border-stone-150">
+        <TableScroll className="overflow-y-auto rounded-md border border-stone-150" style={{ maxHeight: height }}>
           <Table>
             <THead className="sticky top-0">
               <tr>
                 <TH>Date</TH>
-                <TH align="right">Bills</TH>
-                <TH align="right">Gross sales</TH>
+                {metrics.map((m) => (
+                  <TH key={m.key} align="right">
+                    {m.label}
+                  </TH>
+                ))}
               </tr>
             </THead>
             <TBody>
               {[...data].reverse().map((d) => (
                 <TR key={d.date}>
-                  <TD className="h-9">{shortDate(d.date)}</TD>
-                  <TD className="h-9" align="right">
-                    {formatNumber(d.billCount)}
-                  </TD>
-                  <TD className="h-9" align="right">
-                    {formatINR(d.billAmount)}
-                  </TD>
+                  <TD className="h-9 whitespace-nowrap">{shortDate(d.date)}</TD>
+                  {metrics.map((m) => (
+                    <TD key={m.key} className="h-9" align="right">
+                      {fmt(m)(d[m.key] as number)}
+                    </TD>
+                  ))}
                 </TR>
               ))}
             </TBody>
           </Table>
         </TableScroll>
       ) : (
-        <div ref={ref} className="relative h-[220px] w-full" onMouseLeave={() => setHover(null)}>
+        <div ref={ref} className="relative w-full" style={{ height }} onMouseLeave={() => setHover(null)}>
           {width > 0 && (
-            <svg width={width} height={height} role="img" aria-label={`Daily ${metric === 'billAmount' ? 'gross sales' : 'bill count'}, last ${data.length} days`}>
+            <svg width={width} height={height} role="img" aria-label={`${metric.label} over ${data.length} ${data[0]?.date.length === 7 ? 'months' : 'days'}`}>
               {ticks.map((t) => (
                 <g key={t}>
                   <line x1={pad.left} x2={width - pad.right} y1={y(t)} y2={y(t)} stroke="#EFEBE6" strokeWidth={1} />
@@ -119,7 +144,7 @@ export function SalesChart({ data }: { data: DailySalesPoint[] }) {
                 </g>
               ))}
               {data.map((d, i) => {
-                const v = d[metric];
+                const v = d[metric.key] as number;
                 const x = pad.left + i * band + (band - barW) / 2;
                 const top = y(v);
                 const h = pad.top + innerH - top;
@@ -157,21 +182,23 @@ export function SalesChart({ data }: { data: DailySalesPoint[] }) {
             </svg>
           )}
           {width > 0 && values.every((v) => v === 0) && (
-            <p className="pointer-events-none absolute inset-x-0 top-[40%] text-center text-xs text-stone-400">No sales in this period yet</p>
+            <p className="pointer-events-none absolute inset-x-0 top-[40%] text-center text-xs text-stone-400">{emptyLabel}</p>
           )}
           {hovered && hover !== null && (
             <div
-              className="pointer-events-none absolute z-10 min-w-[150px] rounded-md border border-stone-150 bg-white px-3 py-2 shadow-raised animate-fade-in"
+              className="pointer-events-none absolute z-10 min-w-[170px] rounded-md border border-stone-150 bg-white px-3 py-2 shadow-raised animate-fade-in"
               style={{
-                left: Math.min(Math.max(pad.left + hover * band + band / 2 - 75, 0), Math.max(0, width - 160)),
-                top: Math.max(0, y(hovered[metric]) - 72),
+                left: Math.min(Math.max(pad.left + hover * band + band / 2 - 85, 0), Math.max(0, width - 180)),
+                top: Math.max(0, Math.min(y(hovered[metric.key] as number) - 40 - metrics.length * 18, height - 60 - metrics.length * 18)),
               }}
             >
               <p className="text-[11px] text-stone-500">{shortDate(hovered.date)}</p>
-              <p className="tabular text-sm font-semibold text-stone-900">{fmtValue(hovered[metric])}</p>
-              <p className="tabular text-[11px] text-stone-500">
-                {metric === 'billAmount' ? `${formatNumber(hovered.billCount)} bills` : formatINR(hovered.billAmount)}
-              </p>
+              {metrics.map((m) => (
+                <p key={m.key} className={cn('tabular flex justify-between gap-4', m.key === metric.key ? 'text-sm font-semibold text-stone-900' : 'text-[11px] text-stone-500')}>
+                  <span className={m.key === metric.key ? 'text-[11px] font-normal text-stone-500' : undefined}>{m.label}</span>
+                  {fmt(m)(hovered[m.key] as number)}
+                </p>
+              ))}
             </div>
           )}
         </div>
