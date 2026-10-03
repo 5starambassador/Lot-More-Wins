@@ -12,8 +12,12 @@ export function errorMessage(error: unknown, fallback = 'Something went wrong. P
   return fallback;
 }
 
+/**
+ * The session is gone (signed out, expired, or the account was deactivated): back to /login.
+ * A 403 for a page or action the account was not given is shown as an error instead.
+ */
 export function isUnauthenticated(error: unknown): boolean {
-  return error instanceof ApiClientError && (error.status === 401 || error.status === 403);
+  return error instanceof ApiClientError && (error.status === 401 || (error.status === 403 && error.code === 'FORBIDDEN'));
 }
 
 /**

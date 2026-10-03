@@ -14,6 +14,7 @@ import { PageHeader, Segmented } from '@/components/ui/page-header';
 import { DetailList, Panel, PanelBody, PanelHeader } from '@/components/ui/panel';
 import { Pagination, SkeletonRows, TBody, TD, TH, THead, TR, Table, TableScroll } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
+import { DeleteRecordButton } from '@/components/admin/delete-record';
 import { adminApi, errorMessage, useAdminQuery } from '@/lib/admin-client';
 import { PARTNER_STATUS, QR_TYPE_LABEL } from '@/lib/admin-labels';
 import { formatDate, formatDateTime, formatINR, formatNumber, formatRelative } from '@/lib/format';
@@ -119,7 +120,7 @@ function PartnerDetailView({ id }: { id: string }) {
   }, [dates, kind, outletId, pathname, router]);
 
   const { data: p, error, reload } = useAdminQuery(() => adminApi.getAdminPartner(id).then((r) => r.data), [id]);
-  const outlets = useAdminQuery(() => adminApi.listAdminOutlets().then((r) => r.data), []);
+  const outlets = useAdminQuery(() => adminApi.listAdminOutletOptions().then((r) => r.data), []);
   const filters = { ...dateQuery(dates), outletId: outletId || undefined, kind };
   const activity = useAdminQuery(
     () => adminApi.getAdminPartnerActivity(id, { page, limit: PAGE_SIZE, ...filters }).then((r) => r.data),
@@ -187,6 +188,7 @@ function PartnerDetailView({ id }: { id: string }) {
             <Link href={`/transactions?partnerId=${p.id}`} className={buttonClass('secondary')}>
               All transactions <ArrowRight className="h-4 w-4" />
             </Link>
+            <DeleteRecordButton kind="partner" id={p.id} name={p.name} />
           </>
         }
       />

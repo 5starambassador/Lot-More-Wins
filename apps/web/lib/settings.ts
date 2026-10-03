@@ -1,5 +1,5 @@
 import type { Prisma, ProgramSetting } from '@prisma/client';
-import type { MessagingMode, ProgramSettings, UpdateProgramSettingsPayload } from '@lotmorewins/types';
+import type { AppDownloadLinks, MessagingMode, ProgramSettings, UpdateProgramSettingsPayload } from '@lotmorewins/types';
 import prisma from './prisma';
 import { HttpError } from './auth';
 
@@ -35,7 +35,12 @@ function toDto(row: ProgramSetting | null): ProgramSettings {
       appDownloadUrl: null,
       inviteImageUrl: null,
       homePopupEnabled: false,
+      latestAppVersion: null,
       walletDisplay: 'POINTS',
+      androidAppUrl: null,
+      androidAppLinkType: 'DIRECT',
+      iosAppUrl: null,
+      iosAppLinkType: 'DIRECT',
       isPersisted: false,
       updatedAt: null,
     };
@@ -58,13 +63,58 @@ function toDto(row: ProgramSetting | null): ProgramSettings {
     appDownloadUrl: row.appDownloadUrl,
     inviteImageUrl: row.inviteImageUrl,
     homePopupEnabled: row.homePopupEnabled,
+    latestAppVersion: row.latestAppVersion,
     walletDisplay: row.walletDisplay,
+    androidAppUrl: row.androidAppUrl,
+    androidAppLinkType: row.androidAppLinkType,
+    iosAppUrl: row.iosAppUrl,
+    iosAppLinkType: row.iosAppLinkType,
     isPersisted: true,
     updatedAt: row.updatedAt.toISOString(),
   };
 }
 
 type Db = Prisma.TransactionClient | typeof prisma;
+
+/**
+ * A file-sharing page link turned into a link that downloads the file itself, so "Download for
+ * Android" starts the APK download instead of opening a preview page:
+ * - Google Drive share links (…/file/d/<id>/view, open?id=, uc?id=) → Drive's direct download,
+ *   with confirm=t so files too large for Google's virus scan do not stop at a warning page;
+ * - Dropbox ?dl=0 → ?dl=1.
+ * Any other link is returned unchanged.
+ */
+export function directDownloadUrl(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (host === 'drive.google.com' || host === 'docs.google.com') {
+    const id = /\/file\/d\/([A-Za-z0-9_-]+)/.exec(parsed.pathname)?.[1] ?? parsed.searchParams.get('id');
+    if (id) return `https://drive.usercontent.google.com/download?id=${encodeURIComponent(id)}&export=download&confirm=t`;
+  }
+  if ((host === 'www.dropbox.com' || host === 'dropbox.com') && parsed.searchParams.get('dl') !== '1') {
+    parsed.searchParams.set('dl', '1');
+    return parsed.toString();
+  }
+  return url;
+}
+
+/** The Partner App download links per platform, as served to the landing page and the app. */
+export function appDownloadLinks(
+  settings: Pick<ProgramSettings, 'androidAppUrl' | 'androidAppLinkType' | 'iosAppUrl' | 'iosAppLinkType'>
+): AppDownloadLinks {
+  // A direct Android link must download the APK straight away; store links stay as they are.
+  const android =
+    settings.androidAppUrl && settings.androidAppLinkType === 'DIRECT' ? directDownloadUrl(settings.androidAppUrl) : settings.androidAppUrl;
+  return {
+    android: { url: android, type: settings.androidAppLinkType },
+    ios: { url: settings.iosAppUrl, type: settings.iosAppLinkType },
+  };
+}
 
 export async function getProgramSettings(db: Db = prisma): Promise<ProgramSettings> {
   return toDto(await db.programSetting.findUnique({ where: { id: SETTINGS_ID } }));
@@ -122,7 +172,12 @@ export async function updateProgramSettings(
     // Settings added after the first release: omitted keeps the stored value.
     ...(input.inviteImageUrl !== undefined && { inviteImageUrl: input.inviteImageUrl }),
     ...(input.homePopupEnabled !== undefined && { homePopupEnabled: input.homePopupEnabled }),
+    ...(input.latestAppVersion !== undefined && { latestAppVersion: input.latestAppVersion }),
     ...(input.walletDisplay !== undefined && { walletDisplay: input.walletDisplay }),
+    ...(input.androidAppUrl !== undefined && { androidAppUrl: input.androidAppUrl }),
+    ...(input.androidAppLinkType !== undefined && { androidAppLinkType: input.androidAppLinkType }),
+    ...(input.iosAppUrl !== undefined && { iosAppUrl: input.iosAppUrl }),
+    ...(input.iosAppLinkType !== undefined && { iosAppLinkType: input.iosAppLinkType }),
     updatedBy,
   } as const;
 

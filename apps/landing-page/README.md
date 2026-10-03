@@ -3,7 +3,7 @@
 React + Vite + Tailwind CSS. Two routes:
 
 - `/` the product showcase (hero, how it works, how partners earn, screenshots, download QR)
-- `/download` Android APK download and the iPhone "Add to Home Screen" guide
+- `/download` the Android download and the iPhone install (App Store or "Add to Home Screen" guide)
 
 ## Commands
 
@@ -11,7 +11,6 @@ React + Vite + Tailwind CSS. Two routes:
 pnpm dev:landing                                   # from the repo root, http://localhost:3100
 pnpm --filter @lotmorewins/landing-page build
 pnpm --filter @lotmorewins/landing-page typecheck
-pnpm --filter @lotmorewins/landing-page sync:apk   # copy the release APK into public/
 ```
 
 ## Configuration
@@ -20,16 +19,24 @@ Copy `.env.example` to `.env.local`, or set the same variables in the Vercel pro
 
 | Variable | Purpose |
 | --- | --- |
-| `VITE_PARTNER_WEB_URL` | Partner App web version. "Download for iOS" sends people here to add it to their home screen. Required. |
-| `VITE_ANDROID_APK_URL` | Where the APK is hosted. Defaults to `/lot-more-wins-partner.apk` on this site. |
+| `VITE_API_URL` | Lot More Wins API, where the download links are read from (`/app-links`). Defaults to `https://lotmore-wins.vercel.app/api`. |
+| `VITE_PARTNER_WEB_URL` | Partner App web version. Used for "Download for iOS" when no iOS link is set in the panel. |
 | `VITE_SITE_URL` | Public address used inside the download QR. Defaults to the address being viewed. |
 
-## Android APK
+## Download links
 
-`sync:apk` copies `apps/partner-app/android/app/build/outputs/apk/release/app-release.apk` to
-`public/lot-more-wins-partner.apk`. The current build is about 128 MB, which is over GitHub's
-100 MB per-file limit, so the file is git-ignored. To ship it, either host the APK elsewhere and
-set `VITE_ANDROID_APK_URL`, or track it with Git LFS and remove the ignore rule.
+The download links are managed in the Super Admin panel under **Settings → App downloads**: one
+link per platform, each marked as a direct link (APK / web app) or a store listing (Google Play /
+App Store). `/download` reads them from the API every time it opens.
+
+- **Android** uses exactly that link. No APK is bundled with this site. While the link loads the
+  button waits; if the request fails, the page shows an error with a "Try again" button, and if no
+  Android link is set it says the Android app is coming soon.
+- **iOS** uses the panel's link, or `VITE_PARTNER_WEB_URL` when none is set. A direct link shows
+  the "Add to Home Screen" guide; an App Store link opens the store.
+
+Host the APK somewhere that can serve large files (GitHub's 100 MB limit rules out committing it)
+and paste its address into the panel.
 
 ## iPhone install
 
@@ -40,5 +47,5 @@ the user through Safari's Share > Add to Home Screen.
 ## Deploying
 
 `vercel.json` is set up for a Vercel project whose root directory is `apps/landing-page`. It
-rewrites unmatched paths to `index.html` so `/download` loads directly, and serves the APK as an
-attachment.
+rewrites unmatched paths to `index.html` so `/download` loads directly. `public/.htaccess` and
+`public/_redirects` do the same on Apache and Netlify.

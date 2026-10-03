@@ -1014,11 +1014,14 @@ export async function dashboardCsv(query: AdminDateRangeQuery = {}): Promise<str
 
 const SEARCH_RESULTS_PER_KIND = 6;
 
-/** Dashboard search: the best few partners and outlets matching one query. */
-export async function adminSearch(q: string): Promise<AdminSearchResult> {
+/**
+ * Dashboard search: the best few partners and outlets matching one query, limited to the
+ * kinds the signed-in admin may open.
+ */
+export async function adminSearch(q: string, allowed: { partners: boolean; outlets: boolean }): Promise<AdminSearchResult> {
   const [partners, outlets] = await Promise.all([
-    listPartners({ page: 1, limit: SEARCH_RESULTS_PER_KIND, search: q, sort: 'newest' }),
-    listOutlets({ search: q }),
+    allowed.partners ? listPartners({ page: 1, limit: SEARCH_RESULTS_PER_KIND, search: q, sort: 'newest' }).then((r) => r.partners) : [],
+    allowed.outlets ? listOutlets({ search: q }) : [],
   ]);
-  return { partners: partners.partners, outlets: outlets.slice(0, SEARCH_RESULTS_PER_KIND) };
+  return { partners, outlets: outlets.slice(0, SEARCH_RESULTS_PER_KIND) };
 }

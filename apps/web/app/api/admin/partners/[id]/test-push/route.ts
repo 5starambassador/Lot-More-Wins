@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import type { AdminTestPushResult } from '@lotmorewins/types';
 import prisma from '@/lib/prisma';
-import { requireSuperAdmin } from '@/lib/auth';
+import { requireAdmin } from '@/lib/auth';
 import { sendPush } from '@/lib/push';
 import { fail, handleRouteError, ok } from '@/lib/api-response';
 
@@ -16,7 +16,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireSuperAdmin(req);
+    await requireAdmin(req, 'partners');
     const { id } = await params;
     if (!UUID.test(id)) return fail(404, 'Partner not found', 'PARTNER_NOT_FOUND');
     const partner = await prisma.partner.findUnique({ where: { id }, select: { id: true } });

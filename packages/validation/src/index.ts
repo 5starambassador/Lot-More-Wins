@@ -145,6 +145,20 @@ const validityDaysSchema = z
   .max(3650, 'Validity cannot exceed 3650 days')
   .default(0);
 
+const appLinkUrlSchema = (label: string) =>
+  z
+    .string()
+    .trim()
+    .max(2048)
+    .refine((v) => v === '' || /^https?:\/\/\S+$/i.test(v), `${label} must be an http(s) URL`)
+    .transform((v) => (v === '' ? null : v))
+    .nullable()
+    .optional();
+
+const appLinkTypeSchema = z
+  .enum(['DIRECT', 'STORE'], { errorMap: () => ({ message: 'Link type must be "DIRECT" or "STORE"' }) })
+  .optional();
+
 export const programSettingsUpdateSchema = z
   .object({
     messagingMode: z.enum(['email', 'whatsapp'], {
@@ -180,9 +194,23 @@ export const programSettingsUpdateSchema = z
     /** Image attached to the partner invite message; null clears it, omitted keeps it. */
     inviteImageUrl: z.lazy(() => imageUrlSchema).nullable().optional(),
     homePopupEnabled: z.boolean({ invalid_type_error: 'Home popup must be on or off' }).optional(),
+    /** e.g. "1.1.0"; empty string or null clears it, omitted keeps it. */
+    latestAppVersion: z
+      .string()
+      .trim()
+      .max(20)
+      .refine((v) => v === '' || /^\d+(\.\d+){0,3}$/.test(v), 'Latest app version must look like 1.1.0')
+      .transform((v) => (v === '' ? null : v))
+      .nullable()
+      .optional(),
     walletDisplay: z
       .enum(['POINTS', 'RUPEES'], { errorMap: () => ({ message: 'Wallet display must be "POINTS" or "RUPEES"' }) })
       .optional(),
+    /** Empty string or null clears a link; omitted keeps it. */
+    androidAppUrl: appLinkUrlSchema('Android download link'),
+    androidAppLinkType: appLinkTypeSchema,
+    iosAppUrl: appLinkUrlSchema('iOS download link'),
+    iosAppLinkType: appLinkTypeSchema,
   })
   .strict();
 
@@ -258,6 +286,47 @@ export const outletUpdateSchema = z
 
 /** Outlet Admins may edit profile fields only — never status or credentials. */
 export const outletProfileUpdateSchema = z.object(outletProfileFields).partial().strict();
+
+// ============================================================================
+// Web panel admin accounts
+// ============================================================================
+
+/**
+ * Pages a Super Admin can give an admin. "Admins" (account management) is never in this list:
+ * only Super Admins have it.
+ */
+export const ADMIN_PAGES = ['dashboard', 'partners', 'outlets', 'transactions', 'settings'] as const;
+
+export const ADMIN_PAGE_LABELS: Record<(typeof ADMIN_PAGES)[number], string> = {
+  dashboard: 'Dashboard',
+  partners: 'Partners',
+  outlets: 'Outlets',
+  transactions: 'Transactions',
+  settings: 'Programme settings',
+};
+
+const adminPasswordSchema = z
+  .string()
+  .min(10, 'Password must be at least 10 characters')
+  .max(200)
+  .refine((v) => /[A-Za-z]/.test(v) && /\d/.test(v), 'Password must contain letters and numbers');
+
+const adminAccountFields = {
+  name: z.string().trim().min(2, 'Name must be at least 2 characters').max(100),
+  email: emailSchema,
+  mobile: normalizedMobileSchema,
+  position: z.string().trim().min(2, 'Position must be at least 2 characters').max(80),
+  pages: z.array(z.enum(ADMIN_PAGES)).max(ADMIN_PAGES.length).transform((pages) => [...new Set(pages)]),
+  canDelete: z.boolean(),
+  isActive: z.boolean(),
+};
+
+export const adminAccountCreateSchema = z
+  .object({ ...adminAccountFields, isActive: adminAccountFields.isActive.optional(), password: adminPasswordSchema })
+  .strict();
+
+/** Every field optional; a password resets the account's password. */
+export const adminAccountUpdateSchema = z.object({ ...adminAccountFields, password: adminPasswordSchema }).partial().strict();
 
 export const mediaUploadSchema = z
   .object({

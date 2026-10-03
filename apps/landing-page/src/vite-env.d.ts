@@ -2,8 +2,8 @@
 
 interface ImportMetaEnv {
   readonly VITE_PARTNER_WEB_URL?: string;
-  readonly VITE_ANDROID_APK_URL?: string;
   readonly VITE_SITE_URL?: string;
+  readonly VITE_API_URL?: string;
 }
 
 interface ImportMeta {

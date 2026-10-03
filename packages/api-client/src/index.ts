@@ -57,6 +57,11 @@ import type {
   AdminPartnerActivityPage,
   AdminPartnerActivityQuery,
   AdminTestPushResult,
+  AdminAccount,
+  CreateAdminAccountPayload,
+  UpdateAdminAccountPayload,
+  DeletionImpact,
+  AdminOutletOption,
 } from '@lotmorewins/types';
 
 export interface ApiClientConfig {
@@ -360,6 +365,55 @@ export class ApiClient {
   }
 
   /** One partner's activity log: own purchases, successful referrals, redemptions and QR shares. */
+  /** Outlet ids and names for filter dropdowns (any admin with Outlets, Partners or Transactions). */
+  public listAdminOutletOptions(): Promise<ApiResponse<AdminOutletOption[]>> {
+    return this.get<ApiResponse<AdminOutletOption[]>>('/admin/outlets', { params: { view: 'options' } });
+  }
+
+  // --- Admin accounts (Super Admin only) -------------------------------------------------
+
+  public getAdminMe(): Promise<ApiResponse<{ admin: SuperAdminProfile }>> {
+    return this.get<ApiResponse<{ admin: SuperAdminProfile }>>('/admin/auth/me');
+  }
+
+  public listAdminAccounts(): Promise<ApiResponse<AdminAccount[]>> {
+    return this.get<ApiResponse<AdminAccount[]>>('/admin/admins');
+  }
+
+  public createAdminAccount(payload: CreateAdminAccountPayload): Promise<ApiResponse<AdminAccount>> {
+    return this.post<ApiResponse<AdminAccount>>('/admin/admins', payload);
+  }
+
+  public updateAdminAccount(id: string, payload: UpdateAdminAccountPayload): Promise<ApiResponse<AdminAccount>> {
+    return this.patch<ApiResponse<AdminAccount>>(`/admin/admins/${encodeURIComponent(id)}`, payload);
+  }
+
+  public deleteAdminAccount(id: string): Promise<ApiResponse<{ deleted: boolean }>> {
+    return this.delete<ApiResponse<{ deleted: boolean }>>(`/admin/admins/${encodeURIComponent(id)}`);
+  }
+
+  // --- Permanent deletes (need the page and the delete permission) ----------------------
+
+  public getPartnerDeletionImpact(id: string): Promise<ApiResponse<DeletionImpact>> {
+    return this.get<ApiResponse<DeletionImpact>>(`/admin/partners/${encodeURIComponent(id)}/deletion`);
+  }
+
+  public deleteAdminPartner(id: string): Promise<ApiResponse<DeletionImpact>> {
+    return this.delete<ApiResponse<DeletionImpact>>(`/admin/partners/${encodeURIComponent(id)}`, { timeoutMs: 60000 });
+  }
+
+  public getOutletDeletionImpact(id: string): Promise<ApiResponse<DeletionImpact>> {
+    return this.get<ApiResponse<DeletionImpact>>(`/admin/outlets/${encodeURIComponent(id)}/deletion`);
+  }
+
+  public deleteAdminOutlet(id: string): Promise<ApiResponse<DeletionImpact>> {
+    return this.delete<ApiResponse<DeletionImpact>>(`/admin/outlets/${encodeURIComponent(id)}`, { timeoutMs: 60000 });
+  }
+
+  public deleteAdminTransaction(id: string): Promise<ApiResponse<{ billNumber: string; pointsEntries: number }>> {
+    return this.delete<ApiResponse<{ billNumber: string; pointsEntries: number }>>(`/admin/transactions/${encodeURIComponent(id)}`);
+  }
+
   /** Sends a test notification to the partner's phones and reports the delivery outcome. */
   public sendAdminTestPush(id: string): Promise<ApiResponse<AdminTestPushResult>> {
     return this.post<ApiResponse<AdminTestPushResult>>(`/admin/partners/${encodeURIComponent(id)}/test-push`);

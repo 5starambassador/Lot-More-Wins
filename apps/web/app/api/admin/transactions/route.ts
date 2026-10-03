@@ -1,9 +1,9 @@
 import { NextRequest } from 'next/server';
 import { adminTransactionListQuerySchema } from '@lotmorewins/validation';
-import { requireSuperAdmin } from '@/lib/auth';
+import { requireAdmin } from '@/lib/auth';
 import { listTransactions, transactionsCsv } from '@/lib/admin-insights';
 import { csvResponse } from '@/lib/admin-csv';
-import { handleRouteError, ok, validationError } from '@/lib/api-response';
+import { fail, handleRouteError, ok, validationError } from '@/lib/api-response';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,9 +14,12 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(req: NextRequest) {
   try {
-    await requireSuperAdmin(req);
+    const admin = await requireAdmin(req);
     const parsed = adminTransactionListQuerySchema.safeParse(Object.fromEntries(req.nextUrl.searchParams));
     if (!parsed.success) return validationError(parsed.error);
+    // Outlets admins see one outlet's bills on its detail page, without the Transactions page.
+    const allowed = admin.pages.includes('transactions') || (admin.pages.includes('outlets') && !!parsed.data.outletId);
+    if (!allowed) return fail(403, 'You do not have access to Transactions', 'PAGE_FORBIDDEN');
     const { page, limit } = parsed.data;
     if (parsed.data.format === 'csv') return csvResponse('transactions', await transactionsCsv(parsed.data));
 

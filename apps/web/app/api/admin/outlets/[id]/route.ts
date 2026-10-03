@@ -2,7 +2,8 @@ import { NextRequest } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { outletUpdateSchema } from '@lotmorewins/validation';
 import prisma from '@/lib/prisma';
-import { requireSuperAdmin } from '@/lib/auth';
+import { requireAdmin, requireAdminDelete } from '@/lib/auth';
+import { deleteOutlet } from '@/lib/admin-deletions';
 import { adminOutletInclude, serializeAdminOutlet } from '@/lib/outlets';
 import { fail, handleRouteError, ok, readJson, validationError } from '@/lib/api-response';
 
@@ -13,7 +14,7 @@ type Params = { params: Promise<{ id: string }> };
 /** GET /api/admin/outlets/:id */
 export async function GET(req: NextRequest, { params }: Params) {
   try {
-    await requireSuperAdmin(req);
+    await requireAdmin(req, 'outlets');
     const { id } = await params;
     const outlet = await prisma.outlet.findUnique({ where: { id }, include: adminOutletInclude });
     if (!outlet) return fail(404, 'Outlet not found', 'NOT_FOUND');
@@ -26,7 +27,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 /** PATCH /api/admin/outlets/:id — update details, activate/deactivate, or reset the admin password. */
 export async function PATCH(req: NextRequest, { params }: Params) {
   try {
-    await requireSuperAdmin(req);
+    await requireAdmin(req, 'outlets');
     const { id } = await params;
     const parsed = outletUpdateSchema.safeParse(await readJson(req));
     if (!parsed.success) return validationError(parsed.error);
@@ -47,5 +48,17 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return ok(serializeAdminOutlet(outlet), 200, 'Outlet updated');
   } catch (error) {
     return handleRouteError(error, 'PATCH /api/admin/outlets/:id');
+  }
+}
+
+/** DELETE /api/admin/outlets/:id — permanently delete the outlet with its bills, redemptions and admin login. */
+export async function DELETE(req: NextRequest, { params }: Params) {
+  try {
+    await requireAdminDelete(req, 'outlets');
+    const { id } = await params;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return fail(404, 'Outlet not found', 'NOT_FOUND');
+    return ok(await deleteOutlet(id), 200, 'Outlet deleted');
+  } catch (error) {
+    return handleRouteError(error, 'DELETE /api/admin/outlets/:id');
   }
 }

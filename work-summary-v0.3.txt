@@ -1,0 +1,41 @@
+Lot More Wins - Version 0.3 Updates
+
+Partner Mobile App (Android)
+• New logo updated in app icon, splash screen and inside the app.
+• QR code download and share now comes as a branded image with logo, title and code.
+• Invite message now shares along with the invite image.
+• Wallet amounts can now be shown in rupees or points.
+• New version update popup added on the home page.
+• Home greeting now changes by time (morning, afternoon, evening, night).
+• Tapping a wallet notification now opens the wallet page.
+• Android push notification feature added successfully.
+• Signed Play Store build (AAB) and new APK build created.
+
+Partner App Web Version (iPhone)
+• App logo now shows correctly when added to the iPhone home screen.
+• Referral QR sharing now shares the image along with the text.
+• Logout issue fixed.
+• Page not found issue fixed on page refresh.
+• Web version deployed separately on Vercel with auto updates.
+
+Outlet Admin Mobile App
+• Bill amount now rounds off to the nearest rupee (eg: Rs 330.70 to Rs 331).
+• New APK build created.
+
+Super Admin Panel Web App
+• New logo updated in the panel and browser tab.
+• Added an admins management page to add admins with page wise access.
+• Added delete option for partners, outlets and transactions.
+• Added a new invite link image setting in the super admin panel to share the invite along with the invite message.
+• Added home popup on/off setting for the new version update popup.
+• Added wallet display setting to show rupees or points.
+• Added Android and iOS app download link settings.
+• Added a test notification button in the partner details page.
+• Image uploads moved to Cloudinary with automatic compression.
+• Page not found page added.
+
+Landing Page Website
+• Created an new landing page for showcasing lotmore wins.
+• /download page will help user to download the apk files and safari shortcuts until both the apps published in playstore and appstore.
+
+

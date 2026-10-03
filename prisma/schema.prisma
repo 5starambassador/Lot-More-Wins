@@ -121,6 +121,14 @@ enum PointsBasis {
   PAYABLE_AMOUNT
 }
 
+/// What a platform's Partner App download link points at.
+enum AppLinkType {
+  /// Android: an APK file; iOS: the web app (Add to Home Screen) or another direct page.
+  DIRECT
+  /// Google Play Store / Apple App Store listing.
+  STORE
+}
+
 /// How wallet values are shown in the Partner App.
 enum WalletDisplay {
   POINTS
@@ -137,14 +145,30 @@ enum BillTransactionType {
   REFERRAL
 }
 
+/// SUPER_ADMIN has every page and manages admin accounts; ADMIN only has the pages it was given.
+enum AdminRole {
+  SUPER_ADMIN
+  ADMIN
+}
+
+/// Web panel accounts. Every one signs in on the same login page with email and password.
 model SuperAdmin {
-  id           String   @id @default(uuid())
+  id           String    @id @default(uuid())
   name         String
-  email        String   @unique
-  passwordHash String   @map("password_hash")
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  mobile       String?
+  /// Job title shown in the panel, e.g. "Accounts manager".
+  position     String?
+  role         AdminRole @default(SUPER_ADMIN)
+  /// ADMIN only: panel pages this account may open (dashboard, partners, outlets, transactions, settings).
+  pages        String[]  @default([])
+  /// ADMIN only: may delete partners, outlets and transactions on the pages it has.
+  canDelete    Boolean   @default(false) @map("can_delete")
+  isActive     Boolean   @default(true) @map("is_active")
+  createdById  String?   @map("created_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   @@map("super_admins")
 }
@@ -178,7 +202,14 @@ model ProgramSetting {
   inviteImageUrl             String?          @map("invite_image_url")
   /// Show the "new version available" popup on the Partner App home page.
   homePopupEnabled           Boolean          @default(false) @map("home_popup_enabled")
+  /// The popup only shows on Partner App versions older than this (e.g. "1.1.0"); null = every version.
+  latestAppVersion           String?          @map("latest_app_version")
   walletDisplay              WalletDisplay    @default(POINTS) @map("wallet_display")
+  /// Partner App download links per platform, used by the landing page and the update popup.
+  androidAppUrl              String?          @map("android_app_url")
+  androidAppLinkType         AppLinkType      @default(DIRECT) @map("android_app_link_type")
+  iosAppUrl                  String?          @map("ios_app_url")
+  iosAppLinkType             AppLinkType      @default(DIRECT) @map("ios_app_link_type")
   updatedBy                String?          @map("updated_by")
   createdAt                  DateTime         @default(now()) @map("created_at")
   updatedAt                  DateTime         @updatedAt @map("updated_at")

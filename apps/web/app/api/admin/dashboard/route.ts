@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { requireSuperAdmin } from '@/lib/auth';
+import { requireAdmin } from '@/lib/auth';
 import { dashboardCsv, getDashboard } from '@/lib/admin-insights';
 import { csvResponse } from '@/lib/admin-csv';
 import { adminDashboardQuerySchema } from '@lotmorewins/validation';
@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(req: NextRequest) {
   try {
-    await requireSuperAdmin(req);
+    await requireAdmin(req, 'dashboard');
     const parsed = adminDashboardQuerySchema.safeParse(Object.fromEntries(req.nextUrl.searchParams));
     if (!parsed.success) return validationError(parsed.error);
     if (parsed.data.format === 'csv') return csvResponse('dashboard', await dashboardCsv(parsed.data));

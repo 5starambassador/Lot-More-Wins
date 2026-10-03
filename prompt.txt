@@ -1,0 +1,1 @@
+good then. now we have to work on an new feature in the partner mobile app. this app should every notifcation from the notifcation page to the mobile's native notifcation. how to do it. what are the requirements needed from my side. before doing any action let me know the requirements and plan

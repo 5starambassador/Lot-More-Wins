@@ -1,6 +1,6 @@
-import { useEffect, useState, type ComponentProps } from 'react';
-import { Pressable, RefreshControl, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useCallback, useEffect, useState, type ComponentProps } from 'react';
+import { AppState, Platform, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import type { Outlet } from '@lotmorewins/types';
@@ -16,6 +16,7 @@ import { useAuthStore } from '../../store/auth-store';
 import { describeError, useHome, useOutlets, useWallet } from '../../lib/queries';
 import { firstName, greeting } from '../../lib/format';
 import { walletFormat } from '../../lib/wallet-display';
+import { APP_VERSION, isOlderVersion } from '../../lib/app-version';
 import { colors, fonts, goldFrame, space } from '../../theme/tokens';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -54,8 +55,37 @@ function OutletButton({ outlet, onPress }: { outlet: Outlet; onPress: () => void
   );
 }
 
-/** Closing the update popup keeps it closed until the app is opened again. */
-let updatePopupClosed = false;
+/**
+ * The Super Admin's "new version" popup (Settings → Home popup), on the phone app only: it asks
+ * for the Play Store install, which the web version cannot use. It shows every time the app is
+ * opened or brought back to the foreground, while this build is older than the "Latest app
+ * version" set there (any version when that is empty), and only while Home is on screen.
+ * Closing it hides it until the next open.
+ */
+function useUpdatePopup(enabled: boolean, latestVersion: string | null | undefined) {
+  const [focused, setFocused] = useState(true);
+  const [closed, setClosed] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      setFocused(true);
+      return () => setFocused(false);
+    }, [])
+  );
+
+  // Coming back from the background counts as opening the app again.
+  useEffect(() => {
+    let previous = AppState.currentState;
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active' && previous !== 'active') setClosed(false);
+      previous = next;
+    });
+    return () => subscription.remove();
+  }, []);
+
+  const outdated = !latestVersion || isOlderVersion(APP_VERSION, latestVersion);
+  return { visible: Platform.OS !== 'web' && enabled && outdated && focused && !closed, close: () => setClosed(true) };
+}
 
 /** The greeting for the current local time, re-checked every minute while Home is open. */
 function useGreeting() {
@@ -75,9 +105,7 @@ export default function HomeScreen() {
   const wallet = useWallet();
   const format = walletFormat(wallet.data);
   const greetingText = useGreeting();
-  // The Super Admin's "new version" popup: once per app launch, after any welcome gift.
-  const [updateClosed, setUpdateClosed] = useState(updatePopupClosed);
-  const showUpdate = !!home.data?.homePopupEnabled && !updateClosed;
+  const update = useUpdatePopup(!!home.data?.homePopupEnabled, home.data?.latestAppVersion);
 
   const unread = home.data?.unreadNotifications ?? 0;
   const refreshing = home.isRefetching || outlets.isRefetching;
@@ -203,13 +231,11 @@ export default function HomeScreen() {
           claimedPoints={welcome.claimedPoints}
           onClose={() => setWelcome(null)}
         />
-      ) : showUpdate ? (
+      ) : update.visible ? (
         <UpdatePopup
-          downloadUrl={home.data?.appDownloadUrl}
-          onClose={() => {
-            updatePopupClosed = true;
-            setUpdateClosed(true);
-          }}
+          // This phone's platform link from Settings → App downloads; the general app link otherwise.
+          downloadUrl={(Platform.OS === 'ios' ? home.data?.appLinks?.ios.url : home.data?.appLinks?.android.url) ?? home.data?.appDownloadUrl}
+          onClose={update.close}
         />
       ) : null}
     </>

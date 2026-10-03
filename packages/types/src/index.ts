@@ -273,6 +273,18 @@ export type PointsBasis = 'BILL_AMOUNT' | 'PAYABLE_AMOUNT';
 /** How the Partner App shows wallet values: as points, or as their rupee worth. */
 export type WalletDisplay = 'POINTS' | 'RUPEES';
 
+/**
+ * What a platform's download link points at. DIRECT: an APK file (Android) or the web app /
+ * a direct page (iOS). STORE: the Google Play / Apple App Store listing.
+ */
+export type AppLinkType = 'DIRECT' | 'STORE';
+
+/** Partner App download links per platform (null url = not set). Public: the landing page reads them. */
+export interface AppDownloadLinks {
+  android: { url: string | null; type: AppLinkType };
+  ios: { url: string | null; type: AppLinkType };
+}
+
 export interface ProgramSettings {
   messagingMode: MessagingMode;
   /** Direct partner QR: discount on the partner's first ever bill. */
@@ -305,8 +317,15 @@ export interface ProgramSettings {
   inviteImageUrl: string | null;
   /** Show the "new version available" popup on the Partner App home page. */
   homePopupEnabled: boolean;
+  /** The popup only shows on app versions older than this, e.g. "1.1.0"; null = every version. */
+  latestAppVersion: string | null;
   /** Wallet values in the Partner App (wallet, history, notifications) as points or rupees. */
   walletDisplay: WalletDisplay;
+  /** Partner App download link per platform and what it points at. */
+  androidAppUrl: string | null;
+  androidAppLinkType: AppLinkType;
+  iosAppUrl: string | null;
+  iosAppLinkType: AppLinkType;
   /** false when no row exists yet and runtime defaults are being served */
   isPersisted: boolean;
   updatedAt: string | null;
@@ -315,17 +334,82 @@ export interface ProgramSettings {
 /** Settings added after the first release are optional: omitted keeps the stored value. */
 export type UpdateProgramSettingsPayload = Omit<
   ProgramSettings,
-  'isPersisted' | 'updatedAt' | 'inviteImageUrl' | 'homePopupEnabled' | 'walletDisplay'
+  | 'isPersisted'
+  | 'updatedAt'
+  | 'inviteImageUrl'
+  | 'homePopupEnabled'
+  | 'latestAppVersion'
+  | 'walletDisplay'
+  | 'androidAppUrl'
+  | 'androidAppLinkType'
+  | 'iosAppUrl'
+  | 'iosAppLinkType'
 > & {
+  androidAppUrl?: string | null;
+  androidAppLinkType?: AppLinkType;
+  iosAppUrl?: string | null;
+  iosAppLinkType?: AppLinkType;
   inviteImageUrl?: string | null;
   homePopupEnabled?: boolean;
+  latestAppVersion?: string | null;
   walletDisplay?: WalletDisplay;
 };
 
+/** Web panel pages an admin can be given (Super Admins have all of them, plus Admins). */
+export type AdminPage = 'dashboard' | 'partners' | 'outlets' | 'transactions' | 'settings';
+
+export type AdminRole = 'SUPER_ADMIN' | 'ADMIN';
+
+/** The signed-in panel account and what it may do. */
 export interface SuperAdminProfile {
   id: ID;
   name: string;
   email: string;
+  role: AdminRole;
+  position: string | null;
+  /** Pages this account may open; every page for a Super Admin. */
+  pages: AdminPage[];
+  /** May delete partners, outlets and transactions (on pages it has). Always true for a Super Admin. */
+  canDelete: boolean;
+}
+
+/** A panel account as listed on the Admins page. */
+export interface AdminAccount extends SuperAdminProfile {
+  mobile: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateAdminAccountPayload {
+  name: string;
+  email: string;
+  mobile: string;
+  position: string;
+  pages: AdminPage[];
+  canDelete: boolean;
+  isActive?: boolean;
+  password: string;
+}
+
+export type UpdateAdminAccountPayload = Partial<Omit<CreateAdminAccountPayload, 'isActive'> & { isActive: boolean }>;
+
+/** An outlet in a filter dropdown. */
+export interface AdminOutletOption {
+  id: ID;
+  name: string;
+}
+
+/** What deleting a partner or outlet also removes, shown before the admin confirms. */
+export interface DeletionImpact {
+  /** Bills (transactions) that are deleted with it. */
+  bills: number;
+  /** Wallet redemptions that are deleted with it. */
+  redemptions: number;
+  /** Points entries removed from wallets, including other partners' points earned on those bills. */
+  pointsEntries: number;
+  /** Outlet only: its outlet admin logins. */
+  outletAdmins?: number;
 }
 
 export interface Outlet extends Timestamps {
@@ -663,7 +747,11 @@ export interface PartnerHome {
   inviteImageUrl: string | null;
   /** Show the "new version available" popup (with appDownloadUrl) on the home page. */
   homePopupEnabled: boolean;
+  /** Only app versions older than this get the popup; null = every version. */
+  latestAppVersion: string | null;
   walletDisplay: WalletDisplay;
+  /** Download links per platform; the update popup uses the one for this phone. */
+  appLinks: AppDownloadLinks;
 }
 
 export type PartnerNotificationType =

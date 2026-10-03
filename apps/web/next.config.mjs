@@ -6,6 +6,8 @@ const monorepoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // NEXT_DIST_DIR lets a production build run beside `next dev` without sharing its .next folder.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   // Dependencies are hoisted to the monorepo root; trace from there so serverless
   // functions include the Prisma query engine and other root node_modules.
   outputFileTracingRoot: monorepoRoot,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminPartnerListQuerySchema } from '@lotmorewins/validation';
-import { requireSuperAdmin } from '@/lib/auth';
+import { requireAdmin } from '@/lib/auth';
 import { listPartners, partnersCsv } from '@/lib/admin-insights';
 import { csvResponse } from '@/lib/admin-csv';
 import { handleRouteError, validationError } from '@/lib/api-response';
@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(req: NextRequest) {
   try {
-    await requireSuperAdmin(req);
+    await requireAdmin(req, 'partners');
     const parsed = adminPartnerListQuerySchema.safeParse(Object.fromEntries(req.nextUrl.searchParams));
     if (!parsed.success) return validationError(parsed.error);
     const { page, limit } = parsed.data;

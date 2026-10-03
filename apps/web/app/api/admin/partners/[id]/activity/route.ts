@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { adminPartnerActivityQuerySchema } from '@lotmorewins/validation';
 import type { AdminPartnerActivityPage } from '@lotmorewins/types';
-import { requireSuperAdmin } from '@/lib/auth';
+import { requireAdmin } from '@/lib/auth';
 import { partnerActivity, partnerActivityCsv } from '@/lib/admin-insights';
 import { csvResponse } from '@/lib/admin-csv';
 import { fail, handleRouteError, ok, validationError } from '@/lib/api-response';
@@ -17,7 +17,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireSuperAdmin(req);
+    await requireAdmin(req, 'partners');
     const { id } = await params;
     if (!UUID.test(id)) return fail(404, 'Partner not found', 'PARTNER_NOT_FOUND');
     const parsed = adminPartnerActivityQuerySchema.safeParse(Object.fromEntries(req.nextUrl.searchParams));

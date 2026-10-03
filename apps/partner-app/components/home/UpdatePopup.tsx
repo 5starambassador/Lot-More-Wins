@@ -1,5 +1,4 @@
 import { Linking, Modal, Pressable, StyleSheet, View } from 'react-native';
-import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from '../../lib/haptics';
 import { colors, goldFrame, radius, space } from '../../theme/tokens';
@@ -9,6 +8,10 @@ import { Button, Txt } from '../ui';
 /**
  * "New version available" popup on Home, switched on by the Super Admin (Settings → Home popup).
  * Links to the Partner App download page set there.
+ *
+ * Plain views only: Reanimated entering animations inside a Modal are measured before the
+ * Modal has its size on Android, which left the card collapsed in a corner while the Modal's
+ * full-screen layer still blocked every touch. The Modal's own fade is the only animation.
  */
 export function UpdatePopup({ downloadUrl, onClose }: { downloadUrl: string | null | undefined; onClose: () => void }) {
   const install = async () => {
@@ -20,8 +23,10 @@ export function UpdatePopup({ downloadUrl, onClose }: { downloadUrl: string | nu
 
   return (
     <Modal visible transparent statusBarTranslucent animationType="fade" onRequestClose={onClose}>
-      <Animated.View entering={FadeIn.duration(250)} style={styles.scrim}>
-        <Animated.View entering={ZoomIn.springify().damping(14).delay(80)} style={styles.card} accessibilityViewIsModal>
+      <View style={styles.scrim}>
+        {/* Tapping outside the card closes it, so the popup can never trap the app. */}
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
+        <View style={styles.card} accessibilityViewIsModal>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Close"
@@ -61,18 +66,18 @@ export function UpdatePopup({ downloadUrl, onClose }: { downloadUrl: string | nu
               style={styles.action}
             />
           ) : null}
-          <Button label="Maybe later" variant="ghost" onPress={onClose} style={styles.later} />
-        </Animated.View>
-      </Animated.View>
+          <Button label="Maybe later" variant="ghost" onPress={onClose} style={styles.action} />
+        </View>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  scrim: { flex: 1, backgroundColor: colors.scrim, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.xl },
+  scrim: { flex: 1, backgroundColor: colors.scrim, alignItems: 'center', justifyContent: 'center', padding: space.xl },
   card: {
-    width: 320,
-    maxWidth: '100%',
+    width: '100%',
+    maxWidth: 340,
     alignItems: 'center',
     paddingTop: space.xxl,
     paddingBottom: space.md,
@@ -114,5 +119,4 @@ const styles = StyleSheet.create({
   },
   message: { marginTop: space.xxs, marginBottom: space.sm },
   action: { alignSelf: 'stretch' },
-  later: { alignSelf: 'stretch' },
 });

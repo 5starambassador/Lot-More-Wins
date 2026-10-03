@@ -7,12 +7,15 @@ import type { BillNotificationStatus, BillRecord, BillTransactionType } from '@l
 import { BillDrawer, BillsTable } from '@/components/admin/bills';
 import { DateRangeFilter, FilterBar, NO_DATES, dateQuery, lastDays, readDateRange, type DateRange } from '@/components/admin/filter-bar';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/dialog';
+import { useToast } from '@/components/ui/toast';
+import { useAdminAccess } from '@/components/admin/admin-access';
 import { Alert } from '@/components/ui/feedback';
 import { Input, Select } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/page-header';
 import { Panel } from '@/components/ui/panel';
 import { Pagination } from '@/components/ui/table';
-import { adminApi, useAdminQuery, useDebounced } from '@/lib/admin-client';
+import { adminApi, errorMessage, useAdminQuery, useDebounced } from '@/lib/admin-client';
 import { BILL_TYPE_LABEL, NOTIFICATION_STATUS } from '@/lib/admin-labels';
 import { formatINR, formatNumber } from '@/lib/format';
 
@@ -45,6 +48,10 @@ function TransactionsView() {
   const [notification, setNotification] = useState<BillNotificationStatus | undefined>(pick(params.get('notification'), NOTIFICATIONS));
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<BillRecord | null>(null);
+  const [deleting, setDeleting] = useState<BillRecord | null>(null);
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+  const { canDelete } = useAdminAccess();
   const q = useDebounced(search.trim());
 
   useEffect(() => {
@@ -68,7 +75,7 @@ function TransactionsView() {
     type,
     notification,
   };
-  const outlets = useAdminQuery(() => adminApi.listAdminOutlets().then((r) => r.data), []);
+  const outlets = useAdminQuery(() => adminApi.listAdminOutletOptions().then((r) => r.data), []);
   const { data, error, loading, reload } = useAdminQuery(
     () => adminApi.listAdminTransactions({ page, limit: PAGE_SIZE, ...filters }).then((r) => r.data),
     [page, q, dates.from, dates.to, outletId, partnerId, type, notification]
@@ -206,7 +213,32 @@ function TransactionsView() {
         )}
       </Panel>
 
-      <BillDrawer bill={selected} onClose={() => setSelected(null)} />
+      <BillDrawer bill={selected} onClose={() => setSelected(null)} onDelete={canDelete('transactions') ? setDeleting : undefined} />
+
+      <ConfirmDialog
+        open={!!deleting}
+        onClose={() => setDeleting(null)}
+        busy={busy}
+        tone="danger"
+        title={`Delete transaction ${deleting?.billNumber ?? ''}?`}
+        confirmLabel="Delete transaction"
+        description="This permanently deletes the bill and takes the points credited on it out of the partner wallets (any part already redeemed is not reversed). Outlet totals and reports change accordingly. This cannot be undone."
+        onConfirm={async () => {
+          if (!deleting) return;
+          setBusy(true);
+          try {
+            await adminApi.deleteAdminTransaction(deleting.id);
+            toast('success', `Transaction ${deleting.billNumber} deleted`);
+            setDeleting(null);
+            setSelected(null);
+            reload();
+          } catch (err) {
+            toast('error', 'Could not delete this transaction', errorMessage(err));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
     </>
   );
 }

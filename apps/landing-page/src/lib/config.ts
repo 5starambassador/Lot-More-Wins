@@ -3,11 +3,6 @@ const clean = (value: string | undefined) => value?.trim().replace(/\/+$/, '') |
 /** The Partner App web version, installed to the iOS home screen from the download page. */
 export const PARTNER_WEB_URL = clean(import.meta.env.VITE_PARTNER_WEB_URL);
 
-/** The Android APK: served from public/ unless an external host is configured. */
-export const ANDROID_APK_URL = clean(import.meta.env.VITE_ANDROID_APK_URL) ?? '/lot-more-wins-partner.apk';
-
-export const APK_FILE_NAME = 'lot-more-wins-partner.apk';
-
 /** Absolute address of the download page, for the QR code. */
 export function downloadPageUrl(): string {
   const origin = clean(import.meta.env.VITE_SITE_URL) ?? window.location.origin;

@@ -1,5 +1,8 @@
 import crypto from 'crypto';
 import type { NextRequest } from 'next/server';
+import type { SuperAdmin } from '@prisma/client';
+import type { AdminPage, SuperAdminProfile } from '@lotmorewins/types';
+import { ADMIN_PAGES } from '@lotmorewins/validation';
 import prisma from './prisma';
 
 /**
@@ -115,17 +118,71 @@ export function readSuperAdminIdFromToken(token: string | null | undefined): str
   return payload.sub;
 }
 
-export async function requireSuperAdmin(req: NextRequest) {
-  const token = getBearerToken(req) ?? req.cookies.get(ADMIN_SESSION_COOKIE)?.value;
+/**
+ * Every web panel account (Super Admin or Admin) signs in the same way and carries the same
+ * session; what it may do is read from its database row on every request, so a change of
+ * pages, delete permission or a deactivation applies immediately.
+ */
+export function toAdminProfile(
+  admin: Pick<SuperAdmin, 'id' | 'name' | 'email' | 'role' | 'position' | 'pages' | 'canDelete'>
+): SuperAdminProfile {
+  const isSuper = admin.role === 'SUPER_ADMIN';
+  return {
+    id: admin.id,
+    name: admin.name,
+    email: admin.email,
+    role: admin.role,
+    position: admin.position,
+    pages: isSuper ? [...ADMIN_PAGES] : ADMIN_PAGES.filter((page) => admin.pages.includes(page)),
+    canDelete: isSuper || admin.canDelete,
+  };
+}
+
+/** The active panel account behind a session token, or null. Used by the panel's server layouts too. */
+export async function loadAdminSession(token: string | null | undefined): Promise<SuperAdminProfile | null> {
   const adminId = readSuperAdminIdFromToken(token);
-  if (!adminId) {
-    throw new HttpError(401, 'Super Admin authentication required', 'UNAUTHENTICATED');
-  }
+  if (!adminId) return null;
   const admin = await prisma.superAdmin.findUnique({ where: { id: adminId } });
-  if (!admin || !admin.isActive) {
-    throw new HttpError(403, 'Super Admin access denied', 'FORBIDDEN');
+  return admin && admin.isActive ? toAdminProfile(admin) : null;
+}
+
+const PAGE_NAMES: Record<AdminPage, string> = {
+  dashboard: 'the dashboard',
+  partners: 'Partners',
+  outlets: 'Outlets',
+  transactions: 'Transactions',
+  settings: 'Programme settings',
+};
+
+/**
+ * Any signed-in panel account; with `page`, only one that has been given that page.
+ * Throws 401 without a valid session and 403 without access.
+ */
+export async function requireAdmin(req: NextRequest, page?: AdminPage): Promise<SuperAdminProfile> {
+  const token = getBearerToken(req) ?? req.cookies.get(ADMIN_SESSION_COOKIE)?.value;
+  if (!readSuperAdminIdFromToken(token)) {
+    throw new HttpError(401, 'Admin authentication required', 'UNAUTHENTICATED');
   }
-  return { id: admin.id, name: admin.name, email: admin.email };
+  const admin = await loadAdminSession(token);
+  if (!admin) throw new HttpError(403, 'This admin account is not active', 'FORBIDDEN');
+  if (page && !admin.pages.includes(page)) {
+    throw new HttpError(403, `You do not have access to ${PAGE_NAMES[page]}`, 'PAGE_FORBIDDEN');
+  }
+  return admin;
+}
+
+/** Deleting on `page`: needs that page and the delete permission. */
+export async function requireAdminDelete(req: NextRequest, page: AdminPage): Promise<SuperAdminProfile> {
+  const admin = await requireAdmin(req, page);
+  if (!admin.canDelete) throw new HttpError(403, 'You do not have permission to delete records', 'DELETE_FORBIDDEN');
+  return admin;
+}
+
+/** Super Admin only: managing admin accounts. */
+export async function requireSuperAdmin(req: NextRequest): Promise<SuperAdminProfile> {
+  const admin = await requireAdmin(req);
+  if (admin.role !== 'SUPER_ADMIN') throw new HttpError(403, 'Only the Super Admin can do this', 'SUPER_ADMIN_ONLY');
+  return admin;
 }
 
 // ============================================================================

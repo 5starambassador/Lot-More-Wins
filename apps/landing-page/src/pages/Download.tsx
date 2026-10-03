@@ -1,8 +1,24 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Apple, ArrowLeft, Check, Copy, Download as DownloadIcon, ExternalLink, Share, Smartphone, SquarePlus, type LucideIcon } from 'lucide-react';
+import {
+  AlertTriangle,
+  Apple,
+  ArrowLeft,
+  Check,
+  Copy,
+  Download as DownloadIcon,
+  ExternalLink,
+  Loader2,
+  Play,
+  RotateCw,
+  Share,
+  Smartphone,
+  SquarePlus,
+  type LucideIcon,
+} from 'lucide-react';
 import { Logo, Wordmark } from '../components/Brand';
-import { ANDROID_APK_URL, APK_FILE_NAME, PARTNER_WEB_URL, detectDevice, type Device } from '../lib/config';
+import { PARTNER_WEB_URL, detectDevice, type Device } from '../lib/config';
+import { useAppLinks, type AppLink } from '../lib/app-links';
 
 interface IosStep {
   icon: LucideIcon;
@@ -18,13 +34,13 @@ const IOS_STEPS: IosStep[] = [
 ];
 
 /** The guided "Add to Home Screen" install for iPhone, shown under the iOS button. */
-function IosGuide() {
+function IosGuide({ webAppUrl }: { webAppUrl: string | null }) {
   const [copied, setCopied] = useState(false);
 
   const copyLink = async () => {
-    if (!PARTNER_WEB_URL) return;
+    if (!webAppUrl) return;
     try {
-      await navigator.clipboard.writeText(PARTNER_WEB_URL);
+      await navigator.clipboard.writeText(webAppUrl);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2200);
     } catch (error) {
@@ -57,9 +73,9 @@ function IosGuide() {
         ))}
       </ol>
 
-      {PARTNER_WEB_URL ? (
+      {webAppUrl ? (
         <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-          <a href={PARTNER_WEB_URL} className="btn-gold flex-1">
+          <a href={webAppUrl} className="btn-gold flex-1">
             Open the Partner App
             <ExternalLink className="h-4 w-4" />
           </a>
@@ -70,14 +86,44 @@ function IosGuide() {
         </div>
       ) : (
         <p className="mt-7 rounded-2xl border border-gilt/40 bg-black/25 p-4 text-sm font-light text-ivory-soft">
-          The web app link is not set up yet. Set <code className="font-medium text-gilt-bright">VITE_PARTNER_WEB_URL</code> for this site.
+          The iPhone link is not set up yet. Add it in the Super Admin panel under Settings → App downloads.
         </p>
       )}
     </div>
   );
 }
 
+const btnClass = (dimmed: boolean) => `btn-gold relative !rounded-2xl !py-5 ${dimmed ? 'opacity-70' : ''}`;
+
+/** Shown in place of a download when the Android link cannot be used. */
+function DownloadError({ title, message, onRetry }: { title: string; message: string; onRetry?: () => void }) {
+  return (
+    <div role="alert" className="mt-5 rounded-2xl border border-gilt/40 bg-black/30 p-4 text-left">
+      <p className="flex items-center gap-2 font-medium text-gilt-bright">
+        <AlertTriangle className="h-4 w-4 shrink-0" />
+        {title}
+      </p>
+      <p className="mt-1 text-sm font-light text-ivory-soft/90">{message}</p>
+      {onRetry && (
+        <button type="button" onClick={onRetry} className="btn-ghost mt-3 !py-2 text-sm">
+          <RotateCw className="h-4 w-4" />
+          Try again
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function Download() {
+  const appLinks = useAppLinks();
+  // Android: exactly the link set in the Super Admin panel, once it has loaded.
+  const android: AppLink | null = appLinks.status === 'ready' ? appLinks.links.android : null;
+  const androidReady = !!android?.url;
+  const androidStore = android?.type === 'STORE';
+  // iOS: the panel's link, or the web app address from this site's settings meanwhile.
+  const ios: AppLink = appLinks.status === 'ready' ? appLinks.links.ios : { url: PARTNER_WEB_URL, type: 'DIRECT' };
+  const iosStore = ios.type === 'STORE' && !!ios.url;
+
   const [device, setDevice] = useState<Device>('other');
   const [showIos, setShowIos] = useState(false);
 
@@ -86,6 +132,8 @@ export default function Download() {
     setDevice(detected);
     if (detected === 'ios') setShowIos(true);
   }, []);
+  // An App Store link replaces the home-screen guide.
+  const showGuide = showIos && !iosStore;
 
   const openIosGuide = () => {
     setShowIos(true);
@@ -96,6 +144,13 @@ export default function Download() {
   const yourDevice = (
     <span className="absolute -top-2.5 right-5 rounded-full bg-ivory px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-ink">
       Your device
+    </span>
+  );
+
+  const androidLabel = (
+    <span className="text-left leading-tight">
+      <span className="block text-xs font-medium opacity-70">{androidStore ? 'Get it on' : 'Download for'}</span>
+      <span className="block text-lg">{androidStore ? 'Google Play' : 'Android'}</span>
     </span>
   );
 
@@ -126,39 +181,68 @@ export default function Download() {
         </p>
 
         <div className="mt-10 grid gap-4 sm:grid-cols-2">
-          <a
-            href={ANDROID_APK_URL}
-            download={APK_FILE_NAME}
-            className={`btn-gold relative !rounded-2xl !py-5 ${device === 'ios' ? 'opacity-70' : ''}`}
-          >
-            {device === 'android' && yourDevice}
-            <DownloadIcon className="h-6 w-6" />
-            <span className="text-left leading-tight">
-              <span className="block text-xs font-medium opacity-70">Download for</span>
-              <span className="block text-lg">Android</span>
-            </span>
-          </a>
-          <button
-            type="button"
-            onClick={openIosGuide}
-            aria-expanded={showIos}
-            aria-controls="ios-guide"
-            className={`btn-gold relative !rounded-2xl !py-5 ${device === 'android' ? 'opacity-70' : ''}`}
-          >
-            {device === 'ios' && yourDevice}
-            <Apple className="h-6 w-6" />
-            <span className="text-left leading-tight">
-              <span className="block text-xs font-medium opacity-70">Download for</span>
-              <span className="block text-lg">iOS</span>
-            </span>
-          </button>
+          {androidReady ? (
+            <a
+              href={android!.url!}
+              {...(androidStore ? { target: '_blank', rel: 'noopener noreferrer' } : { download: '' })}
+              className={btnClass(device === 'ios')}
+            >
+              {device === 'android' && yourDevice}
+              {androidStore ? <Play className="h-6 w-6" /> : <DownloadIcon className="h-6 w-6" />}
+              {androidLabel}
+            </a>
+          ) : (
+            <button type="button" disabled aria-disabled className={`${btnClass(true)} cursor-not-allowed`}>
+              {device === 'android' && yourDevice}
+              {appLinks.status === 'loading' ? <Loader2 className="h-6 w-6 animate-spin" /> : <DownloadIcon className="h-6 w-6" />}
+              <span className="text-left leading-tight">
+                <span className="block text-xs font-medium opacity-70">{appLinks.status === 'loading' ? 'Getting the link…' : 'Download for'}</span>
+                <span className="block text-lg">Android</span>
+              </span>
+            </button>
+          )}
+          {iosStore ? (
+            <a href={ios.url!} target="_blank" rel="noopener noreferrer" className={btnClass(device === 'android')}>
+              {device === 'ios' && yourDevice}
+              <Apple className="h-6 w-6" />
+              <span className="text-left leading-tight">
+                <span className="block text-xs font-medium opacity-70">Download on the</span>
+                <span className="block text-lg">App Store</span>
+              </span>
+            </a>
+          ) : (
+            <button
+              type="button"
+              onClick={openIosGuide}
+              aria-expanded={showGuide}
+              aria-controls="ios-guide"
+              className={btnClass(device === 'android')}
+            >
+              {device === 'ios' && yourDevice}
+              <Apple className="h-6 w-6" />
+              <span className="text-left leading-tight">
+                <span className="block text-xs font-medium opacity-70">Download for</span>
+                <span className="block text-lg">iOS</span>
+              </span>
+            </button>
+          )}
         </div>
 
-        <p className="mt-5 text-sm font-light text-ivory-muted">
-          Android: open the downloaded file to install. If your phone asks, allow installs from your browser.
-        </p>
+        {appLinks.status === 'error' ? (
+          <DownloadError title="Android download unavailable" message={appLinks.reason} onRetry={appLinks.retry} />
+        ) : appLinks.status === 'ready' && !androidReady ? (
+          <DownloadError
+            title="Android download coming soon"
+            message="The Android app is not available to download yet. Please check back soon."
+          />
+        ) : androidReady && !androidStore ? (
+          // <p className="mt-5 text-sm font-light text-ivory-muted">
+          //   Android: open the downloaded file to install. If your phone asks, allow installs from your browser.
+          // </p>
+          <></>
+        ) : null}
 
-        {showIos && <IosGuide />}
+        {showGuide && <IosGuide webAppUrl={ios.url} />}
       </main>
     </div>
   );

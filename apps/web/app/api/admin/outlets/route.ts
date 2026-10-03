@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
+import type { AdminOutletOption } from '@lotmorewins/types';
 import { adminOutletListQuerySchema, outletCreateSchema } from '@lotmorewins/validation';
 import prisma from '@/lib/prisma';
-import { requireSuperAdmin } from '@/lib/auth';
+import { requireAdmin } from '@/lib/auth';
 import { adminOutletInclude, serializeAdminOutlet } from '@/lib/outlets';
 import { listOutlets, outletsCsv } from '@/lib/admin-insights';
 import { csvResponse } from '@/lib/admin-csv';
@@ -17,7 +18,18 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(req: NextRequest) {
   try {
-    await requireSuperAdmin(req);
+    // `view=options`: outlet ids and names only, for the outlet filters on the Partners and
+    // Transactions pages, so admins without the Outlets page can still filter by outlet.
+    if (req.nextUrl.searchParams.get('view') === 'options') {
+      const admin = await requireAdmin(req);
+      if (!(['outlets', 'partners', 'transactions'] as const).some((page) => admin.pages.includes(page))) {
+        return fail(403, 'You do not have access to outlets', 'PAGE_FORBIDDEN');
+      }
+      const options: AdminOutletOption[] = await prisma.outlet.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+      return ok(options);
+    }
+
+    await requireAdmin(req, 'outlets');
     const parsed = adminOutletListQuerySchema.safeParse(Object.fromEntries(req.nextUrl.searchParams));
     if (!parsed.success) return validationError(parsed.error);
     if (parsed.data.format === 'csv') return csvResponse('outlets', await outletsCsv(parsed.data));
@@ -30,7 +42,7 @@ export async function GET(req: NextRequest) {
 /** POST /api/admin/outlets — create an outlet together with its Outlet Admin login. */
 export async function POST(req: NextRequest) {
   try {
-    await requireSuperAdmin(req);
+    await requireAdmin(req, 'outlets');
     const parsed = outletCreateSchema.safeParse(await readJson(req));
     if (!parsed.success) return validationError(parsed.error);
     const { adminEmail, adminPassword, ...fields } = parsed.data;

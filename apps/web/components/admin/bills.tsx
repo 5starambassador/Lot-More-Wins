@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import type { BillRecord } from '@lotmorewins/types';
-import { ArrowUpRight, Mail, MessageCircle, Receipt } from 'lucide-react';
+import { ArrowUpRight, Mail, MessageCircle, Receipt, Trash2 } from 'lucide-react';
 import { Badge, Tag } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Drawer } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/ui/feedback';
 import { DetailList } from '@/components/ui/panel';
@@ -129,7 +130,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-export function BillDrawer({ bill, onClose }: { bill: BillRecord | null; onClose: () => void }) {
+/** `onDelete`: shows a "Delete transaction" button (pass it only to admins allowed to delete). */
+export function BillDrawer({ bill, onClose, onDelete }: { bill: BillRecord | null; onClose: () => void; onDelete?: (bill: BillRecord) => void }) {
   if (!bill) return null;
   const n = NOTIFICATION_STATUS[bill.notification.status];
   const ChannelIcon = bill.notification.channel === 'whatsapp' ? MessageCircle : Mail;
@@ -141,6 +143,15 @@ export function BillDrawer({ bill, onClose }: { bill: BillRecord | null; onClose
       onClose={onClose}
       title={<span className="font-mono">{bill.billNumber}</span>}
       subtitle={`${formatDateTime(bill.createdAt)} · ${bill.outlet.name}`}
+      footer={
+        onDelete && (
+          <div className="flex justify-end">
+            <Button variant="danger-outline" onClick={() => onDelete(bill)}>
+              <Trash2 className="h-4 w-4" /> Delete transaction
+            </Button>
+          </div>
+        )
+      }
     >
       {/* Amount summary */}
       <div className="border-b border-stone-150 bg-stone-25 px-6 py-5">

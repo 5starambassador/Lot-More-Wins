@@ -12,28 +12,44 @@ import {
   LogOut,
   Menu,
   Receipt,
+  ShieldCheck,
   SlidersHorizontal,
   Store,
   Users,
   X,
 } from 'lucide-react';
+import type { AdminPage } from '@lotmorewins/types';
 import { cn } from '@/lib/utils';
 import { initials } from '@/lib/format';
 import { adminApi } from '@/lib/admin-client';
+import { useAdminAccess } from './admin-access';
 
-type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }>; soon?: boolean };
+/** `page`: shown only to accounts given that page; "admins" is Super Admin only. */
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  page?: AdminPage | 'admins';
+  soon?: boolean;
+};
 
 const NAV: { section: string; items: NavItem[] }[] = [
-  { section: 'Overview', items: [{ href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }] },
+  { section: 'Overview', items: [{ href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, page: 'dashboard' }] },
   {
     section: 'Network',
     items: [
-      { href: '/partners', label: 'Partners', icon: Users },
-      { href: '/outlets', label: 'Outlets', icon: Store },
+      { href: '/partners', label: 'Partners', icon: Users, page: 'partners' },
+      { href: '/outlets', label: 'Outlets', icon: Store, page: 'outlets' },
     ],
   },
-  { section: 'Activity', items: [{ href: '/transactions', label: 'Transactions', icon: Receipt }] },
-  { section: 'Configuration', items: [{ href: '/settings', label: 'Programme settings', icon: SlidersHorizontal }] },
+  { section: 'Activity', items: [{ href: '/transactions', label: 'Transactions', icon: Receipt, page: 'transactions' }] },
+  {
+    section: 'Configuration',
+    items: [
+      { href: '/settings', label: 'Programme settings', icon: SlidersHorizontal, page: 'settings' },
+      { href: '/admins', label: 'Admins', icon: ShieldCheck, page: 'admins' },
+    ],
+  },
   {
     section: 'Coming soon',
     items: [
@@ -45,12 +61,15 @@ const NAV: { section: string; items: NavItem[] }[] = [
 ];
 
 function Brand() {
+  const { admin, isSuperAdmin } = useAdminAccess();
   return (
-    <Link href="/dashboard" className="flex items-center gap-3">
+    <Link href={admin.pages.includes('dashboard') ? '/dashboard' : '/'} className="flex items-center gap-3">
       <Image src="/brand/lotmore-logo.png" alt="Lot More" width={36} height={36} priority className="h-9 w-9 shrink-0 rounded-md border border-gold-400/50 bg-white object-contain" />
       <span className="leading-tight">
         <span className="block text-[15px] font-semibold text-white">Lot More Wins</span>
-        <span className="block text-[10px] font-medium uppercase tracking-[0.16em] text-gold-300">Super Admin</span>
+        <span className="block text-[10px] font-medium uppercase tracking-[0.16em] text-gold-300">
+          {isSuperAdmin ? 'Super Admin' : 'Admin panel'}
+        </span>
       </span>
     </Link>
   );
@@ -58,9 +77,13 @@ function Brand() {
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const { isSuperAdmin, canOpen } = useAdminAccess();
+  const visible = (item: NavItem) => !item.page || (item.page === 'admins' ? isSuperAdmin : canOpen(item.page));
+  const nav = NAV.map(({ section, items }) => ({ section, items: items.filter(visible) })).filter((s) => s.items.length > 0);
+
   return (
     <nav className="scroll-thin flex-1 space-y-6 overflow-y-auto px-3 py-5" aria-label="Main">
-      {NAV.map(({ section, items }) => (
+      {nav.map(({ section, items }) => (
         <div key={section}>
           <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/70">{section}</p>
           <ul className="space-y-0.5">
@@ -114,9 +137,11 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-function Account({ name, email }: { name: string; email: string }) {
+function Account() {
+  const { admin, isSuperAdmin } = useAdminAccess();
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
+  const role = isSuperAdmin ? 'Super Admin' : admin.position || 'Admin';
   const signOut = async () => {
     setSigningOut(true);
     try {
@@ -130,11 +155,13 @@ function Account({ name, email }: { name: string; email: string }) {
     <div className="border-t border-white/[0.14] p-3">
       <div className="flex items-center gap-3 rounded-md px-2 py-2">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold-400/15 text-xs font-semibold text-gold-300 ring-1 ring-gold-400/40">
-          {initials(name) || 'SA'}
+          {initials(admin.name) || 'A'}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-medium text-white">{name}</p>
-          <p className="truncate text-[11px] text-white/75">{email}</p>
+          <p className="truncate text-[13px] font-medium text-white">{admin.name}</p>
+          <p className="truncate text-[11px] text-white/75" title={admin.email}>
+            {role} · {admin.email}
+          </p>
         </div>
         <button
           type="button"
@@ -151,7 +178,7 @@ function Account({ name, email }: { name: string; email: string }) {
   );
 }
 
-export function AdminSidebar({ adminName, adminEmail }: { adminName: string; adminEmail: string }) {
+export function AdminSidebar() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   useEffect(() => setOpen(false), [pathname]);
@@ -166,7 +193,7 @@ export function AdminSidebar({ adminName, adminEmail }: { adminName: string; adm
           <Brand />
         </div>
         <NavLinks />
-        <Account name={adminName} email={adminEmail} />
+        <Account />
       </aside>
 
       {/* Mobile bar + drawer */}
@@ -197,7 +224,7 @@ export function AdminSidebar({ adminName, adminEmail }: { adminName: string; adm
               </button>
             </div>
             <NavLinks onNavigate={() => setOpen(false)} />
-            <Account name={adminName} email={adminEmail} />
+            <Account />
           </aside>
         </div>
       )}

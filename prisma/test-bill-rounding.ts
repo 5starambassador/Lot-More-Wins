@@ -34,7 +34,12 @@ const settings = {
   appDownloadUrl: null,
   inviteImageUrl: null,
   homePopupEnabled: false,
+  latestAppVersion: null,
   walletDisplay: 'POINTS',
+  androidAppUrl: null,
+  androidAppLinkType: 'DIRECT',
+  iosAppUrl: null,
+  iosAppLinkType: 'DIRECT',
   isPersisted: true,
   updatedAt: new Date().toISOString(),
 } satisfies ConfiguredProgramSettings;

@@ -2,7 +2,7 @@ import type { Partner, QRCode } from '@prisma/client';
 import type { PartnerHome, PartnerOnboardingResponse, PartnerProfile, PermanentQRItem, ProgramSettings } from '@lotmorewins/types';
 import prisma from './prisma';
 import { HttpError, PARTNER_TOKEN_TTL_SEC, signToken } from './auth';
-import { getProgramSettings } from './settings';
+import { appDownloadLinks, getProgramSettings } from './settings';
 import { isFirstTimeDirect } from './billing';
 import { referralProgress } from './referral-rewards';
 
@@ -131,6 +131,8 @@ export async function getPartnerHome(partnerId: string): Promise<PartnerHome> {
     appDownloadUrl: settings.appDownloadUrl,
     inviteImageUrl: settings.inviteImageUrl,
     homePopupEnabled: settings.homePopupEnabled,
+    latestAppVersion: settings.latestAppVersion,
+    appLinks: appDownloadLinks(settings),
     walletDisplay: settings.walletDisplay,
   };
 }

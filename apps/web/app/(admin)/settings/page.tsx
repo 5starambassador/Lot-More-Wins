@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { BellOff, BellRing, Coins, Gift, IndianRupee, Link2, Mail, MessageCircle, Percent, RotateCcw } from 'lucide-react';
-import type { MessagingMode, PointsBasis, ProgramSettings, WalletDisplay } from '@lotmorewins/types';
+import { BellOff, BellRing, Coins, Download, Gift, Globe, IndianRupee, Link2, Mail, MessageCircle, Percent, RotateCcw, Smartphone, Store } from 'lucide-react';
+import type { AppLinkType, MessagingMode, PointsBasis, ProgramSettings, WalletDisplay } from '@lotmorewins/types';
 import { LogoUpload } from '@/components/admin/image-upload';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
@@ -38,6 +38,12 @@ interface FormState {
   /** Uploaded image URL, or '' for none. */
   inviteImageUrl: string;
   homePopup: 'on' | 'off';
+  /** e.g. "1.1.0", or '' for every version. */
+  latestAppVersion: string;
+  androidAppUrl: string;
+  androidAppLinkType: AppLinkType;
+  iosAppUrl: string;
+  iosAppLinkType: AppLinkType;
   walletDisplay: WalletDisplay;
 }
 
@@ -61,6 +67,11 @@ function toForm(s: ProgramSettings): FormState {
     appDownloadUrl: s.appDownloadUrl ?? '',
     inviteImageUrl: s.inviteImageUrl ?? '',
     homePopup: s.homePopupEnabled ? 'on' : 'off',
+    latestAppVersion: s.latestAppVersion ?? '',
+    androidAppUrl: s.androidAppUrl ?? '',
+    androidAppLinkType: s.androidAppLinkType,
+    iosAppUrl: s.iosAppUrl ?? '',
+    iosAppLinkType: s.iosAppLinkType,
     walletDisplay: s.walletDisplay,
   };
 }
@@ -91,6 +102,11 @@ const FIELDS: { key: keyof FormState; label: string; unit?: string; format?: (v:
   { key: 'messagingMode', label: 'Messaging channel', format: (v) => MODE_LABEL[v as MessagingMode] },
   { key: 'appDownloadUrl', label: 'Partner app link', format: (v) => v || 'Not set' },
   { key: 'homePopup', label: 'Home popup (new version)', format: (v) => (v === 'on' ? 'Shown' : 'Hidden') },
+  { key: 'latestAppVersion', label: 'Home popup · Latest app version', format: (v) => v || 'Every version' },
+  { key: 'androidAppUrl', label: 'Android download link', format: (v) => v || 'Not set' },
+  { key: 'androidAppLinkType', label: 'Android link type', format: (v) => (v === 'STORE' ? 'Google Play Store' : 'Direct APK download') },
+  { key: 'iosAppUrl', label: 'iOS download link', format: (v) => v || 'Not set' },
+  { key: 'iosAppLinkType', label: 'iOS link type', format: (v) => (v === 'STORE' ? 'Apple App Store' : 'Web app / direct link') },
   { key: 'inviteImageUrl', label: 'Invite image', format: (v) => (v ? v.split('/').pop()! : 'App logo') },
 ];
 
@@ -100,6 +116,7 @@ const SECTIONS = [
   { id: 'rewards', label: 'Rewards & points', icon: Coins },
   { id: 'messaging', label: 'Messaging', icon: MessageCircle },
   { id: 'app', label: 'Partner app', icon: Link2 },
+  { id: 'downloads', label: 'App downloads', icon: Download },
 ] as const;
 
 function PercentInput({
@@ -296,6 +313,11 @@ export default function SettingsPage() {
         appDownloadUrl: values.appDownloadUrl.trim() || null,
         inviteImageUrl: values.inviteImageUrl || null,
         homePopupEnabled: values.homePopup === 'on',
+        latestAppVersion: values.latestAppVersion.trim() || null,
+        androidAppUrl: values.androidAppUrl.trim() || null,
+        androidAppLinkType: values.androidAppLinkType,
+        iosAppUrl: values.iosAppUrl.trim() || null,
+        iosAppLinkType: values.iosAppLinkType,
         walletDisplay: values.walletDisplay,
       });
       setData(() => res.data);
@@ -641,6 +663,25 @@ export default function SettingsPage() {
                     </Alert>
                   )}
                 </Field>
+                {values.homePopup === 'on' && (
+                  <Field
+                    label="Latest app version"
+                    htmlFor="latestAppVersion"
+                    hint="The popup shows every time the app is opened, only on phones with an older version than this (e.g. 1.1.0 for the Play Store release). Partners who install it stop seeing the popup. Leave empty to show it on every version."
+                  >
+                    <div className="w-40">
+                      <Input
+                        id="latestAppVersion"
+                        inputMode="decimal"
+                        placeholder="e.g. 1.1.0"
+                        pattern="\d+(\.\d+){0,3}"
+                        value={values.latestAppVersion}
+                        onChange={(e) => set('latestAppVersion')(e.target.value)}
+                        className={cn('tabular font-medium', changed('latestAppVersion') && 'border-gold-400 bg-gold-50/50')}
+                      />
+                    </div>
+                  </Field>
+                )}
                 <Field
                   label="Invite image"
                   hint="Attached to the invite message and download link that partners share from the Partner App home page. Without one, the app logo is attached. Saved as WebP under 1 MB."
@@ -649,6 +690,69 @@ export default function SettingsPage() {
                     <LogoUpload label="image" value={values.inviteImageUrl || null} onChange={(url) => set('inviteImageUrl')(url ?? '')} />
                   </div>
                 </Field>
+              </div>
+            </Panel>
+
+            {/* App downloads */}
+            <Panel id="downloads" className="scroll-mt-24">
+              <PanelHeader
+                title="App downloads"
+                description="Where partners download the Partner App on each platform. The landing page download buttons and the Android update popup use these links."
+              />
+              <div className="grid gap-6 px-5 py-5 lg:grid-cols-2">
+                {(
+                  [
+                    {
+                      platform: 'Android',
+                      icon: Smartphone,
+                      url: 'androidAppUrl',
+                      type: 'androidAppLinkType',
+                      placeholder: 'https://play.google.com/store/apps/details?id=com.lotmorewins.partner',
+                      hint: 'Leave empty if not available yet. Google Drive and Dropbox share links are turned into a direct APK download automatically.',
+                      direct: { label: 'Direct APK download', hint: 'A link to the .apk file', icon: Download },
+                      store: { label: 'Google Play Store', hint: 'The app listing on Google Play', icon: Store },
+                    },
+                    {
+                      platform: 'iPhone (iOS)',
+                      icon: Smartphone,
+                      url: 'iosAppUrl',
+                      type: 'iosAppLinkType',
+                      placeholder: 'https://apps.apple.com/… or the Partner App web address',
+                      hint: 'Leave empty if not available yet.',
+                      direct: { label: 'Web app / direct link', hint: 'iPhones cannot install APKs: e.g. the web version to add to the Home Screen', icon: Globe },
+                      store: { label: 'Apple App Store', hint: 'The app listing on the App Store', icon: Store },
+                    },
+                  ] as const
+                ).map((p) => (
+                  <div key={p.platform} className="space-y-4 rounded-md border border-stone-150 p-4">
+                    <p className="flex items-center gap-2 text-[13px] font-semibold text-stone-900">
+                      <p.icon className="h-4 w-4 text-gold-600" /> {p.platform}
+                    </p>
+                    <Field label="Download link" htmlFor={p.url} hint={p.hint}>
+                      <Input
+                        id={p.url}
+                        type="url"
+                        inputMode="url"
+                        icon={Link2}
+                        placeholder={p.placeholder}
+                        value={values[p.url]}
+                        onChange={(e) => set(p.url)(e.target.value)}
+                        className={cn(changed(p.url) && 'border-gold-400 bg-gold-50/50')}
+                      />
+                    </Field>
+                    <Field label="This link is">
+                      <ChoiceCards<AppLinkType>
+                        name={`${p.platform} link type`}
+                        value={values[p.type]}
+                        onChange={set(p.type) as (v: AppLinkType) => void}
+                        options={[
+                          { value: 'DIRECT', ...p.direct },
+                          { value: 'STORE', ...p.store },
+                        ]}
+                      />
+                    </Field>
+                  </div>
+                ))}
               </div>
             </Panel>
 

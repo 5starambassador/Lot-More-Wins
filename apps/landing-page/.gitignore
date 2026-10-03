@@ -1,6 +1,2 @@
 # Vite build output
 /dist
-
-# The Android APK is copied in by `pnpm sync:apk`. It is larger than GitHub's 100 MB file
-# limit, so it is not committed: see README.md for how to ship it.
-/public/*.apk

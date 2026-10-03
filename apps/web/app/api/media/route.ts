@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { mediaUploadSchema } from '@lotmorewins/validation';
 import prisma from '@/lib/prisma';
-import { HttpError, requireOutletAdmin, requirePartnerId, requireSuperAdmin } from '@/lib/auth';
+import { HttpError, requireAdmin, requireOutletAdmin, requirePartnerId } from '@/lib/auth';
 import { cloudinaryConfig, uploadToCloudinary } from '@/lib/cloudinary';
 import { toOptimizedWebp } from '@/lib/image-engine';
 import { fail, handleRouteError, ok, readJson, validationError } from '@/lib/api-response';
@@ -34,7 +34,12 @@ async function requireUploader(req: NextRequest) {
       if (!(error instanceof HttpError)) throw error;
     }
   }
-  return requireSuperAdmin(req);
+  // Panel uploads come from the outlet forms and the invite image in Settings.
+  const admin = await requireAdmin(req);
+  if (!admin.pages.includes('outlets') && !admin.pages.includes('settings')) {
+    throw new HttpError(403, 'You do not have access to upload images', 'PAGE_FORBIDDEN');
+  }
+  return admin;
 }
 
 /**

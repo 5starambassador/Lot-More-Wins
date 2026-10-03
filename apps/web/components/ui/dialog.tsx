@@ -36,6 +36,7 @@ export function ConfirmDialog({
   confirmLabel = 'Confirm',
   tone = 'primary',
   busy,
+  confirmDisabled,
   children,
 }: {
   open: boolean;
@@ -46,6 +47,8 @@ export function ConfirmDialog({
   confirmLabel?: string;
   tone?: 'primary' | 'danger';
   busy?: boolean;
+  /** Keeps the confirm button disabled, e.g. until a typed confirmation matches. */
+  confirmDisabled?: boolean;
   children?: React.ReactNode;
 }) {
   const close = React.useCallback(() => !busy && onClose(), [busy, onClose]);
@@ -87,7 +90,7 @@ export function ConfirmDialog({
             <Button variant="secondary" onClick={close} disabled={busy}>
               Cancel
             </Button>
-            <Button ref={confirmRef} variant={tone === 'danger' ? 'danger' : 'primary'} onClick={onConfirm} loading={busy}>
+            <Button ref={confirmRef} variant={tone === 'danger' ? 'danger' : 'primary'} onClick={onConfirm} loading={busy} disabled={confirmDisabled}>
               {confirmLabel}
             </Button>
           </div>

@@ -17,6 +17,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { Panel, PanelHeader } from '@/components/ui/panel';
 import { Pagination, SkeletonRows, TBody, TD, TH, THead, TR, Table, TableScroll } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
+import { DeleteRecordButton } from '@/components/admin/delete-record';
 import { adminApi, errorMessage, isUnauthenticated, useAdminQuery } from '@/lib/admin-client';
 import { BILL_TYPE_LABEL, OUTLET_STATUS } from '@/lib/admin-labels';
 import { cn } from '@/lib/utils';
@@ -162,10 +163,13 @@ function OutletDetailView({ id }: { id: string }) {
         meta={<Badge tone={OUTLET_STATUS[outlet.status].tone}>{OUTLET_STATUS[outlet.status].label}</Badge>}
         description={`Added ${formatDate(outlet.createdAt)} · ${outlet.email} · +91 ${outlet.mobile}`}
         actions={
-          <Button variant={active ? 'danger-outline' : 'primary'} onClick={() => setConfirming(true)}>
-            <Power className="h-4 w-4" />
-            {active ? 'Deactivate' : 'Activate'}
-          </Button>
+          <>
+            <Button variant={active ? 'secondary' : 'primary'} onClick={() => setConfirming(true)}>
+              <Power className="h-4 w-4" />
+              {active ? 'Deactivate' : 'Activate'}
+            </Button>
+            <DeleteRecordButton kind="outlet" id={outlet.id} name={outlet.name} />
+          </>
         }
       />
 

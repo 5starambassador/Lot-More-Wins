@@ -7,8 +7,7 @@
     "dev": "vite --port 3100",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --port 3100",
-    "typecheck": "tsc --noEmit",
-    "sync:apk": "node scripts/sync-apk.mjs"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@fontsource/poppins": "^5.1.0",
