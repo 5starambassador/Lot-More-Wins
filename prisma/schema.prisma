@@ -121,6 +121,12 @@ enum PointsBasis {
   PAYABLE_AMOUNT
 }
 
+/// How wallet values are shown in the Partner App.
+enum WalletDisplay {
+  POINTS
+  RUPEES
+}
+
 enum OutletStatus {
   ACTIVE
   INACTIVE
@@ -168,7 +174,12 @@ model ProgramSetting {
   referralRewardDiscount     Decimal          @default(20) @map("referral_reward_discount") @db.Decimal(5, 2)
   pointsBasis                PointsBasis      @default(PAYABLE_AMOUNT) @map("points_basis")
   appDownloadUrl             String?          @map("app_download_url")
-  updatedBy                  String?          @map("updated_by")
+  /// Image attached to the Partner App invite message; the app logo when null.
+  inviteImageUrl             String?          @map("invite_image_url")
+  /// Show the "new version available" popup on the Partner App home page.
+  homePopupEnabled           Boolean          @default(false) @map("home_popup_enabled")
+  walletDisplay              WalletDisplay    @default(POINTS) @map("wallet_display")
+  updatedBy                String?          @map("updated_by")
   createdAt                  DateTime         @default(now()) @map("created_at")
   updatedAt                  DateTime         @updatedAt @map("updated_at")
 

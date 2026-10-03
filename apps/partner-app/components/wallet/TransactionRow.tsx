@@ -2,10 +2,11 @@ import { StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { PointsLedgerEntry, PointsRedemptionRecord } from '@lotmorewins/types';
 import { formatDate, formatINR, formatPoints } from '../../lib/format';
+import type { WalletFormat } from '../../lib/wallet-display';
 import { colors, space } from '../../theme/tokens';
 import { Txt } from '../ui';
 
-/** A wallet history line: points earned on a bill, or points redeemed at an outlet. */
+/** A wallet history line: earned on a bill, or redeemed at an outlet. */
 export type WalletTransaction =
   | { kind: 'EARNED'; id: string; createdAt: string; entry: PointsLedgerEntry }
   | { kind: 'REDEEMED'; id: string; createdAt: string; redemption: PointsRedemptionRecord };
@@ -36,31 +37,37 @@ function ExpiryLine({ entry }: { entry: PointsLedgerEntry }) {
   );
 }
 
-export function TransactionRow({ transaction }: { transaction: WalletTransaction }) {
+/** Amounts follow the wallet display setting: points (with their ₹ worth) or rupees. */
+export function TransactionRow({ transaction, format }: { transaction: WalletTransaction; format: WalletFormat }) {
+  const { inRupees } = format;
   if (transaction.kind === 'REDEEMED') {
     const { redemption } = transaction;
+    // Redemptions keep the exact rupee value they were made for.
+    const amount = inRupees ? formatINR(redemption.rupeeValue) : formatPoints(redemption.points);
     return (
       <View
         style={styles.row}
         accessible
-        accessibilityLabel={`Redeemed ${formatPoints(redemption.points)} points at ${redemption.outletName}`}
+        accessibilityLabel={`Redeemed ${amount}${inRupees ? '' : ' points'} at ${redemption.outletName}`}
       >
         <View style={styles.icon}>
           <Ionicons name="arrow-up-outline" size={18} color={colors.textSecondary} />
         </View>
         <View style={styles.text}>
           <Txt variant="bodyMedium" numberOfLines={1}>
-            Points redeemed
+            {inRupees ? 'Redeemed' : 'Points redeemed'}
           </Txt>
           <Txt variant="small" tone="secondary" numberOfLines={1}>
             {redemption.outletName} · {formatDate(redemption.createdAt)}
           </Txt>
-          <Txt variant="caption" tone="muted">
-            Worth {formatINR(redemption.rupeeValue)}
-          </Txt>
+          {inRupees ? null : (
+            <Txt variant="caption" tone="muted">
+              Worth {formatINR(redemption.rupeeValue)}
+            </Txt>
+          )}
         </View>
         <Txt variant="bodyMedium" tone="secondary">
-          −{formatPoints(redemption.points)}
+          −{amount}
         </Txt>
       </View>
     );
@@ -72,14 +79,14 @@ export function TransactionRow({ transaction }: { transaction: WalletTransaction
     <View
       style={styles.row}
       accessible
-      accessibilityLabel={`${isReferral ? 'Referral' : 'Purchase'} points at ${entry.outletName}, plus ${formatPoints(entry.points)} points`}
+      accessibilityLabel={`${isReferral ? 'Referral' : 'Purchase'} ${format.noun} at ${entry.outletName}, plus ${format.amount(entry.points)}${inRupees ? '' : ' points'}`}
     >
       <View style={[styles.icon, styles.iconGold]}>
         <Ionicons name={isReferral ? 'people-outline' : 'bag-handle-outline'} size={18} color={colors.gold} />
       </View>
       <View style={styles.text}>
         <Txt variant="bodyMedium" numberOfLines={1}>
-          {isReferral ? 'Referral points' : 'Purchase points'}
+          {isReferral ? 'Referral' : 'Purchase'} {inRupees ? 'reward' : 'points'}
         </Txt>
         <Txt variant="small" tone="secondary" numberOfLines={1}>
           {entry.outletName} · {formatDate(entry.createdAt)}
@@ -92,7 +99,7 @@ export function TransactionRow({ transaction }: { transaction: WalletTransaction
         ) : null}
       </View>
       <Txt variant="bodyMedium" tone={entry.expired ? 'muted' : 'gold'} style={entry.expired ? styles.struck : undefined}>
-        +{formatPoints(entry.points)}
+        +{format.amount(entry.points)}
       </Txt>
     </View>
   );

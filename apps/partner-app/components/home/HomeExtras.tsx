@@ -2,8 +2,10 @@ import { useState, type ComponentProps } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { PartnerHome, PartnerWallet } from '@lotmorewins/types';
-import { shareInvite } from '../../lib/invite';
+import { useQuery } from '@tanstack/react-query';
+import { loadInviteImage, shareInvite } from '../../lib/invite';
 import { formatINR, formatPercent, formatPoints } from '../../lib/format';
+import { walletFormat } from '../../lib/wallet-display';
 import { colors, fonts, radius, space } from '../../theme/tokens';
 import { Glass, SectionLabel, Txt } from '../ui';
 
@@ -27,15 +29,26 @@ function Stat({ icon, label, value }: { icon: IconName; label: string; value: st
 
 /** The partner's numbers at a glance, on one glass panel. "—" until each figure has loaded. */
 export function HomeStats({ home, wallet }: { home: PartnerHome | undefined; wallet: PartnerWallet | undefined }) {
+  const format = walletFormat(wallet);
   const discount = home ? (home.offers.firstTimeAvailable && home.offers.firstTimeDiscount > 0 ? home.offers.firstTimeDiscount : home.offers.repeatDiscount) : null;
   return (
     <View>
       <SectionLabel label="Your stats" />
       <Glass rounded={radius.lg} style={styles.stats}>
         <View style={styles.row}>
-          <Stat icon="wallet-outline" label="Wallet points" value={wallet ? formatPoints(wallet.balancePoints) : '—'} />
-          <View style={styles.vline} />
-          <Stat icon="cash-outline" label="Points worth" value={wallet ? formatINR(wallet.rupeeValue) : '—'} />
+          {format.inRupees ? (
+            <>
+              <Stat icon="wallet-outline" label="Wallet balance" value={wallet ? formatINR(wallet.rupeeValue) : '—'} />
+              <View style={styles.vline} />
+              <Stat icon="cash-outline" label="Referral rewards" value={wallet ? format.amount(wallet.totals.referralPoints) : '—'} />
+            </>
+          ) : (
+            <>
+              <Stat icon="wallet-outline" label="Wallet points" value={wallet ? formatPoints(wallet.balancePoints) : '—'} />
+              <View style={styles.vline} />
+              <Stat icon="cash-outline" label="Points worth" value={wallet ? formatINR(wallet.rupeeValue) : '—'} />
+            </>
+          )}
         </View>
         <View style={styles.hline} />
         <View style={styles.row}>
@@ -48,15 +61,30 @@ export function HomeStats({ home, wallet }: { home: PartnerHome | undefined; wal
   );
 }
 
-/** Invite family and friends: shares a welcome message, the app download link and the app logo. */
-export function InviteCard({ partnerName, downloadUrl }: { partnerName: string | null | undefined; downloadUrl: string | null | undefined }) {
+/** Invite family and friends: shares a welcome message, the app download link and the invite image set by the Super Admin. */
+export function InviteCard({
+  partnerName,
+  downloadUrl,
+  imageUrl,
+}: {
+  partnerName: string | null | undefined;
+  downloadUrl: string | null | undefined;
+  imageUrl: string | null | undefined;
+}) {
   const [sharing, setSharing] = useState(false);
+  // Loaded ahead of the tap: browsers only share a file during the tap itself.
+  const image = useQuery({
+    queryKey: ['invite-image', imageUrl ?? null],
+    queryFn: () => loadInviteImage(imageUrl),
+    enabled: imageUrl !== undefined,
+    staleTime: Infinity,
+  });
 
   const invite = async () => {
     if (sharing) return;
     setSharing(true);
     try {
-      await shareInvite({ partnerName, downloadUrl });
+      await shareInvite({ partnerName, downloadUrl, imageUrl, image: image.data });
     } catch {
       // The share sheet was unavailable or closed; nothing to report.
     } finally {

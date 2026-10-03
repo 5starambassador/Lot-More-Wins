@@ -42,9 +42,14 @@ export function formatRelative(iso: string, now = Date.now()): string {
   return formatDateTime(iso);
 }
 
+/**
+ * By local time: 3:00–11:59 morning, 12:00–15:59 afternoon, 16:00–18:59 evening,
+ * 19:00–2:59 night.
+ */
 export function greeting(now = new Date()): string {
   const h = now.getHours();
-  if (h < 12) return 'Good morning';
-  if (h < 17) return 'Good afternoon';
-  return 'Good evening';
+  if (h >= 3 && h < 12) return 'Good morning';
+  if (h >= 12 && h < 16) return 'Good afternoon';
+  if (h >= 16 && h < 19) return 'Good evening';
+  return 'Good night';
 }

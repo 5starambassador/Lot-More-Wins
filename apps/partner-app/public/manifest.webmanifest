@@ -1,0 +1,17 @@
+{
+  "name": "Lot More Wins Partner",
+  "short_name": "Lot More Wins",
+  "description": "Partner discounts, referral rewards and your wallet at Lot More outlets.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#750505",
+  "theme_color": "#750505",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

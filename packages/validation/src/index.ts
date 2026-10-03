@@ -177,6 +177,12 @@ export const programSettingsUpdateSchema = z
       .refine((v) => v === '' || /^https?:\/\/\S+$/i.test(v), 'App download link must be an http(s) URL')
       .transform((v) => (v === '' ? null : v))
       .nullable(),
+    /** Image attached to the partner invite message; null clears it, omitted keeps it. */
+    inviteImageUrl: z.lazy(() => imageUrlSchema).nullable().optional(),
+    homePopupEnabled: z.boolean({ invalid_type_error: 'Home popup must be on or off' }).optional(),
+    walletDisplay: z
+      .enum(['POINTS', 'RUPEES'], { errorMap: () => ({ message: 'Wallet display must be "POINTS" or "RUPEES"' }) })
+      .optional(),
   })
   .strict();
 

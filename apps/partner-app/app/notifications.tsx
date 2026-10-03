@@ -1,5 +1,6 @@
 import { useEffect, useMemo, type ComponentProps } from 'react';
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
@@ -20,9 +21,20 @@ const ICONS: Record<PartnerNotificationType, IconName> = {
   REFERRAL_REWARD: 'trophy-outline',
 };
 
-function NotificationRow({ item }: { item: PartnerNotification }) {
+/** Notifications about the wallet (earned, claimed, redeemed) open the Wallet page. */
+const OPENS_WALLET: ReadonlySet<PartnerNotificationType> = new Set(['PURCHASE_POINTS', 'REFERRAL_POINTS', 'POINTS_CLAIMED', 'POINTS_REDEEMED']);
+
+function NotificationRow({ item, onOpenWallet }: { item: PartnerNotification; onOpenWallet: () => void }) {
+  const opensWallet = OPENS_WALLET.has(item.type);
   return (
-    <View style={styles.row} accessible accessibilityLabel={`${item.title}. ${item.body}`}>
+    <Pressable
+      style={({ pressed }) => [styles.row, pressed && opensWallet && styles.pressed]}
+      disabled={!opensWallet}
+      onPress={onOpenWallet}
+      accessibilityRole={opensWallet ? 'button' : undefined}
+      accessibilityLabel={`${item.title}. ${item.body}`}
+      accessibilityHint={opensWallet ? 'Opens your wallet' : undefined}
+    >
       <View style={[styles.icon, !item.read && styles.iconUnread]}>
         <Ionicons name={ICONS[item.type] ?? 'notifications-outline'} size={18} color={colors.gold} />
       </View>
@@ -50,13 +62,15 @@ function NotificationRow({ item }: { item: PartnerNotification }) {
           ) : null}
         </View>
       </View>
-    </View>
+      {opensWallet ? <Ionicons name="chevron-forward" size={16} color={colors.textMuted} style={styles.chevron} /> : null}
+    </Pressable>
   );
 }
 
 /** Everything that changed the partner's wallet: their own purchases, their referred customers' purchases, redemptions. */
 export default function NotificationsScreen() {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const notifications = useNotifications();
   const items = useMemo(() => notifications.data?.pages.flatMap((page) => page.notifications) ?? [], [notifications.data]);
   const unread = notifications.data?.pages[0]?.unread ?? 0;
@@ -96,7 +110,7 @@ export default function NotificationsScreen() {
           ListFooterComponent={notifications.isFetchingNextPage ? <ActivityIndicator color={colors.gold} style={styles.more} /> : null}
           keyExtractor={(n) => n.id}
           contentContainerStyle={[styles.pad, styles.grow]}
-          renderItem={({ item }) => <NotificationRow item={item} />}
+          renderItem={({ item }) => <NotificationRow item={item} onOpenWallet={() => router.navigate('/wallet')} />}
           ItemSeparatorComponent={() => <Divider inset={40 + space.md} />}
           refreshControl={
             <RefreshControl
@@ -125,6 +139,8 @@ const styles = StyleSheet.create({
   more: { paddingVertical: space.lg },
   pad: { paddingHorizontal: GUTTER, paddingBottom: space.xl },
   row: { flexDirection: 'row', alignItems: 'flex-start', gap: space.md, paddingVertical: space.md },
+  pressed: { opacity: 0.6 },
+  chevron: { alignSelf: 'center' },
   icon: {
     width: 40,
     height: 40,

@@ -10,6 +10,7 @@ import * as Haptics from '../lib/haptics';
 import { Button, Divider, FullScreenLoader, Screen, StateView, TopBar, Txt } from '../components/ui';
 import { describeError } from '../lib/queries';
 import { formatINR, formatPoints } from '../lib/format';
+import { useWalletFormat } from '../lib/wallet-display';
 import { colors, fonts, GUTTER, radius, space } from '../theme/tokens';
 
 const QR_SIZE = 240;
@@ -28,6 +29,7 @@ export default function RedeemScreen() {
   const [qr, setQr] = useState<RedeemQr | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const { inRupees } = useWalletFormat();
   const [remaining, setRemaining] = useState(0);
 
   const generate = useCallback(async () => {
@@ -86,7 +88,7 @@ export default function RedeemScreen() {
       ) : (
         <Animated.View key={qr.code} entering={FadeInDown.duration(400)} style={styles.body}>
           <Txt variant="small" tone="secondary" align="center" style={styles.copy}>
-            Show this to the outlet at billing. They scan it and take your points off the bill.
+            Show this to the outlet at billing. They scan it and take your {inRupees ? 'wallet amount' : 'points'} off the bill.
           </Txt>
 
           <View style={styles.plateWrap}>
@@ -112,12 +114,14 @@ export default function RedeemScreen() {
 
           <View style={styles.worth}>
             <Txt variant="overline" tone="muted" align="center">
-              Current points worth
+              {inRupees ? 'Wallet balance' : 'Current points worth'}
             </Txt>
             <Txt style={styles.worthFigure}>{formatINR(qr.rupeeValue)}</Txt>
-            <Txt variant="small" tone="secondary" align="center">
-              {formatPoints(qr.balancePoints)} points
-            </Txt>
+            {inRupees ? null : (
+              <Txt variant="small" tone="secondary" align="center">
+                {formatPoints(qr.balancePoints)} points
+              </Txt>
+            )}
           </View>
 
           <View style={styles.details}>

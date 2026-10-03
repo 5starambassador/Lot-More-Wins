@@ -17,7 +17,8 @@ interface AuthState {
   logout: () => Promise<void>;
 }
 
-const SECURE_TOKEN_KEY = 'lmw_partner_token';
+export const SESSION_TOKEN_KEY = 'lmw_partner_token';
+const SECURE_TOKEN_KEY = SESSION_TOKEN_KEY;
 const SECURE_PROFILE_KEY = 'lmw_partner_profile';
 const SECURE_QR_KEY = 'lmw_partner_qr_codes';
 

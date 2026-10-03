@@ -8,6 +8,7 @@ import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-
 import { useEffect, useState } from 'react';
 import { AppState, Platform, View } from 'react-native';
 import { useFonts } from 'expo-font';
+import { AuthGate } from '../components/AuthGate';
 import { colors, fonts } from '../theme/tokens';
 
 // Only the four weights the design uses; importing the package index would bundle all 18.
@@ -39,6 +40,7 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
           <StatusBar style="light" />
+          <AuthGate />
           <Stack
             screenOptions={{
               headerShown: false,

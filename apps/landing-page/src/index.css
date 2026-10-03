@@ -1,0 +1,223 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem;
+  }
+
+  body {
+    @apply bg-canvas-deep font-sans text-ivory antialiased;
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    background: rgba(245, 197, 66, 0.35);
+  }
+
+  :focus-visible {
+    outline: 2px solid #ffdd75;
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+}
+
+@layer components {
+  /* The app's full-screen canvas: red at the top, falling to near-black maroon. */
+  .canvas-fill {
+    background: linear-gradient(180deg, #8c0a0a 0%, #750505 40%, #430202 100%);
+  }
+
+  .text-gilt-gradient {
+    background: linear-gradient(115deg, #ffe9a8 0%, #f5c542 38%, #b8922f 62%, #ffdd75 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* The app's gradient gold border: paint the wrapper, inset the content by the border width. */
+  .gilt-frame {
+    background: linear-gradient(125deg, #ffe9a8 0%, #b8922f 22%, #fff6d6 45%, #f5c542 62%, #8e6b1f 82%, #ffdd75 100%);
+    padding: 1.5px;
+  }
+
+  .glass {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.13) 0%, rgba(255, 255, 255, 0.06) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+    backdrop-filter: blur(12px);
+  }
+
+  .panel {
+    background: linear-gradient(160deg, rgba(117, 5, 5, 0.92) 0%, rgba(67, 2, 2, 0.96) 100%);
+    border: 1px solid rgba(245, 197, 66, 0.36);
+  }
+
+  .eyebrow {
+    @apply text-xs font-semibold uppercase text-gilt;
+    letter-spacing: 0.28em;
+  }
+
+  .btn-gold {
+    @apply inline-flex items-center justify-center gap-2.5 rounded-full px-7 py-3.5 text-base font-semibold text-ink transition duration-300;
+    background: linear-gradient(120deg, #ffe9a8 0%, #f5c542 45%, #e0a92a 100%);
+    box-shadow:
+      0 10px 30px -8px rgba(245, 197, 66, 0.55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  }
+  .btn-gold:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 16px 36px -8px rgba(245, 197, 66, 0.7),
+      inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2.5 rounded-full border border-gilt/40 px-7 py-3.5 text-base font-medium text-gilt-bright transition duration-300;
+  }
+  .btn-ghost:hover {
+    @apply border-gilt bg-gilt/10;
+  }
+
+  /* Scroll reveal: Reveal.tsx adds .is-visible when the element enters the viewport. */
+  .reveal {
+    opacity: 0;
+    transform: translateY(32px);
+    transition:
+      opacity 0.9s cubic-bezier(0.2, 0.7, 0.2, 1),
+      transform 0.9s cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+  .reveal.is-visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* Gold dashed connectors whose dashes travel in the direction of the flow. */
+  .flow-line {
+    height: 2px;
+    background-image: linear-gradient(90deg, rgba(245, 197, 66, 0.9) 50%, transparent 50%);
+    background-size: 14px 2px;
+    animation: flow-x 0.9s linear infinite;
+  }
+  .flow-line-y {
+    width: 2px;
+    background-image: linear-gradient(180deg, rgba(245, 197, 66, 0.9) 50%, transparent 50%);
+    background-size: 2px 14px;
+    animation: flow-y 0.9s linear infinite;
+  }
+}
+
+@layer utilities {
+  .animate-float {
+    animation: float 7s ease-in-out infinite;
+  }
+  .animate-float-slow {
+    animation: float 10s ease-in-out infinite;
+  }
+  .animate-ring {
+    animation: ring 3.2s ease-out infinite;
+  }
+  .animate-spin-slower {
+    animation: spin 80s linear infinite;
+  }
+  .animate-travel {
+    animation: travel 7s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  }
+  .animate-travel-y {
+    animation: travel-y 7s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  }
+  .animate-sheen {
+    animation: sheen 5s ease-in-out infinite;
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-14px);
+  }
+}
+
+@keyframes ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+@keyframes flow-x {
+  to {
+    background-position: 14px 0;
+  }
+}
+
+@keyframes flow-y {
+  to {
+    background-position: 0 14px;
+  }
+}
+
+@keyframes travel {
+  0% {
+    left: 0%;
+    opacity: 0;
+  }
+  8%,
+  92% {
+    opacity: 1;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+
+@keyframes travel-y {
+  0% {
+    top: 0%;
+    opacity: 0;
+  }
+  8%,
+  92% {
+    opacity: 1;
+  }
+  100% {
+    top: 100%;
+    opacity: 0;
+  }
+}
+
+@keyframes sheen {
+  0%,
+  60% {
+    transform: translateX(-120%) skewX(-18deg);
+  }
+  100% {
+    transform: translateX(320%) skewX(-18deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+  .reveal {
+    opacity: 1;
+    transform: none;
+  }
+}

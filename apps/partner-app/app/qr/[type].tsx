@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { StyleSheet, View } from 'react-native';
 import { Redirect, useLocalSearchParams } from 'expo-router';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -11,7 +12,8 @@ import { QrPanel } from '../../components/qr/QrPanel';
 import { useAuthStore } from '../../store/auth-store';
 import { describeError, useHome } from '../../lib/queries';
 import { formatPercent } from '../../lib/format';
-import { QrExportError, saveQrImage, shareQrImage } from '../../lib/qr-export';
+import { useWalletFormat } from '../../lib/wallet-display';
+import { QrExportError, qrImageBase64, saveQrImage, shareQrImage } from '../../lib/qr-export';
 import { colors, GUTTER, space } from '../../theme/tokens';
 
 const PAGES: Record<string, { qrType: QRCodeType; title: string; heading: string; body: string; fileName: string }> = {
@@ -26,7 +28,7 @@ const PAGES: Record<string, { qrType: QRCodeType; title: string; heading: string
     qrType: 'REFERRAL',
     title: 'Referral QR',
     heading: 'Your referral code',
-    body: 'Share it with family and friends. You earn referral points every time they close a bill with it.',
+    body: 'Share it with family and friends. You earn referral {noun} every time they close a bill with it.',
     fileName: 'lotmore-referral-qr',
   },
 };
@@ -36,14 +38,24 @@ export default function QrScreen() {
   const { type } = useLocalSearchParams<{ type: string }>();
   const { partner, qrCodes } = useAuthStore();
   const home = useHome();
+  const walletNoun = useWalletFormat().noun;
   const [busy, setBusy] = useState<'download' | 'share' | null>(null);
   const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
 
   const page = PAGES[type ?? ''];
+  const code = page ? qrCodes.find((q) => q.type === page.qrType)?.code : undefined;
+  // The branded card is loaded with the page, so Download and Share act on the tap itself
+  // (browsers refuse to share a file once the tap has passed while waiting on the network).
+  const card = useQuery({
+    queryKey: ['qr-card', page?.qrType, code],
+    queryFn: () => qrImageBase64({ type: page!.qrType, code: code!, fileName: page!.fileName }),
+    enabled: !!page && !!code,
+    staleTime: Infinity,
+  });
+
   if (!page) return <Redirect href="/dashboard" />;
 
   const isReferral = page.qrType === 'REFERRAL';
-  const code = qrCodes.find((q) => q.type === page.qrType)?.code;
 
   const run = async (kind: 'download' | 'share', action: () => Promise<string | null>) => {
     setMessage(null);
@@ -65,8 +77,14 @@ export default function QrScreen() {
   const handleDownload = () =>
     run('download', async () => {
       if (!code) return null;
-      const saved = await saveQrImage(code, page.fileName);
-      return saved === 'gallery' ? 'Saved to your photos.' : saved === 'folder' ? 'Saved to the folder you chose.' : null;
+      const saved = await saveQrImage({ type: page.qrType, code, fileName: page.fileName }, card.data);
+      return saved === 'gallery'
+        ? 'Saved to your photos.'
+        : saved === 'folder'
+          ? 'Saved to the folder you chose.'
+          : saved === 'download'
+            ? 'Downloaded to your device.'
+            : null;
     });
 
   // The image goes out with an invitation and the partner app download link.
@@ -85,11 +103,11 @@ export default function QrScreen() {
         }.`,
         link ? `Download the Lot More Partner app to earn rewards of your own: ${link}` : null,
       ];
-      await shareQrImage(code, {
-        message: lines.filter(Boolean).join('\n\n'),
-        title: 'Lot More Wins — Referral QR',
-        fileName: page.fileName,
-      });
+      await shareQrImage(
+        { type: page.qrType, code, fileName: page.fileName },
+        { message: lines.filter(Boolean).join('\n\n'), title: 'Lot More Wins — Referral QR' },
+        card.data
+      );
       return null;
     });
 
@@ -137,7 +155,7 @@ export default function QrScreen() {
           {page.heading}
         </Txt>
         <Txt variant="small" tone="secondary" align="center" style={styles.copy}>
-          {page.body}
+          {page.body.replace('{noun}', walletNoun)}
         </Txt>
 
         <View style={styles.qrWrap}>

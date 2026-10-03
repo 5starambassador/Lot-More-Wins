@@ -18,7 +18,7 @@ const TABS: { name: string; title: string; icon: IconName; active: IconName }[] 
 
 const TAB_BAR_HEIGHT = 64;
 
-/** Signed-in shell. Without a stored partner session the user is sent back to the welcome screen. */
+/** Signed-in shell. Without a stored partner session the user is sent to the login page. */
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -46,7 +46,7 @@ export default function TabsLayout() {
   }, [partnerId, queryClient, router]);
 
   if (!partner && isLoading) return <FullScreenLoader />;
-  if (!partner) return <Redirect href="/" />;
+  if (!partner) return <Redirect href="/(auth)/login" />;
 
   return (
     <Tabs

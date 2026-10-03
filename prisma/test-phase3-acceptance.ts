@@ -408,8 +408,8 @@ async function run() {
     const secondBill = await request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: partnerB.discQr, billAmount: 999.99, idempotencyKey: key('second1') } });
     const nb = secondBill.data.data?.bill;
     assert(
-      nb?.isFirstTime && nb.discountPercentage === 20 && nb.discountAmount === 200 && nb.finalAmount === 799.99,
-      'Every partner gets the same first-time 20%, with half-up rounding (₹999.99 → ₹200.00 off)',
+      nb?.isFirstTime && nb.discountPercentage === 20 && nb.discountAmount === 199.99 && nb.finalAmount === 800,
+      'Every partner gets the same first-time 20%, payable rounded half-up to the rupee (₹999.99 → pays ₹800, ₹199.99 off)',
       nb
     );
     const secondRepeat = await request('/outlet/bills', { method: 'POST', token: tokenA, body: { qrCode: partnerB.discQr, billAmount: 200, idempotencyKey: key('second2') } });

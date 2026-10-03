@@ -8,6 +8,8 @@ import type {
   PartnerOnboardingPayload,
   PartnerOnboardingResponse,
   PartnerQrResponse,
+  PartnerQrCardResponse,
+  QRCodeType,
   PartnerLoginPayload,
   PaginatedResponse,
   ProgramSettings,
@@ -261,6 +263,11 @@ export class ApiClient {
   }
 
   /** Records one tap of "Share QR" on the referral QR page (Super Admin tracking). */
+  /** The partner's own QR as a branded PNG card, for download and sharing. */
+  public getPartnerQrCard(type: QRCodeType): Promise<ApiResponse<PartnerQrCardResponse>> {
+    return this.get<ApiResponse<PartnerQrCardResponse>>('/partner/qr-card', { params: { type }, timeoutMs: 30000 });
+  }
+
   public trackReferralShare(): Promise<ApiResponse<{ recorded: boolean }>> {
     return this.post<ApiResponse<{ recorded: boolean }>>('/partner/referral-share');
   }

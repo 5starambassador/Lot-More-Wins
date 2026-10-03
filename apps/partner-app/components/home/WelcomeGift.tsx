@@ -12,7 +12,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from '../../lib/haptics';
-import { formatPercent, formatPoints } from '../../lib/format';
+import { formatPercent } from '../../lib/format';
+import { useWalletFormat } from '../../lib/wallet-display';
 import { colors, fonts, radius, space } from '../../theme/tokens';
 import { Txt } from '../ui';
 import { Confetti } from './Confetti';
@@ -38,6 +39,7 @@ export function WelcomeGift({
   onClose: () => void;
 }) {
   const { height } = useWindowDimensions();
+  const format = useWalletFormat();
   const [popped, setPopped] = useState(false);
 
   const pop = useSharedValue(1);
@@ -95,7 +97,8 @@ export function WelcomeGift({
               <View style={styles.claimed}>
                 <Ionicons name="diamond-outline" size={14} color={colors.gold} />
                 <Txt variant="caption" tone="secondary">
-                  +{formatPoints(claimedPoints)} points from your earlier visits are in your wallet
+                  +{format.amount(claimedPoints)}
+                  {format.inRupees ? ' in rewards' : ' points'} from your earlier visits {format.inRupees ? 'is' : 'are'} in your wallet
                 </Txt>
               </View>
             ) : null}

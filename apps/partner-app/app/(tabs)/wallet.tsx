@@ -7,9 +7,13 @@ import { Button, Divider, ListSkeleton, Screen, SectionLabel, Skeleton, StateVie
 import { mergeTransactions, TransactionRow } from '../../components/wallet/TransactionRow';
 import { describeError, useWallet } from '../../lib/queries';
 import { formatINR, formatPoints } from '../../lib/format';
+import { walletFormat } from '../../lib/wallet-display';
 import { colors, fonts, GUTTER, radius, space } from '../../theme/tokens';
 
-/** Wallet: total points (purchase + referral), the redeem QR, and the points history with expiry dates. */
+/**
+ * Wallet: the balance (purchase + referral), the redeem QR, and the history with expiry dates.
+ * Shown in points or rupees according to the Super Admin's "Wallet display" setting.
+ */
 export default function WalletScreen() {
   const router = useRouter();
   const wallet = useWallet();
@@ -17,6 +21,9 @@ export default function WalletScreen() {
 
   const transactions = useMemo(() => (data ? mergeTransactions(data.entries, data.redemptions) : []), [data]);
   const balance = data?.balancePoints ?? 0;
+  const format = walletFormat(data);
+  const { inRupees, noun } = format;
+  const Noun = noun === 'points' ? 'Points' : 'Rewards';
 
   return (
     <Screen
@@ -40,7 +47,7 @@ export default function WalletScreen() {
         <>
           <Animated.View entering={FadeIn.duration(400)} style={styles.hero}>
             <Txt variant="overline" tone="muted" align="center">
-              Total points
+              {inRupees ? 'Wallet balance' : 'Total points'}
             </Txt>
             {wallet.isLoading ? (
               <View style={styles.heroSkeleton}>
@@ -49,27 +56,32 @@ export default function WalletScreen() {
               </View>
             ) : (
               <>
-                <Txt style={styles.total} adjustsFontSizeToFit numberOfLines={1} accessibilityLabel={`${formatPoints(balance)} points`}>
-                  {formatPoints(balance)}
+                <Txt
+                  style={styles.total}
+                  adjustsFontSizeToFit
+                  numberOfLines={1}
+                  accessibilityLabel={inRupees ? formatINR(data?.rupeeValue ?? 0) : `${formatPoints(balance)} points`}
+                >
+                  {inRupees ? formatINR(data?.rupeeValue ?? 0) : formatPoints(balance)}
                 </Txt>
                 <Txt variant="body" tone="secondary" align="center">
-                  Worth {formatINR(data?.rupeeValue ?? 0)}
+                  {inRupees ? 'Available to redeem at any outlet' : `Worth ${formatINR(data?.rupeeValue ?? 0)}`}
                 </Txt>
                 <View style={styles.split}>
                   <View style={styles.splitCell}>
                     <Txt variant="caption" tone="muted">
-                      Purchase points
+                      Purchase {noun}
                     </Txt>
-                    <Txt variant="subheading">{formatPoints(data?.totals.purchasePoints ?? 0)}</Txt>
+                    <Txt variant="subheading">{format.amount(data?.totals.purchasePoints ?? 0)}</Txt>
                   </View>
                   <Txt variant="heading" tone="muted">
                     +
                   </Txt>
                   <View style={styles.splitCell}>
                     <Txt variant="caption" tone="muted">
-                      Referral points
+                      Referral {noun}
                     </Txt>
-                    <Txt variant="subheading">{formatPoints(data?.totals.referralPoints ?? 0)}</Txt>
+                    <Txt variant="subheading">{format.amount(data?.totals.referralPoints ?? 0)}</Txt>
                   </View>
                 </View>
               </>
@@ -84,9 +96,9 @@ export default function WalletScreen() {
             />
             {!wallet.isLoading && balance <= 0 ? (
               <Txt variant="caption" tone="muted" align="center">
-                Earn points on a purchase or a referral to redeem them here.
+                Earn {noun} on a purchase or a referral to redeem them here.
               </Txt>
-            ) : data ? (
+            ) : data && !inRupees ? (
               <Txt variant="caption" tone="muted" align="center">
                 {formatPoints(data.pointsRatio.points)} points = {formatINR(data.pointsRatio.rupees)}
               </Txt>
@@ -94,21 +106,21 @@ export default function WalletScreen() {
           </Animated.View>
 
           <Animated.View entering={FadeInDown.delay(120).duration(400)} style={styles.history}>
-            <SectionLabel label="Points history" />
+            <SectionLabel label={inRupees ? 'Transaction history' : 'Points history'} />
             {wallet.isLoading ? (
               <ListSkeleton rows={4} />
             ) : transactions.length > 0 ? (
               transactions.map((transaction, i) => (
                 <View key={`${transaction.kind}-${transaction.id}`}>
                   {i > 0 && <Divider inset={40 + space.md} />}
-                  <TransactionRow transaction={transaction} />
+                  <TransactionRow transaction={transaction} format={format} />
                 </View>
               ))
             ) : (
               <StateView
                 icon="wallet-outline"
-                title="No points yet"
-                message="Show your Personal Discount QR when you shop, or share your Referral QR. Points appear here after each bill, with their expiry date."
+                title={`No ${noun} yet`}
+                message={`Show your Personal Discount QR when you shop, or share your Referral QR. ${Noun} appear here after each bill, with their expiry date.`}
               />
             )}
           </Animated.View>

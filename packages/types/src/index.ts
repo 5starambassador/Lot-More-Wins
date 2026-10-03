@@ -270,6 +270,9 @@ export type BillTransactionType = 'DIRECT_PARTNER' | 'REFERRAL';
 /** Amount that purchase and referral point percentages are applied to. */
 export type PointsBasis = 'BILL_AMOUNT' | 'PAYABLE_AMOUNT';
 
+/** How the Partner App shows wallet values: as points, or as their rupee worth. */
+export type WalletDisplay = 'POINTS' | 'RUPEES';
+
 export interface ProgramSettings {
   messagingMode: MessagingMode;
   /** Direct partner QR: discount on the partner's first ever bill. */
@@ -298,12 +301,26 @@ export interface ProgramSettings {
   pointsBasis: PointsBasis;
   /** Partner app download / Play Store link sent in bill messages. */
   appDownloadUrl: string | null;
+  /** Image attached to the Partner App's "Invite family & friends" message. null = the app logo. */
+  inviteImageUrl: string | null;
+  /** Show the "new version available" popup on the Partner App home page. */
+  homePopupEnabled: boolean;
+  /** Wallet values in the Partner App (wallet, history, notifications) as points or rupees. */
+  walletDisplay: WalletDisplay;
   /** false when no row exists yet and runtime defaults are being served */
   isPersisted: boolean;
   updatedAt: string | null;
 }
 
-export type UpdateProgramSettingsPayload = Omit<ProgramSettings, 'isPersisted' | 'updatedAt'>;
+/** Settings added after the first release are optional: omitted keeps the stored value. */
+export type UpdateProgramSettingsPayload = Omit<
+  ProgramSettings,
+  'isPersisted' | 'updatedAt' | 'inviteImageUrl' | 'homePopupEnabled' | 'walletDisplay'
+> & {
+  inviteImageUrl?: string | null;
+  homePopupEnabled?: boolean;
+  walletDisplay?: WalletDisplay;
+};
 
 export interface SuperAdminProfile {
   id: ID;
@@ -370,6 +387,12 @@ export interface MediaUploadPayload {
 export interface MediaUploadResponse {
   id: ID;
   url: string;
+}
+
+/** A partner's QR as a branded PNG card (logo, title, QR and code), for download and sharing. */
+export interface PartnerQrCardResponse {
+  mimeType: 'image/png';
+  base64: string;
 }
 
 export interface LoginPayload {
@@ -539,6 +562,8 @@ export interface PartnerWallet {
   /** Balance converted with the current Super Admin points-to-rupees ratio. */
   rupeeValue: number;
   pointsRatio: { points: number; rupees: number };
+  /** How the Partner App shows these values (Super Admin setting). */
+  walletDisplay: WalletDisplay;
   /** Available points by source. */
   totals: { purchasePoints: number; referralPoints: number };
   entries: PointsLedgerEntry[];
@@ -624,6 +649,11 @@ export interface PartnerHome {
   unreadNotifications: number;
   /** Partner app download link shared with the referral QR. */
   appDownloadUrl: string | null;
+  /** Image the Super Admin chose for the invite message. null = attach the app logo. */
+  inviteImageUrl: string | null;
+  /** Show the "new version available" popup (with appDownloadUrl) on the home page. */
+  homePopupEnabled: boolean;
+  walletDisplay: WalletDisplay;
 }
 
 export type PartnerNotificationType =

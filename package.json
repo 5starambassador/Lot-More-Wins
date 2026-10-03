@@ -12,6 +12,7 @@
     "dev:partner": "pnpm --filter @lotmorewins/partner-app dev",
     "dev:outlet": "pnpm --filter @lotmorewins/outlet-admin-app dev",
     "dev:web": "pnpm --filter @lotmorewins/web dev",
+    "dev:landing": "pnpm --filter @lotmorewins/landing-page dev",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",

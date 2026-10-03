@@ -1,4 +1,4 @@
-import type { ComponentProps } from 'react';
+import { useEffect, useState, type ComponentProps } from 'react';
 import { Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
@@ -9,11 +9,13 @@ import { Avatar, Glass, ListSkeleton, Screen, SectionLabel, StateView, Txt } fro
 import { OutletLogo } from '../../components/outlets/OutletLogo';
 import { BrandLogo, Wordmark } from '../../components/brand/Brand';
 import { WelcomeGift } from '../../components/home/WelcomeGift';
+import { UpdatePopup } from '../../components/home/UpdatePopup';
 import { ReferralProgress } from '../../components/home/ReferralProgress';
 import { HomeStats, InviteCard } from '../../components/home/HomeExtras';
 import { useAuthStore } from '../../store/auth-store';
 import { describeError, useHome, useOutlets, useWallet } from '../../lib/queries';
 import { firstName, greeting } from '../../lib/format';
+import { walletFormat } from '../../lib/wallet-display';
 import { colors, fonts, goldFrame, space } from '../../theme/tokens';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -52,12 +54,30 @@ function OutletButton({ outlet, onPress }: { outlet: Outlet; onPress: () => void
   );
 }
 
+/** Closing the update popup keeps it closed until the app is opened again. */
+let updatePopupClosed = false;
+
+/** The greeting for the current local time, re-checked every minute while Home is open. */
+function useGreeting() {
+  const [text, setText] = useState(() => greeting());
+  useEffect(() => {
+    const timer = setInterval(() => setText(greeting()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  return text;
+}
+
 export default function HomeScreen() {
   const router = useRouter();
   const { partner, welcome, setWelcome } = useAuthStore();
   const home = useHome();
   const outlets = useOutlets();
   const wallet = useWallet();
+  const format = walletFormat(wallet.data);
+  const greetingText = useGreeting();
+  // The Super Admin's "new version" popup: once per app launch, after any welcome gift.
+  const [updateClosed, setUpdateClosed] = useState(updatePopupClosed);
+  const showUpdate = !!home.data?.homePopupEnabled && !updateClosed;
 
   const unread = home.data?.unreadNotifications ?? 0;
   const refreshing = home.isRefetching || outlets.isRefetching;
@@ -112,7 +132,7 @@ export default function HomeScreen() {
 
         <View style={styles.greeting}>
           <Txt variant="small" tone="secondary">
-            {greeting()},
+            {greetingText},
           </Txt>
           <Txt variant="title">{firstName(partner?.name)}</Txt>
         </View>
@@ -127,7 +147,7 @@ export default function HomeScreen() {
           <QrButton
             icon="people-outline"
             title="Referral QR"
-            caption="Share and earn points"
+            caption={`Share and earn ${format.noun}`}
             onPress={() => router.push({ pathname: '/qr/[type]', params: { type: 'referral' } })}
           />
         </Animated.View>
@@ -173,7 +193,7 @@ export default function HomeScreen() {
 
         <Animated.View entering={FadeInDown.delay(260).duration(400)} style={styles.extras}>
           <HomeStats home={home.data} wallet={wallet.data} />
-          <InviteCard partnerName={partner?.name} downloadUrl={home.data?.appDownloadUrl} />
+          <InviteCard partnerName={partner?.name} downloadUrl={home.data?.appDownloadUrl} imageUrl={home.data?.inviteImageUrl} />
         </Animated.View>
       </Screen>
 
@@ -182,6 +202,14 @@ export default function HomeScreen() {
           firstTimeDiscount={home.data?.offers.firstTimeDiscount}
           claimedPoints={welcome.claimedPoints}
           onClose={() => setWelcome(null)}
+        />
+      ) : showUpdate ? (
+        <UpdatePopup
+          downloadUrl={home.data?.appDownloadUrl}
+          onClose={() => {
+            updatePopupClosed = true;
+            setUpdateClosed(true);
+          }}
         />
       ) : null}
     </>
