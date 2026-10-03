@@ -1,7 +1,8 @@
 {
   "expo": {
     "name": "Lot More Wins Partner",
-    "slug": "lot-more-wins-partner",
+    "slug": "partner-lot-more-wins-app",
+    "owner": "webdeveloperachariyas-team",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -22,7 +23,8 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#D12426"
       },
-      "package": "com.lotmorewins.partner"
+      "package": "com.lotmorewins.partner",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -47,6 +49,7 @@
       [
         "expo-notifications",
         {
+          "icon": "./assets/notification-icon.png",
           "color": "#D12426"
         }
       ],
@@ -75,7 +78,7 @@
         "origin": false
       },
       "eas": {
-        "projectId": "lot-more-wins-partner-phase1"
+        "projectId": "333b102d-647f-4b0b-a969-f09d3d3ffea7"
       }
     },
     "backgroundColor": "#D12426"

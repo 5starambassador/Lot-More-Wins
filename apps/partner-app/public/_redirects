@@ -1,0 +1,3 @@
+# Netlify: existing files (icons, manifest, scripts) are served as they are; every other path
+# loads the single-page app so deep links and refreshes never 404.
+/*    /index.html   200

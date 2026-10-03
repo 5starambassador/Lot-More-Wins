@@ -389,6 +389,16 @@ export interface MediaUploadResponse {
   url: string;
 }
 
+/** Outcome of a Super Admin test push to one partner's phones. */
+export interface AdminTestPushResult {
+  /** Phones registered for push for this partner. */
+  devices: number;
+  /** Notifications Expo accepted for delivery. */
+  accepted: number;
+  /** Distinct Expo error codes, e.g. DeviceNotRegistered or InvalidCredentials. */
+  errors: string[];
+}
+
 /** A partner's QR as a branded PNG card (logo, title, QR and code), for download and sharing. */
 export interface PartnerQrCardResponse {
   mimeType: 'image/png';

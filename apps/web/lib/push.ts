@@ -19,11 +19,23 @@ export interface PushMessage {
 
 interface ExpoTicket {
   status: 'ok' | 'error';
+  message?: string;
   details?: { error?: string };
 }
 
-export async function sendPush(messages: PushMessage[]): Promise<void> {
-  if (messages.length === 0) return;
+export interface PushResult {
+  /** Registered devices the messages were addressed to. */
+  devices: number;
+  /** Messages Expo accepted for delivery. */
+  accepted: number;
+  /** Expo's error codes for the rest, e.g. DeviceNotRegistered or InvalidCredentials. */
+  errors: string[];
+}
+
+/** Never throws; the result says how many were accepted (used by the Super Admin test push). */
+export async function sendPush(messages: PushMessage[]): Promise<PushResult> {
+  const result: PushResult = { devices: 0, accepted: 0, errors: [] };
+  if (messages.length === 0) return result;
   try {
     const devices = await prisma.pushDevice.findMany({
       where: { partnerId: { in: [...new Set(messages.map((m) => m.partnerId))] } },
@@ -32,8 +44,9 @@ export async function sendPush(messages: PushMessage[]): Promise<void> {
     const payload = messages.flatMap((m) =>
       devices
         .filter((d) => d.partnerId === m.partnerId)
-        .map((d) => ({ to: d.token, title: m.title, body: m.body, data: m.data ?? {}, sound: 'default', channelId: 'default' }))
+        .map((d) => ({ to: d.token, title: m.title, body: m.body, data: m.data ?? {}, sound: 'default', channelId: 'default', priority: 'high' }))
     );
+    result.devices = devices.length;
 
     const stale: string[] = [];
     for (let i = 0; i < payload.length; i += BATCH_SIZE) {
@@ -46,16 +59,27 @@ export async function sendPush(messages: PushMessage[]): Promise<void> {
       });
       if (!res.ok) {
         console.error(`Expo push request failed with HTTP ${res.status}`);
+        result.errors.push(`HTTP_${res.status}`);
         continue;
       }
       const tickets = ((await res.json()) as { data?: ExpoTicket[] }).data ?? [];
       tickets.forEach((ticket, index) => {
-        if (ticket.status === 'error' && ticket.details?.error === 'DeviceNotRegistered') stale.push(batch[index].to);
+        if (ticket.status === 'ok') {
+          result.accepted++;
+          return;
+        }
+        const code = ticket.details?.error ?? 'UnknownError';
+        // InvalidCredentials means the FCM key for this app is missing on expo.dev.
+        console.error(`Expo push rejected (${code}):`, ticket.message ?? '');
+        result.errors.push(code);
+        if (code === 'DeviceNotRegistered') stale.push(batch[index]!.to);
       });
     }
     // The app was uninstalled or the token rotated: stop sending to it.
     if (stale.length) await prisma.pushDevice.deleteMany({ where: { token: { in: stale } } });
   } catch (error) {
     console.error('Push notification delivery failed:', error);
+    result.errors.push('NETWORK_ERROR');
   }
+  return result;
 }

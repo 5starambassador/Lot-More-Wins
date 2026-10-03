@@ -1,0 +1,19 @@
+# Apache / cPanel hosting: serve real files directly and send every other path to the
+# single-page app, so /download and page refreshes never return "Not Found".
+Options -MultiViews
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  RewriteRule ^index\.html$ - [L]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /index.html [L]
+</IfModule>
+
+# The Android app downloads as an installable file instead of opening as text.
+AddType application/vnd.android.package-archive .apk
+<IfModule mod_headers.c>
+  <FilesMatch "\.apk$">
+    Header set Content-Disposition "attachment; filename=\"lot-more-wins-partner.apk\""
+  </FilesMatch>
+</IfModule>

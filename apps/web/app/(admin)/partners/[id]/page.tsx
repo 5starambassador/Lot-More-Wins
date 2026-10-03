@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { Suspense, use, useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Activity, ArrowRight, Coins, Gift, QrCode } from 'lucide-react';
+import { Activity, ArrowRight, BellRing, Coins, Gift, QrCode } from 'lucide-react';
 import type { AdminPartnerActivityKind, AdminPartnerActivityRow } from '@lotmorewins/types';
 import { DateRangeFilter, FilterBar, NO_DATES, dateQuery, readDateRange } from '@/components/admin/filter-bar';
 import { Badge, Tag } from '@/components/ui/badge';
@@ -13,7 +13,8 @@ import { Select } from '@/components/ui/input';
 import { PageHeader, Segmented } from '@/components/ui/page-header';
 import { DetailList, Panel, PanelBody, PanelHeader } from '@/components/ui/panel';
 import { Pagination, SkeletonRows, TBody, TD, TH, THead, TR, Table, TableScroll } from '@/components/ui/table';
-import { adminApi, useAdminQuery } from '@/lib/admin-client';
+import { useToast } from '@/components/ui/toast';
+import { adminApi, errorMessage, useAdminQuery } from '@/lib/admin-client';
 import { PARTNER_STATUS, QR_TYPE_LABEL } from '@/lib/admin-labels';
 import { formatDate, formatDateTime, formatINR, formatNumber, formatRelative } from '@/lib/format';
 
@@ -52,6 +53,46 @@ function ActivityDetail({ row }: { row: AdminPartnerActivityRow }) {
       <p className="font-mono text-[12px] text-stone-600">{row.billNumber}</p>
       {row.note && <p className="text-[11px] text-gold-700">{row.note}</p>}
     </div>
+  );
+}
+
+/** Plain-language reasons for Expo push error codes. */
+const PUSH_ERRORS: Record<string, string> = {
+  InvalidCredentials: 'The Firebase (FCM V1) key is missing or wrong for this app on expo.dev.',
+  DeviceNotRegistered: 'The app was uninstalled or its notification token changed; that phone has been removed.',
+  MessageRateExceeded: 'Too many notifications sent to this phone at once. Try again shortly.',
+};
+
+/** Sends a test notification to the partner's phones, to check push delivery without a bill. */
+function TestPushButton({ partnerId }: { partnerId: string }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const send = async () => {
+    setBusy(true);
+    try {
+      const { data } = await adminApi.sendAdminTestPush(partnerId);
+      const reasons = data.errors.map((code) => PUSH_ERRORS[code] ?? code).join(' ');
+      if (data.devices === 0) {
+        toast(
+          'error',
+          'No phone registered for notifications',
+          'The partner needs the latest Partner App, signed in, with notifications allowed.'
+        );
+      } else if (data.accepted > 0) {
+        toast('success', `Test notification sent to ${data.accepted} phone${data.accepted === 1 ? '' : 's'}`, reasons || undefined);
+      } else {
+        toast('error', 'Test notification was not delivered', reasons || 'Expo did not accept the notification.');
+      }
+    } catch (err) {
+      toast('error', 'Could not send test notification', errorMessage(err, 'Please try again.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Button variant="secondary" onClick={send} disabled={busy}>
+      <BellRing className="h-4 w-4" /> {busy ? 'Sending…' : 'Send test notification'}
+    </Button>
   );
 }
 
@@ -141,9 +182,12 @@ function PartnerDetailView({ id }: { id: string }) {
           </>
         }
         actions={
-          <Link href={`/transactions?partnerId=${p.id}`} className={buttonClass('secondary')}>
-            All transactions <ArrowRight className="h-4 w-4" />
-          </Link>
+          <>
+            <TestPushButton partnerId={p.id} />
+            <Link href={`/transactions?partnerId=${p.id}`} className={buttonClass('secondary')}>
+              All transactions <ArrowRight className="h-4 w-4" />
+            </Link>
+          </>
         }
       />
 

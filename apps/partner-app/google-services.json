@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "692943286591",
+    "project_id": "lot-more-wins",
+    "storage_bucket": "lot-more-wins.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:692943286591:android:a9a9235e16251288e4638a",
+        "android_client_info": {
+          "package_name": "com.lotmorewins.partner"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAntPn12UoSxKLDvAPFZhg_VH0tgSGdfOQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

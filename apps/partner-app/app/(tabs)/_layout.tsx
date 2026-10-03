@@ -18,6 +18,9 @@ const TABS: { name: string; title: string; icon: IconName; active: IconName }[] 
 
 const TAB_BAR_HEIGHT = 64;
 
+/** Pushes about the wallet (earned, claimed, redeemed) open the Wallet tab when tapped. */
+const WALLET_NOTIFICATIONS = new Set(['PURCHASE_POINTS', 'REFERRAL_POINTS', 'POINTS_CLAIMED', 'POINTS_REDEEMED']);
+
 /** Signed-in shell. Without a stored partner session the user is sent to the login page. */
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
@@ -30,8 +33,8 @@ export default function TabsLayout() {
     if (!partner) loadStoredSession();
   }, [partner, loadStoredSession]);
 
-  // Push notifications for wallet activity: register this device once signed in, refresh
-  // the wallet when one arrives, and open the Notifications page when one is tapped.
+  // Push notifications: register this device once signed in, refresh the wallet when one
+  // arrives, and open the screen it is about when one is tapped.
   useEffect(() => {
     if (!partnerId) return;
     registerForPush();
@@ -41,7 +44,11 @@ export default function TabsLayout() {
         queryClient.invalidateQueries({ queryKey: ['wallet'] });
         queryClient.invalidateQueries({ queryKey: ['notifications'] });
       },
-      () => router.push('/notifications')
+      (type) => {
+        if (type && WALLET_NOTIFICATIONS.has(type)) router.navigate('/wallet');
+        else if (type === 'REFERRAL_REWARD') router.push({ pathname: '/qr/[type]', params: { type: 'discount' } });
+        else router.push('/notifications');
+      }
     );
   }, [partnerId, queryClient, router]);
 

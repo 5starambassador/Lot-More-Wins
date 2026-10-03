@@ -56,6 +56,7 @@ import type {
   AdminOutletRedemptionsQuery,
   AdminPartnerActivityPage,
   AdminPartnerActivityQuery,
+  AdminTestPushResult,
 } from '@lotmorewins/types';
 
 export interface ApiClientConfig {
@@ -359,6 +360,11 @@ export class ApiClient {
   }
 
   /** One partner's activity log: own purchases, successful referrals, redemptions and QR shares. */
+  /** Sends a test notification to the partner's phones and reports the delivery outcome. */
+  public sendAdminTestPush(id: string): Promise<ApiResponse<AdminTestPushResult>> {
+    return this.post<ApiResponse<AdminTestPushResult>>(`/admin/partners/${encodeURIComponent(id)}/test-push`);
+  }
+
   public getAdminPartnerActivity(id: string, query: AdminPartnerActivityQuery = {}): Promise<ApiResponse<AdminPartnerActivityPage>> {
     return this.get<ApiResponse<AdminPartnerActivityPage>>(`/admin/partners/${encodeURIComponent(id)}/activity`, {
       params: { ...query },

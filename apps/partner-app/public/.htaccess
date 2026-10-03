@@ -1,0 +1,14 @@
+# Apache / cPanel hosting: serve real files directly and send every other path to the
+# single-page app, so deep links such as /wallet and page refreshes never return "Not Found".
+Options -MultiViews
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  RewriteRule ^index\.html$ - [L]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /index.html [L]
+</IfModule>
+
+# Home-screen install manifest.
+AddType application/manifest+json .webmanifest
