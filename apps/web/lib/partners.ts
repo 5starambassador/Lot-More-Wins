@@ -129,5 +129,8 @@ export async function getPartnerHome(partnerId: string): Promise<PartnerHome> {
     },
     unreadNotifications,
     appDownloadUrl: settings.appDownloadUrl,
+    inviteImageUrl: settings.inviteImageUrl,
+    homePopupEnabled: settings.homePopupEnabled,
+    walletDisplay: settings.walletDisplay,
   };
 }

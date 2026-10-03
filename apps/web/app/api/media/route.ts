@@ -3,6 +3,7 @@ import { mediaUploadSchema } from '@lotmorewins/validation';
 import prisma from '@/lib/prisma';
 import { HttpError, requireOutletAdmin, requirePartnerId, requireSuperAdmin } from '@/lib/auth';
 import { cloudinaryConfig, uploadToCloudinary } from '@/lib/cloudinary';
+import { toOptimizedWebp } from '@/lib/image-engine';
 import { fail, handleRouteError, ok, readJson, validationError } from '@/lib/api-response';
 
 export const dynamic = 'force-dynamic';
@@ -38,7 +39,8 @@ async function requireUploader(req: NextRequest) {
 
 /**
  * POST /api/media — upload an outlet logo, gallery image or partner profile photo (base64).
- * Returns its URL: a Cloudinary https URL, or /api/media/<id> while Cloudinary is not configured.
+ * The image engine converts it to WebP under 1 MB first. Returns its URL: a Cloudinary https
+ * URL, or /api/media/<id> while Cloudinary is not configured.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -54,14 +56,17 @@ export async function POST(req: NextRequest) {
       return fail(415, 'File content does not match the declared image type', 'UNSUPPORTED_MEDIA');
     }
 
+    // Every image is stored as WebP under 1 MB, whichever app it came from.
+    const image = await toOptimizedWebp(data);
+
     // Cloudinary once its credentials are set; until then the image is kept in the database.
     const cloudinary = cloudinaryConfig();
     if (cloudinary) {
-      return ok(await uploadToCloudinary(cloudinary, { mimeType: parsed.data.mimeType, data }), 201);
+      return ok(await uploadToCloudinary(cloudinary, image), 201);
     }
 
     const asset = await prisma.mediaAsset.create({
-      data: { mimeType: parsed.data.mimeType, data, sizeBytes: data.length },
+      data: { mimeType: image.mimeType, data: new Uint8Array(image.data), sizeBytes: image.data.length },
       select: { id: true },
     });
     return ok({ id: asset.id, url: `/api/media/${asset.id}` }, 201);

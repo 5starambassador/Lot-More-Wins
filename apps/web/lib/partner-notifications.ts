@@ -1,7 +1,9 @@
-import type { Notification, Prisma } from '@prisma/client';
-import type { PartnerNotification, PartnerNotificationPage } from '@lotmorewins/types';
+import { Prisma, type Notification } from '@prisma/client';
+import type { PartnerNotification, PartnerNotificationPage, ProgramSettings } from '@lotmorewins/types';
 import prisma from './prisma';
+import { rupeeValueOf } from './points';
 import { sendPush } from './push';
+import { getProgramSettings } from './settings';
 
 /**
  * Partner activity feed. A notification row is written in the same transaction as the wallet
@@ -92,18 +94,50 @@ export function redeemedNotificationRow(input: {
   };
 }
 
-const toPush = (n: Pick<Notification, 'id' | 'partnerId' | 'title' | 'body' | 'type'>) => ({
-  partnerId: n.partnerId,
-  title: n.title,
-  body: n.body,
-  data: { notificationId: n.id, type: n.type },
-});
+// ============================================================================
+// Wallet display: notifications are stored in points and shown in the Super Admin's chosen
+// unit when they are listed or pushed, so old and new notifications always agree with the
+// wallet. Rupee amounts use the current ratio, exactly like the wallet balance.
+// ============================================================================
+
+type Display = Pick<ProgramSettings, 'walletDisplay' | 'pointsToRupees'>;
+
+/** "50 points", "50 referral points", "50 purchase points", "50 points worth ₹5.00". */
+const POINTS_AMOUNT = /(\d[\d,]*(?:\.\d+)?) (referral |purchase )?points( worth ₹(\d[\d,]*(?:\.\d+)?))?/g;
+
+const RUPEE_TITLES: Partial<Record<Notification['type'], string>> = {
+  PURCHASE_POINTS: 'Purchase reward earned',
+  REFERRAL_POINTS: 'Referral reward earned',
+  POINTS_CLAIMED: 'Rewards added to your wallet',
+  POINTS_REDEEMED: 'Wallet amount redeemed',
+};
+
+const formatRupees = (amount: number) => `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+function inRupees(text: string, ratio: Display['pointsToRupees']): string {
+  return text.replace(POINTS_AMOUNT, (_match, points: string, kind: string | undefined, _worth, worthRupees: string | undefined) => {
+    // Redemptions already state the exact rupee value they were redeemed for.
+    if (worthRupees) return `₹${worthRupees}`;
+    const rupees = formatRupees(rupeeValueOf(new Prisma.Decimal(points.replace(/,/g, '')), ratio).toNumber());
+    return kind ? `${rupees} in ${kind.trim()} rewards` : rupees;
+  });
+}
+
+function present<T extends Pick<Notification, 'type' | 'title' | 'body'>>(n: T, display: Display): T {
+  if (display.walletDisplay !== 'RUPEES') return n;
+  return { ...n, title: RUPEE_TITLES[n.type] ?? n.title, body: inRupees(n.body, display.pointsToRupees) };
+}
+
+const toPush = (n: Pick<Notification, 'id' | 'partnerId' | 'title' | 'body' | 'type'>, display: Display) => {
+  const shown = present(n, display);
+  return { partnerId: n.partnerId, title: shown.title, body: shown.body, data: { notificationId: n.id, type: n.type } };
+};
 
 /** Pushes the notifications a bill created. Never throws. */
 export async function pushBillNotifications(billId: string): Promise<void> {
   try {
-    const rows = await prisma.notification.findMany({ where: { billId } });
-    await sendPush(rows.map(toPush));
+    const [rows, display] = await Promise.all([prisma.notification.findMany({ where: { billId } }), getProgramSettings()]);
+    await sendPush(rows.map((n) => toPush(n, display)));
   } catch (error) {
     console.error(`Push for bill ${billId} failed unexpectedly:`, error);
   }
@@ -111,10 +145,15 @@ export async function pushBillNotifications(billId: string): Promise<void> {
 
 /** Pushes a single stored notification. Never throws. */
 export async function pushNotification(notification: Notification): Promise<void> {
-  await sendPush([toPush(notification)]);
+  try {
+    await sendPush([toPush(notification, await getProgramSettings())]);
+  } catch (error) {
+    console.error(`Push for notification ${notification.id} failed unexpectedly:`, error);
+  }
 }
 
-function serialize(n: Notification): PartnerNotification {
+function serialize(stored: Notification, display: Display): PartnerNotification {
+  const n = present(stored, display);
   return {
     id: n.id,
     type: n.type,
@@ -128,19 +167,22 @@ function serialize(n: Notification): PartnerNotification {
 }
 
 export async function listPartnerNotifications(partnerId: string, page: number, limit: number): Promise<PartnerNotificationPage> {
-  const [total, unread, rows] = await prisma.$transaction([
-    prisma.notification.count({ where: { partnerId } }),
-    prisma.notification.count({ where: { partnerId, readAt: null } }),
-    prisma.notification.findMany({
-      where: { partnerId },
-      orderBy: { createdAt: 'desc' },
-      skip: (page - 1) * limit,
-      take: limit,
-    }),
+  const [[total, unread, rows], display] = await Promise.all([
+    prisma.$transaction([
+      prisma.notification.count({ where: { partnerId } }),
+      prisma.notification.count({ where: { partnerId, readAt: null } }),
+      prisma.notification.findMany({
+        where: { partnerId },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+    ]),
+    getProgramSettings(),
   ]);
   const totalPages = Math.max(1, Math.ceil(total / limit));
   return {
-    notifications: rows.map(serialize),
+    notifications: rows.map((n) => serialize(n, display)),
     unread,
     meta: { page, limit, total, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1 },
   };

@@ -59,18 +59,27 @@ function AddTile({ busy, onPick, label }: { busy: boolean; onPick: (files: FileL
   );
 }
 
-export function LogoUpload({ value, onChange }: { value: string | null; onChange: (url: string | null) => void }) {
+/** A single image: the outlet logo, or any other one-image setting (`label` names it). */
+export function LogoUpload({
+  value,
+  onChange,
+  label = 'logo',
+}: {
+  value: string | null;
+  onChange: (url: string | null) => void;
+  label?: string;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
     <div className="space-y-2">
       <div className="flex gap-3">
         {value ? (
-          <Thumb url={value} label="logo" onRemove={() => onChange(null)} />
+          <Thumb url={value} label={label} onRemove={() => onChange(null)} />
         ) : (
           <AddTile
             busy={busy}
-            label="Add logo"
+            label={`Add ${label}`}
             onPick={async (files) => {
               setBusy(true);
               setError(null);

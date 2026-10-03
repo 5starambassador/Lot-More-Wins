@@ -9,6 +9,8 @@ const nextConfig = {
   // Dependencies are hoisted to the monorepo root; trace from there so serverless
   // functions include the Prisma query engine and other root node_modules.
   outputFileTracingRoot: monorepoRoot,
+  // Fonts and logo read from disk by the QR card renderer (lib/qr-card).
+  outputFileTracingIncludes: { '/api/partner/qr-card': ['./assets/**/*'] },
   transpilePackages: ['@lotmorewins/types', '@lotmorewins/validation', '@lotmorewins/api-client'],
 };
 

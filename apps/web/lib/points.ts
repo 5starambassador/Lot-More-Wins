@@ -89,6 +89,7 @@ export async function getPartnerWallet(partnerId: string, limit = 50): Promise<P
     balancePoints: balance.toNumber(),
     rupeeValue: rupeeValueOf(balance, ratio).toNumber(),
     pointsRatio: ratio,
+    walletDisplay: settings.walletDisplay,
     totals: { purchasePoints: sumOf('PURCHASE').toNumber(), referralPoints: sumOf('REFERRAL').toNumber() },
     entries: entries.map((e) => ({
       id: e.id,

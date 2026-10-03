@@ -33,6 +33,9 @@ function toDto(row: ProgramSetting | null): ProgramSettings {
       referralPointsValidityDays: 0,
       pointsBasis: 'PAYABLE_AMOUNT',
       appDownloadUrl: null,
+      inviteImageUrl: null,
+      homePopupEnabled: false,
+      walletDisplay: 'POINTS',
       isPersisted: false,
       updatedAt: null,
     };
@@ -53,6 +56,9 @@ function toDto(row: ProgramSetting | null): ProgramSettings {
     referralPointsValidityDays: row.referralPointsValidityDays,
     pointsBasis: row.pointsBasis,
     appDownloadUrl: row.appDownloadUrl,
+    inviteImageUrl: row.inviteImageUrl,
+    homePopupEnabled: row.homePopupEnabled,
+    walletDisplay: row.walletDisplay,
     isPersisted: true,
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -113,6 +119,10 @@ export async function updateProgramSettings(
     referralPointsValidityDays: input.referralPointsValidityDays,
     pointsBasis: input.pointsBasis,
     appDownloadUrl: input.appDownloadUrl,
+    // Settings added after the first release: omitted keeps the stored value.
+    ...(input.inviteImageUrl !== undefined && { inviteImageUrl: input.inviteImageUrl }),
+    ...(input.homePopupEnabled !== undefined && { homePopupEnabled: input.homePopupEnabled }),
+    ...(input.walletDisplay !== undefined && { walletDisplay: input.walletDisplay }),
     updatedBy,
   } as const;
 

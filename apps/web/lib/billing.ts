@@ -166,8 +166,10 @@ export function calculateBill(settings: ConfiguredProgramSettings, ctx: BillCont
     ctx.referralReward
   );
   const amount = new Decimal(billAmount).toDecimalPlaces(2);
-  const discountAmount = roundMoney(amount.mul(discountPercentage).div(100));
-  const finalAmount = amount.minus(discountAmount);
+  // The customer pays a whole-rupee amount, rounded half-up (₹330.70 → ₹331, ₹330.40 → ₹330);
+  // the discount is what remains, so discount + payable always equals the bill.
+  const finalAmount = amount.minus(amount.mul(discountPercentage).div(100)).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+  const discountAmount = amount.minus(finalAmount);
 
   const pointsBase = settings.pointsBasis === 'BILL_AMOUNT' ? amount : finalAmount;
   const pointsPerRupee = new Decimal(settings.pointsToRupees.points).div(settings.pointsToRupees.rupees);

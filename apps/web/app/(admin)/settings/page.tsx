@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Coins, Gift, Link2, Mail, MessageCircle, Percent, RotateCcw } from 'lucide-react';
-import type { MessagingMode, PointsBasis, ProgramSettings } from '@lotmorewins/types';
+import { BellOff, BellRing, Coins, Gift, IndianRupee, Link2, Mail, MessageCircle, Percent, RotateCcw } from 'lucide-react';
+import type { MessagingMode, PointsBasis, ProgramSettings, WalletDisplay } from '@lotmorewins/types';
+import { LogoUpload } from '@/components/admin/image-upload';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
 import { Alert, Skeleton } from '@/components/ui/feedback';
@@ -34,6 +35,10 @@ interface FormState {
   referralValidityDays: string;
   pointsBasis: PointsBasis;
   appDownloadUrl: string;
+  /** Uploaded image URL, or '' for none. */
+  inviteImageUrl: string;
+  homePopup: 'on' | 'off';
+  walletDisplay: WalletDisplay;
 }
 
 function toForm(s: ProgramSettings): FormState {
@@ -54,12 +59,16 @@ function toForm(s: ProgramSettings): FormState {
     referralValidityDays: String(s.referralPointsValidityDays),
     pointsBasis: s.pointsBasis,
     appDownloadUrl: s.appDownloadUrl ?? '',
+    inviteImageUrl: s.inviteImageUrl ?? '',
+    homePopup: s.homePopupEnabled ? 'on' : 'off',
+    walletDisplay: s.walletDisplay,
   };
 }
 
 const formatDays = (v: string) => (Number(v) > 0 ? `${formatNumber(Number(v))} day${Number(v) === 1 ? '' : 's'}` : 'No expiry');
 
 const BASIS_LABEL: Record<PointsBasis, string> = { PAYABLE_AMOUNT: 'Payable amount', BILL_AMOUNT: 'Bill amount' };
+const DISPLAY_LABEL: Record<WalletDisplay, string> = { RUPEES: 'Rupees (₹)', POINTS: 'Points' };
 const MODE_LABEL: Record<MessagingMode, string> = { email: 'Email', whatsapp: 'WhatsApp' };
 
 /** Labels used in the review dialog, in display order. */
@@ -75,11 +84,14 @@ const FIELDS: { key: keyof FormState; label: string; unit?: string; format?: (v:
   { key: 'purchasePoints', label: 'Purchase points', unit: '%' },
   { key: 'purchaseValidityDays', label: 'Purchase points · Validity', format: formatDays },
   { key: 'referralValidityDays', label: 'Referral points · Validity', format: formatDays },
+  { key: 'walletDisplay', label: 'Wallet display', format: (v) => DISPLAY_LABEL[v as WalletDisplay] },
   { key: 'ratioPoints', label: 'Conversion · points' },
   { key: 'ratioRupees', label: 'Conversion · rupees', unit: '₹' },
   { key: 'pointsBasis', label: 'Points calculated on', format: (v) => BASIS_LABEL[v as PointsBasis] },
   { key: 'messagingMode', label: 'Messaging channel', format: (v) => MODE_LABEL[v as MessagingMode] },
   { key: 'appDownloadUrl', label: 'Partner app link', format: (v) => v || 'Not set' },
+  { key: 'homePopup', label: 'Home popup (new version)', format: (v) => (v === 'on' ? 'Shown' : 'Hidden') },
+  { key: 'inviteImageUrl', label: 'Invite image', format: (v) => (v ? v.split('/').pop()! : 'App logo') },
 ];
 
 const SECTIONS = [
@@ -208,18 +220,23 @@ const EXAMPLE_BILL = 1000;
 /** Illustration only, using the unsaved form values. The server performs the real calculation. */
 function PointsExample({ form }: { form: FormState }) {
   const n = (v: string) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  const inRupees = form.walletDisplay === 'RUPEES';
   const pointsPerRupee = n(form.ratioRupees) > 0 ? n(form.ratioPoints) / n(form.ratioRupees) : 0;
-  const discount = (EXAMPLE_BILL * n(form.referralDiscount)) / 100;
-  const base = form.pointsBasis === 'BILL_AMOUNT' ? EXAMPLE_BILL : EXAMPLE_BILL - discount;
-  const purchase = ((base * n(form.purchasePoints)) / 100) * pointsPerRupee;
-  const referral = ((base * n(form.referralPoints)) / 100) * pointsPerRupee;
+  // Payable is rounded half-up to the rupee, as the server does.
+  const pays = Math.round(EXAMPLE_BILL - (EXAMPLE_BILL * n(form.referralDiscount)) / 100);
+  const discount = EXAMPLE_BILL - pays;
+  const base = form.pointsBasis === 'BILL_AMOUNT' ? EXAMPLE_BILL : pays;
+  // Rupee worth does not depend on the ratio: points = rupees × ratio, valued back at ÷ ratio.
+  const purchaseRupees = (base * n(form.purchasePoints)) / 100;
+  const referralRupees = (base * n(form.referralPoints)) / 100;
   const fmt = (v: number) => v.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  const earned = (rupees: number) => (inRupees ? `₹${fmt(rupees)}` : `${fmt(rupees * pointsPerRupee)} pts`);
   const rows = [
     ['Customer discount', `₹${fmt(discount)}`],
-    ['Customer pays', `₹${fmt(EXAMPLE_BILL - discount)}`],
-    [`Points calculated on (${form.pointsBasis === 'BILL_AMOUNT' ? 'bill' : 'payable'})`, `₹${fmt(base)}`],
-    ['Customer earns', `${fmt(purchase)} pts`],
-    ['Referring partner earns', `${fmt(referral)} pts`],
+    ['Customer pays', `₹${fmt(pays)}`],
+    [`${inRupees ? 'Rewards' : 'Points'} calculated on (${form.pointsBasis === 'BILL_AMOUNT' ? 'bill' : 'payable'})`, `₹${fmt(base)}`],
+    ['Customer earns', earned(purchaseRupees)],
+    ['Referring partner earns', earned(referralRupees)],
   ];
   return (
     <div className="rounded-md border border-gold-200 bg-gold-50/40">
@@ -277,6 +294,9 @@ export default function SettingsPage() {
         referralPointsValidityDays: Number(values.referralValidityDays),
         pointsBasis: values.pointsBasis,
         appDownloadUrl: values.appDownloadUrl.trim() || null,
+        inviteImageUrl: values.inviteImageUrl || null,
+        homePopupEnabled: values.homePopup === 'on',
+        walletDisplay: values.walletDisplay,
       });
       setData(() => res.data);
       setForm(null);
@@ -494,6 +514,19 @@ export default function SettingsPage() {
                     </Field>
                   </div>
 
+                  <Field label="Wallet display" hint="How the Partner App shows wallet balances, transaction history and notifications.">
+                    <ChoiceCards<WalletDisplay>
+                      name="Wallet display"
+                      value={values.walletDisplay}
+                      onChange={set('walletDisplay') as (v: WalletDisplay) => void}
+                      options={[
+                        { value: 'RUPEES', label: 'Rupees', hint: 'Earnings shown directly as ₹ value', icon: IndianRupee },
+                        { value: 'POINTS', label: 'Points', hint: 'Earnings shown as points, with their ₹ worth', icon: Coins },
+                      ]}
+                    />
+                  </Field>
+
+                  {values.walletDisplay === 'POINTS' && (
                   <Field label="Conversion rate" hint="How many points equal how many rupees when a wallet is valued.">
                     <div className="flex items-center gap-3">
                       <div className="w-32">
@@ -527,6 +560,7 @@ export default function SettingsPage() {
                       </div>
                     </div>
                   </Field>
+                  )}
 
                   <Field label="Calculate points on">
                     <ChoiceCards<PointsBasis>
@@ -574,8 +608,11 @@ export default function SettingsPage() {
 
             {/* App link */}
             <Panel id="app" className="scroll-mt-24">
-              <PanelHeader title="Partner app link" description="Play Store listing or download page behind the button in bill messages." />
-              <div className="px-5 py-5">
+              <PanelHeader
+                title="Partner app link & invite"
+                description="Play Store listing or download page behind the button in bill messages, and the image partners share when they invite family and friends."
+              />
+              <div className="space-y-5 px-5 py-5">
                 <Field label="Download URL" htmlFor="appDownloadUrl" hint="Leave empty to omit the button from messages.">
                   <Input
                     id="appDownloadUrl"
@@ -587,6 +624,30 @@ export default function SettingsPage() {
                     onChange={(e) => set('appDownloadUrl')(e.target.value)}
                     className={cn(changed('appDownloadUrl') && 'border-gold-400 bg-gold-50/50')}
                   />
+                </Field>
+                <Field label="Home popup" hint="Asks partners to install the latest app version, with the download link above.">
+                  <ChoiceCards<'on' | 'off'>
+                    name="Home popup"
+                    value={values.homePopup}
+                    onChange={set('homePopup') as (v: 'on' | 'off') => void}
+                    options={[
+                      { value: 'on', label: 'Show popup', hint: 'Shown once each time a partner opens the app', icon: BellRing },
+                      { value: 'off', label: 'Hide popup', hint: 'Partners do not see it', icon: BellOff },
+                    ]}
+                  />
+                  {values.homePopup === 'on' && !values.appDownloadUrl.trim() && (
+                    <Alert tone="warning" className="mt-3">
+                      Add a download URL so the popup can link to the new version.
+                    </Alert>
+                  )}
+                </Field>
+                <Field
+                  label="Invite image"
+                  hint="Attached to the invite message and download link that partners share from the Partner App home page. Without one, the app logo is attached. Saved as WebP under 1 MB."
+                >
+                  <div className={cn('inline-block rounded-md', changed('inviteImageUrl') && 'ring-2 ring-gold-400 ring-offset-2')}>
+                    <LogoUpload label="image" value={values.inviteImageUrl || null} onChange={(url) => set('inviteImageUrl')(url ?? '')} />
+                  </div>
                 </Field>
               </div>
             </Panel>

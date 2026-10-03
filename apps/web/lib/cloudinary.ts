@@ -4,7 +4,8 @@ import { HttpError } from './auth';
 /**
  * Cloudinary image storage for every upload (outlet logos and galleries from the Super Admin
  * panel and the Outlet Admin app, partner profile photos from the Partner app): they all go
- * through POST /api/media, which stores the image here and returns its https URL.
+ * through POST /api/media, which converts it to WebP under 1 MB (lib/image-engine), stores it
+ * here and returns its https URL.
  *
  * Configured with CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET
  * (optional CLOUDINARY_FOLDER). While those still hold the demo placeholders from
