@@ -40,5 +40,5 @@ the user through Safari's Share > Add to Home Screen.
 ## Deploying
 
 `vercel.json` is set up for a Vercel project whose root directory is `apps/landing-page`. It
-rewrites extensionless paths to `index.html` so `/download` loads directly, and serves `.apk`
-files as attachments.
+rewrites unmatched paths to `index.html` so `/download` loads directly, and serves the APK as an
+attachment.

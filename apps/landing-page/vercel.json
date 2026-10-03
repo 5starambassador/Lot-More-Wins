@@ -4,10 +4,10 @@
   "installCommand": "cd ../.. && npx -y pnpm@12.6.0 install --frozen-lockfile",
   "buildCommand": "npx vite build",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/((?!.*\.[a-zA-Z0-9]+$).*)", "destination": "/index.html" }],
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
   "headers": [
     {
-      "source": "/(.*)\.apk",
+      "source": "/lot-more-wins-partner.apk",
       "headers": [
         { "key": "Content-Type", "value": "application/vnd.android.package-archive" },
         { "key": "Content-Disposition", "value": "attachment; filename=\"lot-more-wins-partner.apk\"" }
