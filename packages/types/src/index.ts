@@ -400,6 +400,15 @@ export interface AdminOutletOption {
   name: string;
 }
 
+/** What the dashboard's "Reset" removed: every partner, guest customer, transaction and QR code. */
+export interface AdminResetResult {
+  partners: number;
+  customers: number;
+  bills: number;
+  qrCodes: number;
+  redemptions: number;
+}
+
 /** What deleting a partner or outlet also removes, shown before the admin confirms. */
 export interface DeletionImpact {
   /** Bills (transactions) that are deleted with it. */
@@ -689,12 +698,18 @@ export interface RedeemPayload {
   qrCode: string;
   /** Rupee value to take off the customer's bill; converted to points with the current ratio. */
   rupees: number;
+  /** The customer's bill before the wallet is used. The redeemed amount cannot be more than this. */
+  billAmount?: number;
 }
 
 export interface RedemptionReceipt {
   id: ID;
   points: number;
   rupeeValue: number;
+  /** The bill the redemption was taken off; null for redemptions made before bills were recorded. */
+  billAmount: number | null;
+  /** What the customer pays after the wallet amount: billAmount - rupeeValue. */
+  payableAmount: number | null;
   partner: ScannedPartner;
   outlet: { id: ID; name: string };
   /** Wallet balance after the redemption. */
@@ -835,7 +850,23 @@ export interface AdminDateRangeQuery {
   to?: string;
 }
 
+/** Where the dashboard figures come from: the database, or built-in sample figures for a demo. */
+export type AdminDataSource = 'live' | 'test';
+
+export interface AdminDashboardQuery extends AdminDateRangeQuery {
+  source?: AdminDataSource;
+  /** One outlet ("channel"): sales, billing, referral and redemption figures cover that outlet only. */
+  outletId?: string;
+}
+
 export interface AdminDashboard {
+  /** 'test' when every figure below is sample data and nothing was read from the database. */
+  source: AdminDataSource;
+  /**
+   * The outlet the bill-based figures are limited to; null for every outlet. Partner counts,
+   * wallet balances and QR shares are never tied to an outlet and stay programme-wide.
+   */
+  outlet: AdminOutletOption | null;
   generatedAt: string;
   /** The period every "in period" figure and chart below covers. */
   range: { from: string; to: string; days: number; granularity: 'day' | 'month' };

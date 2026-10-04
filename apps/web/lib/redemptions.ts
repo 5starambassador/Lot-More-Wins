@@ -11,8 +11,8 @@ import { redeemedNotificationRow } from './partner-notifications';
 
 /**
  * Wallet redemption. The partner generates a short-lived, single-use redeem QR in the app;
- * the Outlet Admin scans it, sees the partner and their live balance, and takes a rupee
- * amount off the bill. Points are spent from the soonest-expiring entries first.
+ * the Outlet Admin scans it, sees the partner and their live balance, enters the bill and takes
+ * a rupee amount (never more than the bill) off it. Points are spent from the soonest-expiring entries first.
  * The QR carries only a signed token: the partner, balance and worth are always read from
  * the database when it is scanned.
  */
@@ -108,6 +108,8 @@ async function receipt(
     id: redemption.id,
     points: redemption.points.toNumber(),
     rupeeValue: redemption.rupeeValue.toNumber(),
+    billAmount: redemption.billAmount?.toNumber() ?? null,
+    payableAmount: redemption.billAmount ? redemption.billAmount.minus(redemption.rupeeValue).toNumber() : null,
     partner: scannedPartner(redemption.partner),
     outlet: redemption.outlet,
     balancePoints: balance.toNumber(),
@@ -122,7 +124,7 @@ const redemptionInclude = { partner: true, outlet: { select: { id: true, name: t
 export async function redeemPoints(
   outlet: OutletRow,
   adminId: string,
-  input: { qrCode: string; rupees: number }
+  input: { qrCode: string; rupees: number; billAmount?: number }
 ): Promise<{ receipt: RedemptionReceipt; notification: Notification | null }> {
   const { partnerId, tokenId } = parseRedeemQr(input.qrCode);
 
@@ -149,6 +151,10 @@ export async function redeemPoints(
       const ratio = settings.pointsToRupees;
 
       const rupees = new Decimal(input.rupees).toDecimalPlaces(2);
+      const billAmount = input.billAmount === undefined ? null : new Decimal(input.billAmount).toDecimalPlaces(2);
+      if (billAmount && rupees.gt(billAmount)) {
+        throw new HttpError(422, 'The amount to redeem cannot be more than the bill', 'REDEEM_EXCEEDS_BILL');
+      }
       const points = rupees.mul(ratio.points).div(ratio.rupees).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
       // Soonest-expiring points are spent first; points that never expire last.
@@ -183,6 +189,7 @@ export async function redeemPoints(
           createdByAdminId: adminId,
           points,
           rupeeValue: rupees,
+          billAmount,
           pointsRatioPoints: ratio.points,
           pointsRatioRupees: ratio.rupees,
           tokenId,

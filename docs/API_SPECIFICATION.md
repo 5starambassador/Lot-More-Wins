@@ -2,7 +2,7 @@
 
 ## Base URL
 - Local Development: `http://localhost:3000/api`
-- Staging / Production: `https://api.lotmorewins.com/api`
+- Staging / Production: `https://superadmin.lotmorewins.com/api`
 
 ## Core Endpoints
 

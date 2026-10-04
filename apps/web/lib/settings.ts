@@ -81,7 +81,9 @@ type Db = Prisma.TransactionClient | typeof prisma;
  * Android" starts the APK download instead of opening a preview page:
  * - Google Drive share links (…/file/d/<id>/view, open?id=, uc?id=) → Drive's direct download,
  *   with confirm=t so files too large for Google's virus scan do not stop at a warning page;
- * - Dropbox ?dl=0 → ?dl=1.
+ * - Dropbox ?dl=0 → ?dl=1;
+ * - a file in a GitHub repository (github.com/<owner>/<repo>/blob/<branch>/<path>) → the same
+ *   file on raw.githubusercontent.com, which is served as a download.
  * Any other link is returned unchanged.
  */
 export function directDownloadUrl(url: string): string {
@@ -99,6 +101,10 @@ export function directDownloadUrl(url: string): string {
   if ((host === 'www.dropbox.com' || host === 'dropbox.com') && parsed.searchParams.get('dl') !== '1') {
     parsed.searchParams.set('dl', '1');
     return parsed.toString();
+  }
+  if (host === 'github.com') {
+    const file = /^\/([^/]+)\/([^/]+)\/(?:blob|raw)\/(.+)$/.exec(parsed.pathname);
+    if (file) return `https://raw.githubusercontent.com/${file[1]}/${file[2]}/${file[3]}`;
   }
   return url;
 }

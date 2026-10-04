@@ -5,14 +5,14 @@ import { Button, Divider, IconMark, InfoRow, Notice, Panel, Txt } from '../ui';
 import { formatDateTime, formatINR, formatPoints } from '../../lib/format';
 import { space } from '../../theme/tokens';
 
-/** Confirmation after a wallet redemption: what was taken off the bill and what is left. */
+/** Confirmation after a wallet redemption: the bill, what the wallet paid, what the customer pays and what is left. */
 export function RedeemDone({ receipt, onNext }: { receipt: RedemptionReceipt; onNext: () => void }) {
   return (
     <View>
       <Animated.View entering={FadeIn.duration(400)} style={styles.hero}>
         <IconMark name="checkmark" size={68} tone="success" />
         <Txt variant="title" align="center" style={styles.heroTitle}>
-          {formatINR(receipt.rupeeValue)} redeemed
+          {receipt.payableAmount === null ? `${formatINR(receipt.rupeeValue)} redeemed` : `Collect ${formatINR(receipt.payableAmount)}`}
         </Txt>
         <Txt variant="small" tone="secondary">
           {formatDateTime(receipt.createdAt)}
@@ -27,7 +27,15 @@ export function RedeemDone({ receipt, onNext }: { receipt: RedemptionReceipt; on
           <Txt variant="caption" tone="muted" style={styles.sub}>
             +91 {receipt.partner.mobile} · {receipt.partner.partnerCode}
           </Txt>
-          <InfoRow label="Take off the bill" value={formatINR(receipt.rupeeValue)} strong tone="gold" />
+          {receipt.billAmount !== null && receipt.payableAmount !== null ? (
+            <>
+              <InfoRow label="Bill amount" value={formatINR(receipt.billAmount)} />
+              <InfoRow label="Paid from wallet" value={`− ${formatINR(receipt.rupeeValue)}`} />
+              <InfoRow label="Customer pays" value={formatINR(receipt.payableAmount)} strong tone="gold" />
+            </>
+          ) : (
+            <InfoRow label="Take off the bill" value={formatINR(receipt.rupeeValue)} strong tone="gold" />
+          )}
           <InfoRow label="Points used" value={`− ${formatPoints(receipt.points)}`} />
           <View style={styles.gap}>
             <Divider />

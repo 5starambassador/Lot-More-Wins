@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic';
  * GET /api/admin/dashboard?from&to — read-only programme overview for the Super Admin.
  * The period (IST days, inclusive; default last 30 days) drives the totals, trend and rankings.
  * `format=csv` downloads the headline figures and the trend table for the period.
+ * `source=test` answers with sample figures (a demo of the page) instead of reading the database.
  */
 export async function GET(req: NextRequest) {
   try {

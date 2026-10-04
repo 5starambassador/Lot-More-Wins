@@ -43,7 +43,7 @@ export default function WelcomeScreen() {
       }
     >
       <Animated.View entering={FadeIn.duration(500)} style={styles.brand}>
-        <BrandLogo size={64} />
+        <BrandLogo size={80} />
         <Wordmark size="sm" />
       </Animated.View>
 

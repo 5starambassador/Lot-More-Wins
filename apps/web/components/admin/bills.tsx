@@ -187,7 +187,10 @@ export function BillDrawer({ bill, onClose, onDelete }: { bill: BillRecord | nul
                 : [{ label: 'Partner', value: bill.partner ? `${bill.partner.name} · ${bill.partner.mobile}` : '—' }]),
               {
                 label: 'Partner code',
-                value: person ? (
+                // Sample bills (dashboard test data) have no partner page to open.
+                value: person?.id.startsWith('sample-') ? (
+                  person.partnerCode
+                ) : person ? (
                   <Link href={`/partners/${person.id}`} className="inline-flex items-center gap-1 text-maroon-700 hover:underline">
                     {person.partnerCode}
                     <ArrowUpRight className="h-3.5 w-3.5" />

@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
     // Transactions pages, so admins without the Outlets page can still filter by outlet.
     if (req.nextUrl.searchParams.get('view') === 'options') {
       const admin = await requireAdmin(req);
-      if (!(['outlets', 'partners', 'transactions'] as const).some((page) => admin.pages.includes(page))) {
+      if (!(['outlets', 'partners', 'transactions', 'dashboard'] as const).some((page) => admin.pages.includes(page))) {
         return fail(403, 'You do not have access to outlets', 'PAGE_FORBIDDEN');
       }
       const options: AdminOutletOption[] = await prisma.outlet.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });

@@ -127,7 +127,7 @@ export default function HomeScreen() {
         }
       >
         <Animated.View entering={FadeIn.duration(400)} style={styles.navbar}>
-          <BrandLogo size={40} />
+          <BrandLogo size={48} />
           <View style={styles.flex}>
             <Wordmark size="sm" />
             <View style={styles.tag}>

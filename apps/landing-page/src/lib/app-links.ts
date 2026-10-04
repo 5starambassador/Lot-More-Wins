@@ -29,10 +29,28 @@ export type AppLinksState =
   /** `reason`: shown to the visitor. */
   | { status: 'error'; reason: string };
 
-const API_URL = (import.meta.env.VITE_API_URL?.trim() || 'https://lotmore-wins.vercel.app/api').replace(/\/+$/, '');
+const API_URL = (import.meta.env.VITE_API_URL?.trim() || 'https://superadmin.lotmorewins.com/api').replace(/\/+$/, '');
 const TIMEOUT_MS = 12_000;
 
 const typeOf = (link: Partial<AppLink> | undefined): AppLinkType => (link?.type === 'STORE' ? 'STORE' : 'DIRECT');
+
+/**
+ * A link to an APK kept in a GitHub repository, as copied from the browser
+ * (github.com/<owner>/<repo>/blob/<branch>/<path>, or …/raw/…), opens a GitHub page. The same
+ * file on raw.githubusercontent.com is served as a download, so the visitor stays on this site
+ * and the file starts downloading. Any other link is returned unchanged.
+ */
+export function directDownloadUrl(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
+  }
+  if (parsed.hostname.toLowerCase() !== 'github.com') return url;
+  const file = /^\/([^/]+)\/([^/]+)\/(?:blob|raw)\/(.+)$/.exec(parsed.pathname);
+  return file ? `https://raw.githubusercontent.com/${file[1]}/${file[2]}/${file[3]}` : url;
+}
 
 async function fetchAppLinks(signal: AbortSignal): Promise<AppLinks> {
   const res = await fetch(`${API_URL}/app-links`, { signal });
@@ -41,7 +59,11 @@ async function fetchAppLinks(signal: AbortSignal): Promise<AppLinks> {
   const remote = body.data;
   if (!remote) throw new Error('No data in the response');
   return {
-    android: { url: remote.android?.url?.trim() || null, type: typeOf(remote.android) },
+    android: {
+      // A direct link must start the APK download; a store link is opened as it is.
+      url: remote.android?.url?.trim() ? (typeOf(remote.android) === 'DIRECT' ? directDownloadUrl(remote.android.url.trim()) : remote.android.url.trim()) : null,
+      type: typeOf(remote.android),
+    },
     ios: remote.ios?.url?.trim()
       ? { url: remote.ios.url.trim(), type: typeOf(remote.ios) }
       : { url: PARTNER_WEB_URL, type: 'DIRECT' },

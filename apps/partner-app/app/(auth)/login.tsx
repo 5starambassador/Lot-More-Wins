@@ -102,7 +102,7 @@ export default function PartnerLoginScreen() {
     >
       <TopBar showLogo={false} />
       <Animated.View entering={FadeInDown.duration(400)} style={styles.body}>
-        <BrandLogo size={72} />
+        <BrandLogo size={88} />
         <Txt variant="title" style={styles.title}>
           Welcome back
         </Txt>

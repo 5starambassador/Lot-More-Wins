@@ -1,7 +1,7 @@
 const clean = (value: string | undefined) => value?.trim().replace(/\/+$/, '') || null;
 
 /** The Partner App web version, installed to the iOS home screen from the download page. */
-export const PARTNER_WEB_URL = clean(import.meta.env.VITE_PARTNER_WEB_URL);
+export const PARTNER_WEB_URL = clean(import.meta.env.VITE_PARTNER_WEB_URL) ?? 'https://partner.lotmorewins.com';
 
 /** Absolute address of the download page, for the QR code. */
 export function downloadPageUrl(): string {

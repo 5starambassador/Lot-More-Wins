@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import type {
   AdminDashboard,
+  AdminDashboardQuery,
   AdminSearchResult,
   AdminDateRangeQuery,
   AdminOutlet,
@@ -30,6 +31,7 @@ import { toDateOnly } from './partners';
 import { referralProgress } from './referral-rewards';
 import { adminOutletInclude, serializeAdminOutlet } from './outlets';
 import { CSV_MAX_ROWS, csvDateTime, toCsv, type CsvColumn } from './admin-csv';
+import { sampleDashboard } from './dashboard-sample';
 
 /**
  * Read-only aggregates for the Super Admin panel. Nothing here writes; every figure is
@@ -81,14 +83,14 @@ function istDate(d: Date): string {
   return new Date(d.getTime() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-async function dailySales(days: number): Promise<DailySalesPoint[]> {
+async function dailySales(days: number, outlet: Prisma.Sql): Promise<DailySalesPoint[]> {
   const since = new Date(startOfTodayIst().getTime() - (days - 1) * DAY_MS);
   const rows = await prisma.$queryRaw<{ day: string; bill_count: bigint; bill_amount: Prisma.Decimal | null }[]>`
     SELECT to_char((created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') AS day,
            COUNT(*) AS bill_count,
            SUM(bill_amount) AS bill_amount
     FROM bills
-    WHERE created_at >= ${since}
+    WHERE created_at >= ${since} ${outlet}
     GROUP BY 1`;
   const byDay = new Map(rows.map((r) => [r.day, r]));
   return Array.from({ length: days }, (_, i) => {
@@ -663,7 +665,7 @@ const num = (v: Num) => (v === null ? 0 : typeof v === 'object' ? v.toNumber() :
  * All bill aggregates the dashboard needs, in one scan with FILTER clauses. Each round trip
  * to a remote database costs hundreds of milliseconds, so this replaces six separate queries.
  */
-async function billSummary(today: Date, last30: Date, prev30: Date) {
+async function billSummary(today: Date, last30: Date, prev30: Date, outlet: Prisma.Sql) {
   const periods = {
     all: Prisma.sql`TRUE`,
     today: Prisma.sql`created_at >= ${today}`,
@@ -687,7 +689,7 @@ async function billSummary(today: Date, last30: Date, prev30: Date) {
       COUNT(*) FILTER (WHERE notification_status = 'SENT') AS notif_sent,
       COUNT(*) FILTER (WHERE notification_status = 'FAILED') AS notif_failed,
       COUNT(*) FILTER (WHERE notification_status = 'SKIPPED') AS notif_skipped
-    FROM bills`;
+    FROM bills WHERE TRUE ${outlet}`;
   const r = row ?? {};
   const totals = (p: keyof typeof periods): BillTotals => ({
     billCount: num(r[`${p}_count`] ?? 0),
@@ -745,17 +747,20 @@ function trendBuckets(from: string, to: string, monthly: boolean): AdminTrendPoi
   return out;
 }
 
-/** One round trip for every per-bucket series of the dashboard. */
-async function dashboardTrend(start: Date, end: Date, from: string, to: string, monthly: boolean): Promise<AdminTrendPoint[]> {
+/**
+ * One round trip for every per-bucket series of the dashboard. `outlet` narrows the bill and
+ * redemption series; QR shares and registrations do not belong to an outlet.
+ */
+async function dashboardTrend(start: Date, end: Date, from: string, to: string, monthly: boolean, outlet: Prisma.Sql): Promise<AdminTrendPoint[]> {
   const bucket = (column: string) =>
     Prisma.raw(`to_char((${column} AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata'), '${monthly ? 'YYYY-MM' : 'YYYY-MM-DD'}')`);
   const rows = await prisma.$queryRaw<{ src: string; bucket: string; a: Num; b: Num; c: Num; d: Num }[]>`
     SELECT 'bills' AS src, ${bucket('created_at')} AS bucket, COUNT(*)::numeric AS a, SUM(bill_amount) AS b, SUM(discount_amount) AS c,
            SUM(purchase_points + referral_points) AS d
-    FROM bills WHERE created_at >= ${start} AND created_at < ${end} GROUP BY 2
+    FROM bills WHERE created_at >= ${start} AND created_at < ${end} ${outlet} GROUP BY 2
     UNION ALL
     SELECT 'referrals', ${bucket('created_at')}, COUNT(*)::numeric, NULL, NULL, NULL
-    FROM bills WHERE transaction_type = 'REFERRAL' AND created_at >= ${start} AND created_at < ${end} GROUP BY 2
+    FROM bills WHERE transaction_type = 'REFERRAL' AND created_at >= ${start} AND created_at < ${end} ${outlet} GROUP BY 2
     UNION ALL
     SELECT 'shares', ${bucket('created_at')}, COUNT(*)::numeric, NULL, NULL, NULL
     FROM referral_shares WHERE created_at >= ${start} AND created_at < ${end} GROUP BY 2
@@ -764,7 +769,7 @@ async function dashboardTrend(start: Date, end: Date, from: string, to: string, 
     FROM partners WHERE created_at >= ${start} AND created_at < ${end} GROUP BY 2
     UNION ALL
     SELECT 'redemptions', ${bucket('created_at')}, SUM(points), NULL, NULL, NULL
-    FROM points_redemptions WHERE created_at >= ${start} AND created_at < ${end} GROUP BY 2`;
+    FROM points_redemptions WHERE created_at >= ${start} AND created_at < ${end} ${outlet} GROUP BY 2`;
 
   const points = trendBuckets(from, to, monthly);
   const byDate = new Map(points.map((p) => [p.date, p]));
@@ -787,9 +792,11 @@ async function dashboardTrend(start: Date, end: Date, from: string, to: string, 
 /**
  * Programme overview. `query.from` / `query.to` (IST days, inclusive) set the period that
  * the totals, trend, breakdowns and rankings cover; it defaults to the last 30 days. Network
- * size, wallet balances and system status are always current.
+ * size, wallet balances and system status are always current. `query.outletId` limits every
+ * bill-based figure (sales, billing, referrals, points issued, redemptions) to one outlet.
+ * With `source: 'test'` the same shape is filled with sample figures and the database is not read.
  */
-export async function getDashboard(query: AdminDateRangeQuery = {}): Promise<AdminDashboard> {
+export async function getDashboard(query: AdminDashboardQuery = {}): Promise<AdminDashboard> {
   const today = startOfTodayIst();
   const last30 = new Date(today.getTime() - 29 * DAY_MS);
   const prev30 = new Date(last30.getTime() - 30 * DAY_MS);
@@ -801,7 +808,18 @@ export async function getDashboard(query: AdminDateRangeQuery = {}): Promise<Adm
   const days = Math.round((end.getTime() - start.getTime()) / DAY_MS);
   const previousStart = new Date(start.getTime() - days * DAY_MS);
   const monthly = days > DAILY_TREND_MAX_DAYS;
-  const inPeriod = { createdAt: { gte: start, lt: end } };
+  const range: AdminDashboard['range'] = { from, to, days, granularity: monthly ? 'month' : 'day' };
+  if (query.source === 'test') return sampleDashboard(range, trendBuckets(from, to, monthly), query.outletId);
+
+  const outlet = query.outletId
+    ? await prisma.outlet.findUnique({ where: { id: query.outletId }, select: { id: true, name: true } })
+    : null;
+  if (query.outletId && !outlet) throw new HttpError(404, 'Outlet not found', 'NOT_FOUND');
+  const atOutlet = outlet ? { outletId: outlet.id } : {};
+  const outletSql = outlet ? Prisma.sql`AND outlet_id = ${outlet.id}` : Prisma.empty;
+  const billOutletSql = outlet ? Prisma.sql`AND b.outlet_id = ${outlet.id}` : Prisma.empty;
+  const createdInPeriod = { createdAt: { gte: start, lt: end } };
+  const inPeriod = { ...createdInPeriod, ...atOutlet };
 
   // Stages rather than one wide Promise.all: each parallel query can open its own pool
   // connection, and a burst of new TLS connections to a remote database can time out.
@@ -817,11 +835,11 @@ export async function getDashboard(query: AdminDateRangeQuery = {}): Promise<Adm
              SUM(points) FILTER (WHERE partner_id IS NULL) AS pending
       FROM points_entries
       WHERE expires_at IS NULL OR expires_at > NOW()`,
-    billSummary(today, last30, prev30),
+    billSummary(today, last30, prev30, outletSql),
   ]);
   const [period, previousPeriod, periodRows, trend, daily] = await Promise.all([
     billTotals(inPeriod),
-    billTotals({ createdAt: { gte: previousStart, lt: start } }),
+    billTotals({ createdAt: { gte: previousStart, lt: start }, ...atOutlet }),
     prisma.$queryRaw<Record<string, Num>[]>`
       SELECT
         COUNT(*) FILTER (WHERE transaction_type = 'DIRECT_PARTNER') AS direct_count,
@@ -840,15 +858,15 @@ export async function getDashboard(query: AdminDateRangeQuery = {}): Promise<Adm
         COUNT(*) FILTER (WHERE notification_status = 'SENT') AS notif_sent,
         COUNT(*) FILTER (WHERE notification_status = 'FAILED') AS notif_failed,
         COUNT(*) FILTER (WHERE notification_status = 'SKIPPED') AS notif_skipped
-      FROM bills WHERE created_at >= ${start} AND created_at < ${end}`,
-    dashboardTrend(start, end, from, to, monthly),
-    dailySales(30),
+      FROM bills WHERE created_at >= ${start} AND created_at < ${end} ${outletSql}`,
+    dashboardTrend(start, end, from, to, monthly, outletSql),
+    dailySales(30, outletSql),
   ]);
   const [topOutlets, topReferrers, redeemed, shares, recentBills, recentPartners] = await Promise.all([
     prisma.$queryRaw<{ id: string; name: string; status: 'ACTIVE' | 'INACTIVE'; bill_count: bigint; bill_amount: Num }[]>`
       SELECT o.id, o.name, o.status, COUNT(b.id) AS bill_count, SUM(b.bill_amount) AS bill_amount
       FROM bills b JOIN outlets o ON o.id = b.outlet_id
-      WHERE b.created_at >= ${start} AND b.created_at < ${end}
+      WHERE b.created_at >= ${start} AND b.created_at < ${end} ${billOutletSql}
       GROUP BY o.id, o.name, o.status
       ORDER BY SUM(b.bill_amount) DESC
       LIMIT 5`,
@@ -856,12 +874,12 @@ export async function getDashboard(query: AdminDateRangeQuery = {}): Promise<Adm
       SELECT p.id, p.name, p.partner_code, COUNT(b.id) AS referral_count, SUM(b.bill_amount) AS bill_amount,
              SUM(b.referral_points) AS referral_points
       FROM bills b JOIN partners p ON p.id = b.referrer_partner_id
-      WHERE b.transaction_type = 'REFERRAL' AND b.created_at >= ${start} AND b.created_at < ${end}
+      WHERE b.transaction_type = 'REFERRAL' AND b.created_at >= ${start} AND b.created_at < ${end} ${billOutletSql}
       GROUP BY p.id, p.name, p.partner_code
       ORDER BY COUNT(b.id) DESC, SUM(b.bill_amount) DESC
       LIMIT 5`,
     prisma.pointsRedemption.aggregate({ where: inPeriod, _count: { _all: true }, _sum: { points: true, rupeeValue: true } }),
-    prisma.referralShare.count({ where: inPeriod }),
+    prisma.referralShare.count({ where: createdInPeriod }),
     prisma.bill.findMany({ where: inPeriod, include: billInclude, orderBy: { createdAt: 'desc' }, take: 6 }),
     listPartners({ page: 1, limit: 5, sort: 'newest' }),
   ]);
@@ -877,8 +895,10 @@ export async function getDashboard(query: AdminDateRangeQuery = {}): Promise<Adm
   const totalPartners = partnerRows.reduce((sum, r) => sum + Number(r.total), 0);
 
   return {
+    source: 'live',
+    outlet,
     generatedAt: new Date().toISOString(),
-    range: { from, to, days, granularity: monthly ? 'month' : 'day' },
+    range,
     programMetrics: {
       appRegistrations: partnerRows.reduce((sum, r) => sum + Number(r.in_period), 0),
       offerRedemptions: num(pr.offer_redemptions ?? 0),
@@ -964,10 +984,12 @@ export async function getDashboard(query: AdminDateRangeQuery = {}): Promise<Adm
 }
 
 /** Dashboard export: the headline figures for the period, then the trend table behind the charts. */
-export async function dashboardCsv(query: AdminDateRangeQuery = {}): Promise<string> {
+export async function dashboardCsv(query: AdminDashboardQuery = {}): Promise<string> {
   const d = await getDashboard(query);
   const m = d.programMetrics;
   const summary: { metric: string; value: string | number }[] = [
+    ...(d.source === 'test' ? [{ metric: 'Data', value: 'Test data (sample figures, not from the database)' }] : []),
+    { metric: 'Channel', value: d.outlet ? d.outlet.name : 'All channels' },
     { metric: 'Period from', value: d.range.from },
     { metric: 'Period to', value: d.range.to },
     { metric: 'App registrations', value: m.appRegistrations },

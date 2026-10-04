@@ -1,21 +1,26 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { formatCompact, formatNumber } from '@/lib/format';
 import { Segmented } from '@/components/ui/page-header';
 import { Table, TBody, TD, TH, THead, TR, TableScroll } from '@/components/ui/table';
 
+/**
+ * Width of the element the returned ref is attached to. A callback ref, so the measuring
+ * follows the element when it is unmounted and mounted again (chart → table → chart).
+ */
 function useWidth<T extends HTMLElement>() {
-  const ref = useRef<T>(null);
+  const [node, setNode] = useState<T | null>(null);
   const [width, setWidth] = useState(0);
   useEffect(() => {
-    if (!ref.current) return;
+    if (!node) return;
+    setWidth(node.getBoundingClientRect().width);
     const ro = new ResizeObserver(([entry]) => setWidth(entry!.contentRect.width));
-    ro.observe(ref.current);
+    ro.observe(node);
     return () => ro.disconnect();
-  }, []);
-  return [ref, width] as const;
+  }, [node]);
+  return [setNode, width] as const;
 }
 
 /** Rounds the axis maximum up to a clean 1/2/2.5/5 × 10ⁿ step. */

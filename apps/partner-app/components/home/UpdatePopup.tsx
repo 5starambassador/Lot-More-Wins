@@ -38,7 +38,7 @@ export function UpdatePopup({ downloadUrl, onClose }: { downloadUrl: string | nu
           </Pressable>
 
           <View style={styles.badgeRow}>
-            <BrandLogo size={72} />
+            <BrandLogo size={88} />
             <View style={[styles.spark, goldFrame]}>
               <View style={styles.sparkFace}>
                 <Ionicons name="sparkles" size={14} color={colors.gold} />

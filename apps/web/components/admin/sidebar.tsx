@@ -64,7 +64,7 @@ function Brand() {
   const { admin, isSuperAdmin } = useAdminAccess();
   return (
     <Link href={admin.pages.includes('dashboard') ? '/dashboard' : '/'} className="flex items-center gap-3">
-      <Image src="/brand/lotmore-logo.png" alt="Lot More" width={36} height={36} priority className="h-9 w-9 shrink-0 rounded-md border border-gold-400/50 bg-white object-contain" />
+      <Image src="/brand/lotmore-logo.png" alt="Lot More" width={48} height={48} priority className="h-12 w-12 shrink-0 rounded-md border border-gold-400/50 bg-white object-contain" />
       <span className="leading-tight">
         <span className="block text-[15px] font-semibold text-white">Lot More Wins</span>
         <span className="block text-[10px] font-medium uppercase tracking-[0.16em] text-gold-300">

@@ -26,18 +26,21 @@ import {
   Store,
   Users,
 } from 'lucide-react';
-import type { AdminDashboard, BillRecord } from '@lotmorewins/types';
+import type { AdminDashboard, AdminDataSource, BillRecord } from '@lotmorewins/types';
 import { BarList, SplitMeter, TrendChart } from '@/components/admin/charts';
 import { BillDrawer, BillsTable } from '@/components/admin/bills';
 import { DateRangeFilter, FilterBar, dateQuery, lastDays, readDateRange } from '@/components/admin/filter-bar';
 import { GlobalSearch } from '@/components/admin/global-search';
+import { ResetDataButton } from '@/components/admin/reset-data';
 import { Badge, Tag } from '@/components/ui/badge';
 import { buttonClass, Button } from '@/components/ui/button';
 import { Alert, Skeleton } from '@/components/ui/feedback';
+import { Select } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/page-header';
 import { Panel, PanelBody, PanelHeader } from '@/components/ui/panel';
 import { adminApi, useAdminQuery } from '@/lib/admin-client';
 import { BILL_TYPE_LABEL, PARTNER_STATUS } from '@/lib/admin-labels';
+import { SAMPLE_OUTLETS } from '@/lib/dashboard-sample';
 import { cn } from '@/lib/utils';
 import {
   formatCompact,
@@ -251,6 +254,17 @@ function DashboardSkeleton() {
 
 const DEFAULT_RANGE_DAYS = 30;
 
+/** A link to a record's page. Sample records have no page, so test data shows the text only. */
+function RecordLink({ live, href, className, children }: { live: boolean; href: string; className?: string; children: React.ReactNode }) {
+  return live ? (
+    <Link href={href} className={className}>
+      {children}
+    </Link>
+  ) : (
+    <span className={className?.replace(/\bhover:\S+/g, '')}>{children}</span>
+  );
+}
+
 function DashboardView() {
   const router = useRouter();
   const pathname = usePathname();
@@ -260,27 +274,43 @@ function DashboardView() {
   const [dates, setDates] = useState(() => readDateRange(params, lastDays(DEFAULT_RANGE_DAYS)));
   const complete = Boolean(dates.from && dates.to);
   const isDefault = dates.from === lastDays(DEFAULT_RANGE_DAYS).from && dates.to === lastDays(DEFAULT_RANGE_DAYS).to;
+  // "Test data" fills the page with sample figures to demonstrate it; "Live data" reads the database.
+  const [source, setSource] = useState<AdminDataSource>(() => (params.get('data') === 'test' ? 'test' : 'live'));
+  // "Channel": one outlet, or every outlet when empty.
+  const [outletId, setOutletId] = useState(() => params.get('outlet') ?? '');
+  // Live and test data have different outlets, so changing the data also clears the channel.
+  const pickSource = (next: AdminDataSource) => {
+    setSource(next);
+    setOutletId('');
+  };
+  const outletOptions = useAdminQuery(() => adminApi.listAdminOutletOptions().then((r) => r.data), []);
+  const channels = source === 'test' ? SAMPLE_OUTLETS : (outletOptions.data ?? []);
 
   useEffect(() => {
     const next = new URLSearchParams();
+    if (source === 'test') next.set('data', 'test');
+    if (outletId) next.set('outlet', outletId);
     if (!isDefault && dates.from) next.set('from', dates.from);
     if (!isDefault && dates.to) next.set('to', dates.to);
     const qs = next.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  }, [dates, isDefault, pathname, router]);
+  }, [dates, isDefault, source, outletId, pathname, router]);
 
+  // While a custom range is half-typed, keep showing the last complete period.
+  const query = { ...dateQuery(complete ? dates : lastDays(DEFAULT_RANGE_DAYS)), source, outletId: outletId || undefined };
   const { data: d, error, loading, reload } = useAdminQuery(
-    // While a custom range is half-typed, keep showing the last complete period.
-    () => adminApi.getAdminDashboard(complete ? dateQuery(dates) : dateQuery(lastDays(DEFAULT_RANGE_DAYS))).then((r) => r.data),
-    [complete ? `${dates.from}:${dates.to}` : 'incomplete']
+    () => adminApi.getAdminDashboard(query).then((r) => r.data),
+    [complete ? `${dates.from}:${dates.to}` : 'incomplete', source, outletId]
   );
   const [selected, setSelected] = useState<BillRecord | null>(null);
+  const live = d?.source !== 'test';
 
   const period = d?.period;
   const avgBill = period && period.billCount ? period.billAmount / period.billCount : 0;
   const pointsValue = d ? (d.points.creditedPoints * d.points.pointsRatio.rupees) / (d.points.pointsRatio.points || 1) : 0;
   const rangeQuery = d ? `from=${d.range.from}&to=${d.range.to}` : '';
-  const attention = d ? attentionItems(d, rangeQuery) : [];
+  // Sample figures have no records behind them, so their attention items carry no links.
+  const attention = d ? attentionItems(d, rangeQuery).map((a) => (live ? a : { ...a, href: undefined })) : [];
   const periodLabel = d
     ? d.range.from === d.range.to
       ? formatDate(d.range.from)
@@ -303,23 +333,70 @@ function DashboardView() {
       />
 
       <FilterBar
-        onClear={!isDefault && (() => setDates(lastDays(DEFAULT_RANGE_DAYS)))}
-        exportCsv={{ path: '/admin/dashboard', params: { ...dateQuery(complete ? dates : lastDays(DEFAULT_RANGE_DAYS)) } }}
+        onClear={
+          (!isDefault || !!outletId) &&
+          (() => {
+            setDates(lastDays(DEFAULT_RANGE_DAYS));
+            setOutletId('');
+          })
+        }
+        exportCsv={{ path: '/admin/dashboard', params: { ...query } }}
       >
         <GlobalSearch />
+        <Select aria-label="Channel" value={outletId} onChange={(e) => setOutletId(e.target.value)} className="w-48">
+          <option value="">All channels</option>
+          {channels.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+            </option>
+          ))}
+        </Select>
+        <Select aria-label="Data shown" value={source} onChange={(e) => pickSource(e.target.value as AdminDataSource)} className="w-32">
+          <option value="live">Live data</option>
+          <option value="test">Test data</option>
+        </Select>
         <DateRangeFilter label="Period" value={dates} onChange={setDates} allowAll={false} />
         {d && (
           <p className="text-xs text-stone-500">
             Showing <span className="font-medium text-stone-800">{periodLabel}</span> · {formatNumber(d.range.days)} day
             {d.range.days === 1 ? '' : 's'}
             {d.range.granularity === 'month' && ' · charts by month'}
+            {d.outlet && (
+              <>
+                {' '}
+                · <span className="font-medium text-stone-800">{d.outlet.name}</span> only
+              </>
+            )}
           </p>
         )}
+        <ResetDataButton onDone={reload} />
       </FilterBar>
 
       {error && (
         <Alert tone="danger" className="mb-6" action={<Button size="sm" variant="secondary" onClick={reload}>Retry</Button>}>
           {error}
+        </Alert>
+      )}
+
+      {d && !live && (
+        <Alert
+          tone="warning"
+          className="mb-6"
+          title="Showing test data"
+          action={
+            <Button size="sm" variant="secondary" onClick={() => pickSource('live')}>
+              Show live data
+            </Button>
+          }
+        >
+          Every figure on this page is a sample for demonstration. Nothing here comes from the database.
+        </Alert>
+      )}
+
+      {d?.outlet && (
+        <Alert tone="info" className="mb-6" action={<Button size="sm" variant="secondary" onClick={() => setOutletId('')}>All channels</Button>}>
+          Sales, bills, referrals, points issued and redemptions below are for <span className="font-medium">{d.outlet.name}</span> only.
+          Partner counts, wallet balances and QR shares are not tied to an outlet, so they stay programme-wide.
         </Alert>
       )}
 
@@ -370,7 +447,7 @@ function DashboardView() {
 
           {/* KPI strip: one panel, four divided cells */}
           <Panel className="grid gap-px overflow-hidden bg-stone-150 sm:grid-cols-2 xl:grid-cols-4">
-            <Kpi icon={Users} label="Partners" value={formatNumber(d.partners.total)} href="/partners">
+            <Kpi icon={Users} label="Partners" value={formatNumber(d.partners.total)} href={live ? '/partners' : undefined}>
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-stone-500">
                 {(['ACTIVE', 'PENDING', 'SUSPENDED'] as const).map((s) => (
                   <span key={s}>
@@ -382,10 +459,10 @@ function DashboardView() {
                 <span className="font-medium text-gold-700">+{formatNumber(d.partners.newInPeriod)}</span> joined in this period
               </p>
             </Kpi>
-            <Kpi icon={Store} label="Outlets" value={formatNumber(d.outlets.total)} href="/outlets">
+            <Kpi icon={Store} label="Outlets" value={formatNumber(d.outlets.total)} href={live ? '/outlets' : undefined}>
               <SplitMeter a={d.outlets.active} b={d.outlets.inactive} aLabel="Active" bLabel="Inactive" />
             </Kpi>
-            <Kpi icon={CalendarDays} label="Today" value={formatINRWhole(d.transactions.today.billAmount)} href="/transactions?range=today">
+            <Kpi icon={CalendarDays} label="Today" value={formatINRWhole(d.transactions.today.billAmount)} href={live ? '/transactions?range=today' : undefined}>
               <p className="text-[11px] text-stone-500">
                 <span className="tabular font-medium text-stone-800">{formatNumber(d.transactions.today.billCount)}</span> bills ·{' '}
                 <span className="tabular font-medium text-stone-800">{formatINR(d.transactions.today.discountAmount)}</span> discounted
@@ -473,10 +550,10 @@ function DashboardView() {
                   items={d.topOutlets.map((o) => ({
                     key: o.id,
                     label: (
-                      <Link href={`/outlets/${o.id}?${rangeQuery}`} className="hover:text-maroon-700">
+                      <RecordLink live={live} href={`/outlets/${o.id}?${rangeQuery}`} className="hover:text-maroon-700">
                         {o.name}
                         {o.status === 'INACTIVE' && <span className="ml-1.5 text-[11px] text-stone-400">(inactive)</span>}
-                      </Link>
+                      </RecordLink>
                     ),
                     value: o.billAmount,
                     hint: `${formatNumber(o.billCount)} bills · ${formatINR(o.billAmount)}`,
@@ -493,9 +570,9 @@ function DashboardView() {
                   items={d.topReferrers.map((r) => ({
                     key: r.id,
                     label: (
-                      <Link href={`/partners/${r.id}?kind=REFERRAL&${rangeQuery}`} className="hover:text-maroon-700">
+                      <RecordLink live={live} href={`/partners/${r.id}?kind=REFERRAL&${rangeQuery}`} className="hover:text-maroon-700">
                         {r.name} <span className="font-mono text-[11px] text-stone-400">{r.partnerCode}</span>
-                      </Link>
+                      </RecordLink>
                     ),
                     value: r.referralCount,
                     hint: `${formatINR(r.billAmount)} sales · ${formatNumber(r.referralPoints)} referral points`,
@@ -513,10 +590,10 @@ function DashboardView() {
                   items={(['DIRECT_PARTNER', 'REFERRAL'] as const).map((t) => ({
                     key: t,
                     label: (
-                      <Link href={`/transactions?type=${t}&${rangeQuery}`} className="hover:text-maroon-700">
+                      <RecordLink live={live} href={`/transactions?type=${t}&${rangeQuery}`} className="hover:text-maroon-700">
                         {BILL_TYPE_LABEL[t]}{' '}
                         <span className="text-[11px] text-stone-400">{formatNumber(d.periodByType[t].billCount)} bills</span>
-                      </Link>
+                      </RecordLink>
                     ),
                     value: d.periodByType[t].billAmount,
                     hint: formatINR(d.periodByType[t].billAmount),
@@ -553,9 +630,11 @@ function DashboardView() {
               <PanelHeader
                 title="Newest partners"
                 actions={
-                  <Link href="/partners" className={buttonClass('ghost', 'sm')}>
-                    All <ArrowRight className="h-3.5 w-3.5" />
-                  </Link>
+                  live && (
+                    <Link href="/partners" className={buttonClass('ghost', 'sm')}>
+                      All <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
+                  )
                 }
               />
               {d.recentPartners.length === 0 ? (
@@ -564,7 +643,7 @@ function DashboardView() {
                 <ul className="divide-y divide-stone-100">
                   {d.recentPartners.map((p) => (
                     <li key={p.id}>
-                      <Link href={`/partners/${p.id}`} className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-stone-25">
+                      <RecordLink live={live} href={`/partners/${p.id}`} className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-stone-25">
                         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-maroon-50 text-[11px] font-semibold text-maroon-700">
                           {initials(p.name)}
                         </span>
@@ -573,7 +652,7 @@ function DashboardView() {
                           <p className="truncate text-xs text-stone-500">{p.city ?? p.partnerCode}</p>
                         </div>
                         <span className="shrink-0 text-xs text-stone-400">{formatRelative(p.createdAt)}</span>
-                      </Link>
+                      </RecordLink>
                     </li>
                   ))}
                 </ul>
@@ -588,9 +667,11 @@ function DashboardView() {
                 title="Latest transactions"
                 description="Most recent bills in this period. Select a row for the full breakdown."
                 actions={
-                  <Link href={`/transactions?${rangeQuery}`} className={buttonClass('ghost', 'sm')}>
-                    View all <ArrowRight className="h-3.5 w-3.5" />
-                  </Link>
+                  live && (
+                    <Link href={`/transactions?${rangeQuery}`} className={buttonClass('ghost', 'sm')}>
+                      View all <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
+                  )
                 }
               />
               <BillsTable bills={d.recentBills} onSelect={setSelected} emptyTitle="No transactions in this period" emptyDescription="Try a wider period." />

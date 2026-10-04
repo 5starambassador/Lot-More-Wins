@@ -3,6 +3,7 @@ import { ActivityIndicator, StyleSheet, View, type DimensionValue } from 'react-
 import Animated, { FadeIn, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { canvasFill, colors, radius, space } from '../../theme/tokens';
+import { BrandLogo } from '../brand/Brand';
 import { Button } from './Button';
 import { Txt } from './Txt';
 
@@ -68,7 +69,8 @@ export function StateView({
 export function FullScreenLoader() {
   return (
     <View style={styles.loader}>
-      <ActivityIndicator color={colors.gold} />
+      <BrandLogo size={112} />
+      <ActivityIndicator color={colors.gold} style={{ marginTop: 28 }} />
     </View>
   );
 }

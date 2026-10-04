@@ -22,7 +22,7 @@ import { colors, space } from '../../theme/tokens';
  *
  *   Direct partner QR:  scan → partner → amount → done
  *   Referral QR:        scan → partner → customer → amount → done
- *   Wallet redeem QR:   scan → redeem → redeemed
+ *   Wallet redeem QR:   scan → bill amount and amount to redeem → done
  *
  * Every amount, discount and point shown comes from the server, which calculates it from
  * the Super Admin settings.
@@ -35,8 +35,8 @@ const TITLES: Record<Step, string> = {
   customer: 'Referred customer',
   amount: 'Bill amount',
   done: 'Bill settled',
-  redeem: 'Redeem points',
-  redeemDone: 'Points redeemed',
+  redeem: 'Bill & redeem',
+  redeemDone: 'Bill settled',
 };
 
 function Steps({ current, referral }: { current: Step; referral: boolean }) {
@@ -44,7 +44,7 @@ function Steps({ current, referral }: { current: Step; referral: boolean }) {
   const steps: { key: Step; label: string }[] = redeeming
     ? [
         { key: 'scan', label: 'Scan' },
-        { key: 'redeem', label: 'Redeem' },
+        { key: 'redeem', label: 'Bill' },
         { key: 'redeemDone', label: 'Done' },
       ]
     : referral

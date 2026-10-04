@@ -5,12 +5,14 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Image } from 'expo-image';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import type { Outlet } from '@lotmorewins/types';
 import apiClient from '../../lib/api';
 import * as Haptics from '../../lib/haptics';
 import { Button, FullScreenLoader, Glass, SectionLabel, StateView, TopBar, Txt } from '../../components/ui';
 import { OutletLogo } from '../../components/outlets/OutletLogo';
 import { ImageViewer } from '../../components/outlets/ImageViewer';
+import { HeroSlider } from '../../components/outlets/HeroSlider';
 import { describeError, useHome, useOutlets } from '../../lib/queries';
 import { formatPercent } from '../../lib/format';
 import { canvasFill, colors, GUTTER, radius, space } from '../../theme/tokens';
@@ -27,6 +29,28 @@ function mapsUrl(outlet: Outlet): string | null {
   if (!outlet.address) return null;
   const query = encodeURIComponent(`${outlet.name}, ${outlet.address}`);
   return Platform.OS === 'ios' ? `http://maps.apple.com/?q=${query}` : `https://www.google.com/maps/search/?api=1&query=${query}`;
+}
+
+/**
+ * A smooth fade over the hero photo: slightly dark at the top for the status bar and back
+ * button, clear in the middle, melting into the page colour at the bottom.
+ */
+function HeroShade() {
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <Svg width="100%" height="100%">
+        <Defs>
+          <LinearGradient id="heroShade" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor="#140202" stopOpacity={0.5} />
+            <Stop offset="0.3" stopColor="#140202" stopOpacity={0} />
+            <Stop offset="0.55" stopColor={colors.canvas} stopOpacity={0} />
+            <Stop offset="1" stopColor={colors.canvas} stopOpacity={1} />
+          </LinearGradient>
+        </Defs>
+        <Rect width="100%" height="100%" fill="url(#heroShade)" />
+      </Svg>
+    </View>
+  );
 }
 
 /** Round glass button floating over the hero photo. */
@@ -119,30 +143,23 @@ export default function OutletDetailScreen() {
   return (
     <View style={styles.root}>
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + space.xxl }} showsVerticalScrollIndicator={false}>
-        {/* Hero: the first gallery photo, darkened towards the page so the logo and name sit on it cleanly. */}
+        {/* Hero: the gallery photos sliding by, darkened towards the page so the logo and name sit on it cleanly. */}
         <View style={styles.hero}>
           {images.length > 0 ? (
-            <Pressable accessibilityRole="imagebutton" accessibilityLabel="Open photos" onPress={() => setViewing(0)} style={styles.fill}>
-              <Image source={{ uri: images[0] }} style={styles.fill} contentFit="cover" transition={200} />
-            </Pressable>
+            <HeroSlider images={images} width={width} height={HERO_HEIGHT} paused={viewing !== null} onOpen={setViewing}>
+              <HeroShade />
+            </HeroSlider>
           ) : (
             <View style={[styles.fill, styles.heroEmpty]}>
               <Ionicons name="storefront-outline" size={64} color={colors.goldLine} />
+              <HeroShade />
             </View>
           )}
-          <View pointerEvents="none" style={styles.heroShadeTop} />
-          <View pointerEvents="none" style={styles.heroShadeBottom} />
-          {images.length > 1 ? (
-            <View pointerEvents="none" style={styles.photoCount}>
-              <Ionicons name="images-outline" size={13} color={colors.text} />
-              <Txt variant="caption">{images.length} photos</Txt>
-            </View>
-          ) : null}
         </View>
 
         <Animated.View entering={FadeIn.duration(350)} style={styles.identity}>
           <View style={styles.logoRing}>
-            <OutletLogo outlet={outlet} size={LOGO_SIZE} />
+            <OutletLogo outlet={outlet} size={LOGO_SIZE} round />
           </View>
           <Txt variant="title" align="center" style={styles.name}>
             {outlet.name}
@@ -263,22 +280,6 @@ const styles = StyleSheet.create({
   pad: { paddingHorizontal: GUTTER },
   hero: { height: HERO_HEIGHT, backgroundColor: colors.surface },
   heroEmpty: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceRaised },
-  // Two flat shades stand in for a gradient: a dark band for the status bar and back button,
-  // and a canvas-coloured band that the photo melts into at the bottom.
-  heroShadeTop: { position: 'absolute', top: 0, left: 0, right: 0, height: 96, backgroundColor: 'rgba(20, 2, 2, 0.38)' },
-  heroShadeBottom: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 72, backgroundColor: 'rgba(117, 5, 5, 0.55)' },
-  photoCount: {
-    position: 'absolute',
-    right: GUTTER,
-    bottom: space.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: space.sm,
-    paddingVertical: 4,
-    borderRadius: radius.pill,
-    backgroundColor: 'rgba(20, 2, 2, 0.6)',
-  },
   topActions: { position: 'absolute', left: space.md, right: space.md, flexDirection: 'row', justifyContent: 'space-between' },
   heroButton: {
     width: 44,
@@ -293,7 +294,7 @@ const styles = StyleSheet.create({
   identity: { alignItems: 'center', marginTop: -LOGO_SIZE / 2, paddingHorizontal: GUTTER },
   logoRing: {
     padding: 4,
-    borderRadius: radius.md + 6,
+    borderRadius: LOGO_SIZE / 2 + 5,
     backgroundColor: colors.canvas,
     borderWidth: 1,
     borderColor: colors.gold,

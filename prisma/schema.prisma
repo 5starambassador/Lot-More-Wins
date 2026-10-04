@@ -420,6 +420,8 @@ model PointsRedemption {
   createdByAdminId  String   @map("created_by_admin_id")
   points            Decimal  @db.Decimal(14, 2)
   rupeeValue        Decimal  @map("rupee_value") @db.Decimal(12, 2)
+  /// The customer's bill the redemption was taken off; null for redemptions made before this was recorded.
+  billAmount        Decimal? @map("bill_amount") @db.Decimal(12, 2)
   /// Points-to-rupees ratio the redemption was valued with.
   pointsRatioPoints Decimal  @map("points_ratio_points") @db.Decimal(12, 2)
   pointsRatioRupees Decimal  @map("points_ratio_rupees") @db.Decimal(12, 2)

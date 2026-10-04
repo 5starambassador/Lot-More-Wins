@@ -458,7 +458,7 @@ export const adminOutletRedemptionsQuerySchema = paginationQuerySchema
 
 /** Dashboard period; defaults to the last 30 days. */
 export const adminDashboardQuerySchema = z
-  .object({ ...adminFilterFields })
+  .object({ ...adminFilterFields, source: z.enum(['live', 'test']).default('live'), outletId: z.string().trim().min(1).max(64).optional() })
   .refine(fromNotAfterTo, fromNotAfterToError);
 
 /** Dashboard search across partners and outlets. */
@@ -507,8 +507,22 @@ export const redeemSchema = z
       .positive('Amount must be greater than 0')
       .max(10_000_000, 'Amount is too large')
       .refine(hasAtMostTwoDecimals, 'Amount can have at most 2 decimal places'),
+    billAmount: z
+      .number({ invalid_type_error: 'Bill amount must be a number' })
+      .finite()
+      .positive('Bill amount must be greater than 0')
+      .max(10_000_000, 'Bill amount is too large')
+      .refine(hasAtMostTwoDecimals, 'Bill amount can have at most 2 decimal places')
+      .optional(),
   })
-  .strict();
+  .strict()
+  .refine((v) => v.billAmount === undefined || v.rupees <= v.billAmount, {
+    message: 'The amount to redeem cannot be more than the bill',
+    path: ['rupees'],
+  });
+
+/** Dashboard "Reset": the PIN that confirms it. */
+export const adminResetSchema = z.object({ pin: z.string().min(1, 'Enter the PIN').max(100) }).strict();
 
 export const pushTokenSchema = z
   .object({

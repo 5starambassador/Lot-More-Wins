@@ -2,8 +2,8 @@ import { ApiClientError, createApiClient } from '@lotmorewins/api-client';
 import { Platform } from 'react-native';
 import { useSession } from '../store/session-store';
 
-/** The live API on Vercel. EXPO_PUBLIC_API_URL can point a build at another server. */
-const LIVE_API_URL = 'https://lotmore-wins.vercel.app/api';
+/** The live API (the Super Admin domain). EXPO_PUBLIC_API_URL can point a build at another server. */
+const LIVE_API_URL = 'https://superadmin.lotmorewins.com/api';
 
 /** The Android emulator reaches the host machine's localhost through 10.0.2.2. */
 const toDeviceUrl = (url: string) =>

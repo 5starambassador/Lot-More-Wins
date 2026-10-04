@@ -19,7 +19,7 @@ Copy `.env.example` to `.env.local`, or set the same variables in the Vercel pro
 
 | Variable | Purpose |
 | --- | --- |
-| `VITE_API_URL` | Lot More Wins API, where the download links are read from (`/app-links`). Defaults to `https://lotmore-wins.vercel.app/api`. |
+| `VITE_API_URL` | Lot More Wins API, where the download links are read from (`/app-links`). Defaults to `https://superadmin.lotmorewins.com/api`. |
 | `VITE_PARTNER_WEB_URL` | Partner App web version. Used for "Download for iOS" when no iOS link is set in the panel. |
 | `VITE_SITE_URL` | Public address used inside the download QR. Defaults to the address being viewed. |
 

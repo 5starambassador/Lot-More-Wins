@@ -17,6 +17,8 @@ function redeemError(err: unknown): string {
       return 'This redeem QR has already been used. Ask the partner to generate a new one in their wallet.';
     case 'INSUFFICIENT_POINTS':
       return 'The partner does not have enough points for this amount. The balance below has been refreshed.';
+    case 'REDEEM_EXCEEDS_BILL':
+      return 'The amount to redeem cannot be more than the bill.';
     case 'PARTNER_INACTIVE':
       return 'This partner account is not active, so points cannot be redeemed.';
     case 'OUTLET_INACTIVE':
@@ -28,9 +30,13 @@ function redeemError(err: unknown): string {
   }
 }
 
+const cleanAmount = (text: string) => text.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
+const TWO_DECIMALS = /^\d+(\.\d{1,2})?$/;
+
 /**
- * Wallet redemption: the partner and live balance come from the server; the admin enters the
- * rupee amount to take off the bill and the server converts it to points and debits the wallet.
+ * Wallet redemption: the partner and live balance come from the server. The admin enters the
+ * bill first, then how much of it the wallet pays (typed, or the full value the wallet can
+ * cover); the server converts that to points, debits the wallet and records the bill.
  */
 export function RedeemStep({
   qrCode,
@@ -48,11 +54,25 @@ export function RedeemStep({
   const { partner, pointsRatio } = scan;
   // Refreshed from the server when a redemption is refused for insufficient points.
   const [balance, setBalance] = useState({ points: scan.balancePoints, rupees: scan.rupeeValue });
+  const [billText, setBillText] = useState('');
   const [amountText, setAmountText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The QR is dead (expired / used): only a fresh scan can continue.
   const [dead, setDead] = useState(false);
+
+  const bill = Number(billText);
+  const hasBill = billText !== '' && Number.isFinite(bill);
+  const billError = !hasBill
+    ? null
+    : bill <= 0
+      ? 'Enter a bill amount greater than 0'
+      : !TWO_DECIMALS.test(billText)
+        ? 'Amount can have at most 2 decimal places'
+        : null;
+  const billValid = hasBill && !billError;
+  // The wallet can pay the whole bill, or as much of it as it is worth.
+  const maxRedeem = billValid ? Math.min(balance.rupees, bill) : 0;
 
   const amount = Number(amountText);
   const hasAmount = amountText !== '' && Number.isFinite(amount);
@@ -60,20 +80,23 @@ export function RedeemStep({
     ? null
     : amount <= 0
       ? 'Enter an amount greater than 0'
-      : !/^\d+(\.\d{1,2})?$/.test(amountText)
+      : !TWO_DECIMALS.test(amountText)
         ? 'Amount can have at most 2 decimal places'
         : amount > balance.rupees
           ? `The wallet is worth ${formatINR(balance.rupees)} at most`
-          : null;
-  const valid = hasAmount && !amountError;
+          : billValid && amount > bill
+            ? `Cannot be more than the bill of ${formatINR(bill)}`
+            : null;
+  const valid = billValid && hasAmount && !amountError;
   const points = valid ? Math.round(((amount * pointsRatio.points) / pointsRatio.rupees) * 100) / 100 : 0;
+  const payable = valid ? Math.round((bill - amount) * 100) / 100 : 0;
 
   const confirm = async () => {
     if (!valid || submitting || dead) return;
     setSubmitting(true);
     setError(null);
     try {
-      const res = await apiClient.redeemPoints({ qrCode, rupees: amount });
+      const res = await apiClient.redeemPoints({ qrCode, rupees: amount, billAmount: bill });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onCompleted(res.data);
     } catch (err) {
@@ -124,27 +147,57 @@ export function RedeemStep({
       </Panel>
 
       <Field
-        label="Amount to redeem"
+        label="Bill amount"
         prefix="₹"
-        value={amountText}
-        onChangeText={(t) => setAmountText(t.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))}
-        error={amountError}
+        value={billText}
+        onChangeText={(t) => setBillText(cleanAmount(t))}
+        error={billError}
         keyboardType="decimal-pad"
         placeholder="0.00"
         editable={!submitting && !dead}
         autoFocus
         style={styles.amountInput}
-        hint={valid ? `Uses ${formatPoints(points)} from the wallet` : 'This amount is taken off the customer’s bill and debited from the wallet as points.'}
+        hint="The customer’s total bill, before the wallet is used."
+      />
+
+      <Field
+        label="Amount to redeem"
+        prefix="₹"
+        value={amountText}
+        onChangeText={(t) => setAmountText(cleanAmount(t))}
+        error={amountError}
+        keyboardType="decimal-pad"
+        placeholder="0.00"
+        editable={billValid && !submitting && !dead}
+        style={styles.amountInput}
+        hint={
+          !billValid
+            ? 'Enter the bill amount first.'
+            : valid
+              ? `Uses ${formatPoints(points)} from the wallet`
+              : `Up to ${formatINR(maxRedeem)} can be taken off this bill from the wallet.`
+        }
         accessory={
           <Button
             label="Full value"
             variant="ghost"
             compact
-            onPress={() => setAmountText(balance.rupees.toFixed(2))}
-            disabled={submitting || dead || balance.rupees <= 0}
+            onPress={() => setAmountText(maxRedeem.toFixed(2))}
+            disabled={!billValid || submitting || dead || maxRedeem <= 0}
           />
         }
       />
+
+      {valid && (
+        <Panel style={styles.card}>
+          <InfoRow label="Bill amount" value={formatINR(bill)} />
+          <InfoRow label="Paid from wallet" value={`− ${formatINR(amount)}`} />
+          <View style={styles.gap}>
+            <Divider />
+          </View>
+          <InfoRow label="Customer pays" value={formatINR(payable)} strong tone="gold" />
+        </Panel>
+      )}
 
       {error && <Notice tone="error" message={error} onDismiss={dead ? undefined : () => setError(null)} />}
 
@@ -153,7 +206,7 @@ export function RedeemStep({
       ) : (
         <>
           <Button
-            label={valid ? `Redeem ${formatINR(amount)} · ${formatPoints(points)}` : 'Redeem points'}
+            label={valid ? `Complete bill · redeem ${formatINR(amount)}` : 'Complete bill'}
             onPress={confirm}
             loading={submitting}
             disabled={!valid}
@@ -172,5 +225,6 @@ const styles = StyleSheet.create({
   details: { marginTop: space.md, marginBottom: space.sm },
   balance: { paddingTop: space.sm },
   amountInput: { fontFamily: fonts.semibold, fontSize: 24, height: 60 },
+  gap: { marginVertical: space.xs },
   cancel: { marginTop: space.xs },
 });

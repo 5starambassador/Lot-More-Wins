@@ -5,14 +5,15 @@ import apiClient from '../../lib/api';
 import { colors, fonts, radius } from '../../theme/tokens';
 import { Txt } from '../ui';
 
-/** Outlet logo, or a monogram tile in brand colours when none is uploaded. */
-export function OutletLogo({ outlet, size = 52 }: { outlet: Outlet; size?: number }) {
+/** Outlet logo, or a monogram tile in brand colours when none is uploaded. `round` makes it a circle. */
+export function OutletLogo({ outlet, size = 52, round = false }: { outlet: Outlet; size?: number; round?: boolean }) {
   const uri = apiClient.resolveAssetUrl(outlet.logoUrl);
+  const shape = { width: size, height: size, ...(round ? { borderRadius: size / 2 } : {}) };
   if (uri) {
     return (
       <Image
         source={{ uri }}
-        style={[styles.box, { width: size, height: size }]}
+        style={[styles.box, shape]}
         contentFit="cover"
         transition={150}
         accessibilityIgnoresInvertColors
@@ -20,7 +21,7 @@ export function OutletLogo({ outlet, size = 52 }: { outlet: Outlet; size?: numbe
     );
   }
   return (
-    <View style={[styles.box, styles.fallback, { width: size, height: size }]}>
+    <View style={[styles.box, styles.fallback, shape]}>
       <Txt style={{ fontFamily: fonts.semibold, fontSize: size * 0.4, lineHeight: size * 0.55, color: colors.gold }}>
         {outlet.name.charAt(0).toUpperCase()}
       </Txt>

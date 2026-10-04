@@ -89,9 +89,9 @@ export function TopBar({
           {title}
         </Txt>
       ) : (
-        <View style={[styles.topTitle, styles.topCenter]}>{showLogo ? <BrandLogo size={34} /> : null}</View>
+        <View style={[styles.topTitle, styles.topCenter]}>{showLogo ? <BrandLogo size={42} /> : null}</View>
       )}
-      <View style={[styles.topSide, styles.topRight]}>{right ?? (title && showLogo ? <BrandLogo size={30} /> : null)}</View>
+      <View style={[styles.topSide, styles.topRight]}>{right ?? (title && showLogo ? <BrandLogo size={38} /> : null)}</View>
     </View>
   );
 }
