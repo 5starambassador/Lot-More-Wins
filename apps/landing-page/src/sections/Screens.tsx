@@ -9,6 +9,8 @@ interface Screen {
   caption: string;
   /** Desktop pose: the side phones sit lower and tilt towards the centre. */
   pose: string;
+  /** The same pose at every width, for the small trio on the download page. */
+  compactPose: string;
 }
 
 const SCREENS: Screen[] = [
@@ -18,6 +20,7 @@ const SCREENS: Screen[] = [
     title: 'Referral QR',
     caption: 'Your code, ready to share or download.',
     pose: 'lg:translate-y-12 lg:-rotate-6',
+    compactPose: 'translate-y-3 -rotate-6',
   },
   {
     src: '/screens/home.webp',
@@ -25,6 +28,7 @@ const SCREENS: Screen[] = [
     title: 'Home',
     caption: 'Both QR codes, your referral progress and every outlet.',
     pose: 'lg:z-10 lg:scale-110',
+    compactPose: 'z-10 scale-110',
   },
   {
     src: '/screens/wallet.webp',
@@ -32,8 +36,51 @@ const SCREENS: Screen[] = [
     title: 'Wallet',
     caption: 'Total points, their value and your full history.',
     pose: 'lg:translate-y-12 lg:rotate-6',
+    compactPose: 'translate-y-3 rotate-6',
   },
 ];
+
+/**
+ * The three app screenshots: a snap-scrolling row on phones and tablets, a fanned trio on
+ * desktop, each with its title and caption.
+ *
+ * `compact` is the download page's version: a small fanned trio that fits every screen
+ * without scrolling, screenshots only.
+ */
+export function ScreenShowcase({ compact = false, className = '' }: { compact?: boolean; className?: string }) {
+  if (compact) {
+    return (
+      <div className={`relative flex items-start justify-center gap-2.5 px-5 pb-5 pt-2 sm:gap-4 ${className}`}>
+        {SCREENS.map((screen, index) => (
+          <Reveal key={screen.title} delay={index * 150} className="w-[19vw] max-w-[5.5rem] shrink-0 sm:max-w-[6.25rem] lg:max-w-[7rem]">
+            <PhoneFrame src={screen.src} alt={screen.alt} small eager className={screen.compactPose} />
+          </Reveal>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div
+      className={`relative flex snap-x snap-mandatory gap-6 overflow-x-auto px-[12vw] pb-10 [scrollbar-width:none] sm:px-[25vw] lg:mx-auto lg:max-w-5xl lg:items-start lg:justify-center lg:gap-12 lg:overflow-visible lg:px-8 lg:pb-0 lg:pt-10 [&::-webkit-scrollbar]:hidden ${className}`}
+    >
+      {SCREENS.map((screen, index) => (
+        <Reveal key={screen.title} delay={index * 150} className="w-[76vw] max-w-[17rem] shrink-0 snap-center lg:w-64">
+          <figure>
+            <PhoneFrame
+              src={screen.src}
+              alt={screen.alt}
+              className={`transition-transform duration-500 ease-out hover:!translate-y-0 hover:!rotate-0 ${screen.pose}`}
+            />
+            <figcaption className="mt-6 text-center lg:mt-24">
+              <p className="text-lg font-semibold text-gilt-bright">{screen.title}</p>
+              <p className="mx-auto mt-1 max-w-[15rem] text-sm font-light leading-relaxed text-ivory-muted">{screen.caption}</p>
+            </figcaption>
+          </figure>
+        </Reveal>
+      ))}
+    </div>
+  );
+}
 
 export function Screens() {
   return (
@@ -52,24 +99,7 @@ export function Screens() {
         />
       </div>
 
-      {/* Phones: a snap-scrolling row on phones and tablets, a fanned trio on desktop. */}
-      <div className="relative mt-16 flex snap-x snap-mandatory gap-6 overflow-x-auto px-[12vw] pb-10 [scrollbar-width:none] sm:px-[25vw] lg:mx-auto lg:max-w-5xl lg:items-start lg:justify-center lg:gap-12 lg:overflow-visible lg:px-8 lg:pb-0 lg:pt-10 [&::-webkit-scrollbar]:hidden">
-        {SCREENS.map((screen, index) => (
-          <Reveal key={screen.title} delay={index * 150} className="w-[76vw] max-w-[17rem] shrink-0 snap-center lg:w-64">
-            <figure>
-              <PhoneFrame
-                src={screen.src}
-                alt={screen.alt}
-                className={`transition-transform duration-500 ease-out hover:!translate-y-0 hover:!rotate-0 ${screen.pose}`}
-              />
-              <figcaption className="mt-6 text-center lg:mt-24">
-                <p className="text-lg font-semibold text-gilt-bright">{screen.title}</p>
-                <p className="mx-auto mt-1 max-w-[15rem] text-sm font-light leading-relaxed text-ivory-muted">{screen.caption}</p>
-              </figcaption>
-            </figure>
-          </Reveal>
-        ))}
-      </div>
+      <ScreenShowcase className="mt-16" />
     </section>
   );
 }

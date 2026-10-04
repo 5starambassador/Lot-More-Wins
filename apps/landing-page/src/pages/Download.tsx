@@ -19,6 +19,7 @@ import {
 import { Logo, Wordmark } from '../components/Brand';
 import { PARTNER_WEB_URL, detectDevice, type Device } from '../lib/config';
 import { useAppLinks, type AppLink } from '../lib/app-links';
+import { ScreenShowcase } from '../sections/Screens';
 
 interface IosStep {
   icon: LucideIcon;
@@ -169,14 +170,19 @@ export default function Download() {
         <Wordmark />
       </header>
 
-      <main className="relative mx-auto max-w-xl px-5 pb-20 pt-8 text-center sm:px-8 sm:pt-12">
-        <Logo className="mx-auto h-32 w-32 sm:h-40 sm:w-40" halo />
-        <h1 className="mt-9 text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
+      <div className="relative pt-6 sm:pt-8">
+        <Logo className="mx-auto h-20 w-20 sm:h-24 sm:w-24" halo />
+        <ScreenShowcase compact className="mt-6" />
+      </div>
+
+      <main className="relative mx-auto max-w-xl px-5 pb-20 pt-6 text-center sm:px-8">
+        <h1 className="text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">
           Download the
           <br />
-          <span className="text-gilt-gradient">Partner App</span>
+          <span className="text-gilt-gradient">Lot More Wins </span>
+          Partner App
         </h1>
-        <p className="mx-auto mt-5 max-w-md text-lg font-light leading-relaxed text-ivory-soft/90">
+        <p className="mx-auto mt-5 max-w-md text-sm font-light leading-relaxed text-ivory-soft/90">
           Save at every Lot More outlet, share your referral QR and watch your reward points grow in your wallet.
         </p>
 
