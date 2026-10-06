@@ -1,4 +1,4 @@
-import type { Partner, QRCode } from '@prisma/client';
+import { Prisma, type Partner, type QRCode } from '@prisma/client';
 import type { PartnerHome, PartnerOnboardingResponse, PartnerProfile, PermanentQRItem, ProgramSettings } from '@lotmorewins/types';
 import prisma from './prisma';
 import { HttpError, PARTNER_TOKEN_TTL_SEC, signToken } from './auth';
@@ -82,6 +82,20 @@ export function serializeQrCodes(qrCodes: QRCode[]): PermanentQRItem[] {
     status: qr.status,
     createdAt: qr.createdAt.toISOString(),
   }));
+}
+
+/**
+ * The sign-in identifier a partner write collided on, when the error is the unique constraint on
+ * partners.mobile / partners.email. Routes check for a taken identifier first; this covers two
+ * requests racing past that check, where the database rejects the second one.
+ */
+export function duplicatePartnerField(error: unknown): 'mobile number' | 'email address' | null {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return null;
+  if (error.meta?.modelName !== 'Partner') return null;
+  const target = String(error.meta?.target ?? '');
+  if (target.includes('mobile')) return 'mobile number';
+  if (target.includes('email')) return 'email address';
+  return null;
 }
 
 export const activeQrInclude = { qrCodes: { where: { status: 'ACTIVE' }, orderBy: { type: 'asc' } } } as const;

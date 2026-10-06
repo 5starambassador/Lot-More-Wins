@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { partnerProfileUpdateSchema } from '@lotmorewins/validation';
 import prisma from '@/lib/prisma';
 import { requirePartnerId } from '@/lib/auth';
-import { activeQrInclude, parseDateOnly, partnerSession, toDateOnly } from '@/lib/partners';
+import { activeQrInclude, duplicatePartnerField, parseDateOnly, partnerSession, toDateOnly } from '@/lib/partners';
 import { fail, handleRouteError, ok, readJson, validationError } from '@/lib/api-response';
 
 export const dynamic = 'force-dynamic';
@@ -97,6 +97,8 @@ export async function PATCH(req: NextRequest) {
     });
     return ok(partnerSession(updated), 200, 'Profile updated');
   } catch (error) {
+    const field = duplicatePartnerField(error);
+    if (field) return fail(409, `Another account already uses this ${field}.`, 'ACCOUNT_EXISTS');
     return handleRouteError(error, 'PATCH /api/partner/me');
   }
 }

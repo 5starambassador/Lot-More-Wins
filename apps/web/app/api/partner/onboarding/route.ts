@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import prisma from '@/lib/prisma';
 import { claimPendingPoints } from '@/lib/points';
-import { activeQrInclude, parseDateOnly, partnerSession } from '@/lib/partners';
+import { activeQrInclude, duplicatePartnerField, parseDateOnly, partnerSession } from '@/lib/partners';
 import { claimedNotificationRow } from '@/lib/partner-notifications';
 import { fail, handleRouteError, ok, readJson, validationError } from '@/lib/api-response';
 import { partnerOnboardingSchema } from '@lotmorewins/validation';
@@ -97,6 +97,8 @@ export async function POST(req: NextRequest) {
     const session: PartnerOnboardingResponse = { ...partnerSession(partner), claimedPoints };
     return ok(session, 201, 'Partner registered successfully. Permanent QR codes generated.');
   } catch (error) {
+    const field = duplicatePartnerField(error);
+    if (field) return fail(409, `An account with this ${field} already exists. Please sign in instead.`, 'ACCOUNT_EXISTS');
     return handleRouteError(error, 'POST /api/partner/onboarding');
   }
 }
