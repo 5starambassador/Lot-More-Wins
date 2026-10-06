@@ -44,7 +44,6 @@ import type {
   RedemptionReceipt,
   UpdatePartnerProfilePayload,
   AdminDashboard,
-  AdminResetResult,
   AdminSearchResult,
   AdminPartnerDetail,
   AdminPartnerListItem,
@@ -398,11 +397,6 @@ export class ApiClient {
 
   public getPartnerDeletionImpact(id: string): Promise<ApiResponse<DeletionImpact>> {
     return this.get<ApiResponse<DeletionImpact>>(`/admin/partners/${encodeURIComponent(id)}/deletion`);
-  }
-
-  /** Removes every partner, guest customer, transaction and QR code. Super Admin only, confirmed by PIN. */
-  public resetProgrammeData(pin: string): Promise<ApiResponse<AdminResetResult>> {
-    return this.post<ApiResponse<AdminResetResult>>('/admin/reset', { pin }, { timeoutMs: 120000 });
   }
 
   public deleteAdminPartner(id: string): Promise<ApiResponse<DeletionImpact>> {

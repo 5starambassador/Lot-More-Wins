@@ -400,15 +400,6 @@ export interface AdminOutletOption {
   name: string;
 }
 
-/** What the dashboard's "Reset" removed: every partner, guest customer, transaction and QR code. */
-export interface AdminResetResult {
-  partners: number;
-  customers: number;
-  bills: number;
-  qrCodes: number;
-  redemptions: number;
-}
-
 /** What deleting a partner or outlet also removes, shown before the admin confirms. */
 export interface DeletionImpact {
   /** Bills (transactions) that are deleted with it. */

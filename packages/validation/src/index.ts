@@ -521,9 +521,6 @@ export const redeemSchema = z
     path: ['rupees'],
   });
 
-/** Dashboard "Reset": the PIN that confirms it. */
-export const adminResetSchema = z.object({ pin: z.string().min(1, 'Enter the PIN').max(100) }).strict();
-
 export const pushTokenSchema = z
   .object({
     token: z

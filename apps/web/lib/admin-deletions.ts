@@ -1,5 +1,5 @@
 import type { Prisma } from '@prisma/client';
-import type { AdminResetResult, DeletionImpact } from '@lotmorewins/types';
+import type { DeletionImpact } from '@lotmorewins/types';
 import prisma from './prisma';
 import { HttpError } from './auth';
 
@@ -88,31 +88,6 @@ export async function deleteOutlet(id: string): Promise<DeletionImpact> {
     // Outlet admin logins are removed with the outlet.
     await tx.outlet.delete({ where: { id } });
     return { bills: bills.count, redemptions: redemptions.count, pointsEntries: entries, outletAdmins: admins };
-  }, TX_OPTIONS);
-}
-
-// ---------------------------------------------------------------------------
-// Reset: every partner, guest customer, transaction and QR code
-// ---------------------------------------------------------------------------
-
-/**
- * The dashboard's "Reset". Removes all partners with their QR codes, wallets (points and
- * redemptions), notifications, push devices and QR shares, all guest customers and all bills.
- * Outlets, outlet admins, panel accounts, settings and media are not touched.
- */
-export async function resetProgrammeData(): Promise<AdminResetResult> {
-  return prisma.$transaction(async (tx) => {
-    // Children before the rows they reference.
-    await tx.notification.deleteMany();
-    await tx.pointsEntry.deleteMany();
-    const redemptions = await tx.pointsRedemption.deleteMany();
-    const bills = await tx.bill.deleteMany();
-    const customers = await tx.customer.deleteMany();
-    await tx.referralShare.deleteMany();
-    await tx.pushDevice.deleteMany();
-    const qrCodes = await tx.qRCode.deleteMany();
-    const partners = await tx.partner.deleteMany();
-    return { partners: partners.count, customers: customers.count, bills: bills.count, qrCodes: qrCodes.count, redemptions: redemptions.count };
   }, TX_OPTIONS);
 }
 

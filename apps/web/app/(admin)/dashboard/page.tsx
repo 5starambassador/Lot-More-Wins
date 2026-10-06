@@ -31,7 +31,6 @@ import { BarList, SplitMeter, TrendChart } from '@/components/admin/charts';
 import { BillDrawer, BillsTable } from '@/components/admin/bills';
 import { DateRangeFilter, FilterBar, dateQuery, lastDays, readDateRange } from '@/components/admin/filter-bar';
 import { GlobalSearch } from '@/components/admin/global-search';
-import { ResetDataButton } from '@/components/admin/reset-data';
 import { Badge, Tag } from '@/components/ui/badge';
 import { buttonClass, Button } from '@/components/ui/button';
 import { Alert, Skeleton } from '@/components/ui/feedback';
@@ -369,7 +368,6 @@ function DashboardView() {
             )}
           </p>
         )}
-        <ResetDataButton onDone={reload} />
       </FilterBar>
 
       {error && (
