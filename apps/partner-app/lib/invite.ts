@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import { Asset } from 'expo-asset';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import apiClient from './api';
 import { shareImage } from './share-image';
 

@@ -2,14 +2,16 @@ import { useRef, useState } from 'react';
 import { TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { partnerContactStepSchema } from '@lotmorewins/validation';
+import type { PartnerReferredByPayload } from '@lotmorewins/types';
 import * as Haptics from '../../lib/haptics';
 import { useOnboardingStore } from '../../store/onboarding-store';
 import { OnboardingShell } from '../../components/onboarding/OnboardingShell';
+import { ReferredByFields, type ReferredByErrors } from '../../components/onboarding/ReferredByFields';
 import { Button, Field } from '../../components/ui';
 
 type Errors = { name?: string; email?: string; mobile?: string };
 
-/** Step 1: name, email and mobile. All three are required. */
+/** Step 1: name, email and mobile (all required), and who referred the partner (optional). */
 export default function DetailsScreen() {
   const router = useRouter();
   const stored = useOnboardingStore();
@@ -17,17 +19,24 @@ export default function DetailsScreen() {
   const [name, setName] = useState(stored.name);
   const [email, setEmail] = useState(stored.email);
   const [mobile, setMobile] = useState(stored.mobile);
+  const [referredBy, setReferredBy] = useState<PartnerReferredByPayload | null>(stored.referredBy);
   const [errors, setErrors] = useState<Errors>({});
+  const [referredByErrors, setReferredByErrors] = useState<ReferredByErrors>({});
   const emailRef = useRef<TextInput>(null);
   const mobileRef = useRef<TextInput>(null);
 
   const clear = (key: keyof Errors) => errors[key] && setErrors((e) => ({ ...e, [key]: undefined }));
 
   const handleContinue = async () => {
-    const parsed = partnerContactStepSchema.safeParse({ name, email, mobile });
+    const parsed = partnerContactStepSchema.safeParse({ name, email, mobile, referredBy });
     if (!parsed.success) {
       const next: Errors = {};
-      for (const issue of parsed.error.issues) next[issue.path[0] as keyof Errors] ??= issue.message;
+      const nextReferredBy: ReferredByErrors = {};
+      for (const issue of parsed.error.issues) {
+        if (issue.path[0] === 'referredBy') nextReferredBy[issue.path[1] as keyof ReferredByErrors] ??= issue.message;
+        else next[issue.path[0] as keyof Errors] ??= issue.message;
+      }
+      setReferredByErrors(nextReferredBy);
       if (!name.trim()) next.name = 'Please enter your full name';
       if (!email.trim()) next.email = 'Please enter your email address';
       if (!mobile.trim()) next.mobile = 'Please enter your mobile number';
@@ -35,7 +44,7 @@ export default function DetailsScreen() {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       return;
     }
-    stored.setContact(parsed.data);
+    stored.setContact({ ...parsed.data, referredBy: parsed.data.referredBy ?? null });
     router.push('/onboarding/location');
   };
 
@@ -43,7 +52,7 @@ export default function DetailsScreen() {
     <OnboardingShell
       step="details"
       title="Let’s get you started"
-      subtitle="Tell us who you are. All three details are required."
+      subtitle="Tell us who you are. Name, email and mobile are required."
       footer={<Button label="Continue" onPress={handleContinue} />}
     >
       <Field
@@ -94,8 +103,15 @@ export default function DetailsScreen() {
         textContentType="telephoneNumber"
         autoComplete="tel"
         returnKeyType="done"
-        onSubmitEditing={handleContinue}
         error={errors.mobile}
+      />
+      <ReferredByFields
+        value={referredBy}
+        onChange={(value) => {
+          setReferredBy(value);
+          setReferredByErrors({});
+        }}
+        errors={referredByErrors}
       />
     </OnboardingShell>
   );

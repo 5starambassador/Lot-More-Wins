@@ -1,11 +1,13 @@
 import { create } from 'zustand';
-import type { MessagingMode } from '@lotmorewins/types';
+import type { MessagingMode, PartnerReferredByPayload } from '@lotmorewins/types';
 
 /** Registration wizard state: 1 contact, 2 address, 3 birthday (optional), 4 OTP, 5 password. */
 interface OnboardingState {
   name: string;
   mobile: string;
   email: string;
+  /** Optional "Referred by" answer; null when left blank. */
+  referredBy: PartnerReferredByPayload | null;
   city: string;
   state: string;
   pincode: string;
@@ -14,7 +16,7 @@ interface OnboardingState {
   otp: string;
   messagingMode: MessagingMode;
 
-  setContact: (details: { name: string; mobile: string; email: string }) => void;
+  setContact: (details: { name: string; mobile: string; email: string; referredBy: PartnerReferredByPayload | null }) => void;
   setAddress: (details: { city: string; state: string; pincode: string }) => void;
   setDateOfBirth: (dateOfBirth: string | null) => void;
   setMessagingMode: (mode: MessagingMode) => void;
@@ -26,6 +28,7 @@ const initialState = {
   name: '',
   mobile: '',
   email: '',
+  referredBy: null as PartnerReferredByPayload | null,
   city: '',
   state: '',
   pincode: '',

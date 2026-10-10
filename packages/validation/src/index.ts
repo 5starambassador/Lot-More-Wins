@@ -79,6 +79,31 @@ const partnerAddressFields = {
 };
 
 /** One registration path for every partner: contact, address, optional birthday, OTP and password. */
+export const REFERRED_BY_TYPES = ['PARTNER', 'OUTLET', 'MARKETING_REP', 'OTHER'] as const;
+
+/**
+ * The optional "Referred by" answer. Choosing Partner, Outlet or Others asks for one more
+ * detail (partner ID, outlet, free text); Marketing rep needs nothing further.
+ */
+export const referredBySchema = z
+  .object({
+    type: z.enum(REFERRED_BY_TYPES),
+    partnerCode: z.string().trim().max(40, 'Partner ID is too long').optional(),
+    outletId: z.string().trim().uuid('Please choose an outlet').optional(),
+    other: z.string().trim().max(120, 'Please keep this under 120 characters').optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.type === 'PARTNER' && !value.partnerCode) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['partnerCode'], message: 'Please enter the partner ID' });
+    }
+    if (value.type === 'OUTLET' && !value.outletId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['outletId'], message: 'Please choose an outlet' });
+    }
+    if (value.type === 'OTHER' && !value.other) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['other'], message: 'Please tell us who referred you' });
+    }
+  });
+
 export const partnerOnboardingSchema = z
   .object({
     name: partnerNameSchema,
@@ -86,6 +111,7 @@ export const partnerOnboardingSchema = z
     email: emailSchema,
     ...partnerAddressFields,
     dateOfBirth: dateOfBirthSchema.optional().nullable(),
+    referredBy: referredBySchema.optional().nullable(),
     password: z.string().min(6, 'Password must be at least 6 characters'),
     confirmPassword: z.string().min(6, 'Confirm password must be at least 6 characters'),
     otp: z.string().trim().regex(/^\d{6}$/, 'OTP must be exactly 6 digits'),
@@ -99,7 +125,12 @@ export const partnerOnboardingSchema = z
 export type PartnerOnboardingFormValues = z.infer<typeof partnerOnboardingSchema>;
 
 /** Step-level schemas for the registration wizard (same rules as the full payload). */
-export const partnerContactStepSchema = z.object({ name: partnerNameSchema, mobile: phoneSchema, email: emailSchema });
+export const partnerContactStepSchema = z.object({
+  name: partnerNameSchema,
+  mobile: phoneSchema,
+  email: emailSchema,
+  referredBy: referredBySchema.optional().nullable(),
+});
 export const partnerAddressStepSchema = z.object(partnerAddressFields);
 
 

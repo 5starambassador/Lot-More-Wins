@@ -44,24 +44,43 @@ enum QRCodeStatus {
   REVOKED
 }
 
+/// Who introduced a partner to the programme, as answered while registering.
+enum ReferredByType {
+  PARTNER
+  OUTLET
+  MARKETING_REP
+  OTHER
+}
+
 model Partner {
-  id           String        @id @default(uuid())
-  partnerCode  String        @unique @map("partner_code")
-  name         String
-  mobile       String        @unique
-  email        String        @unique
-  passwordHash String        @map("password_hash")
-  city         String?
-  state        String?
-  pincode      String?
+  id                  String          @id @default(uuid())
+  partnerCode         String          @unique @map("partner_code")
+  name                String
+  mobile              String          @unique
+  email               String          @unique
+  passwordHash        String          @map("password_hash")
+  city                String?
+  state               String?
+  pincode             String?
   /// Calendar date only. Drives the birthday bonus discount.
-  dateOfBirth  DateTime?     @map("date_of_birth") @db.Date
+  dateOfBirth         DateTime?       @map("date_of_birth") @db.Date
   /// Set when the date of birth is added or changed after registration (null = given at registration).
-  dobChangedAt DateTime?     @map("dob_changed_at")
-  photoUrl     String?       @map("photo_url")
-  status       PartnerStatus @default(ACTIVE)
-  createdAt    DateTime      @default(now()) @map("created_at")
-  updatedAt    DateTime      @updatedAt @map("updated_at")
+  dobChangedAt        DateTime?       @map("dob_changed_at")
+  photoUrl            String?         @map("photo_url")
+  status              PartnerStatus   @default(ACTIVE)
+  /// Optional "Referred by" answer from registration (null = not answered).
+  referredByType      ReferredByType? @map("referred_by_type")
+  /// What was given with it: the partner ID typed, the chosen outlet's name, or the "Others" text.
+  referredByText      String?         @map("referred_by_text")
+  /// The partner the typed ID matched, when it matched one.
+  referredByPartnerId String?         @map("referred_by_partner_id")
+  referredByOutletId  String?         @map("referred_by_outlet_id")
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
+
+  referredByPartner Partner?  @relation("PartnerReferredBy", fields: [referredByPartnerId], references: [id], onDelete: SetNull)
+  referredPartners  Partner[] @relation("PartnerReferredBy")
+  referredByOutlet  Outlet?   @relation(fields: [referredByOutletId], references: [id], onDelete: SetNull)
 
   qrCodes        QRCode[]
   directBills    Bill[]             @relation("BillPartner")
@@ -210,7 +229,7 @@ model ProgramSetting {
   androidAppLinkType         AppLinkType      @default(DIRECT) @map("android_app_link_type")
   iosAppUrl                  String?          @map("ios_app_url")
   iosAppLinkType             AppLinkType      @default(DIRECT) @map("ios_app_link_type")
-  updatedBy                String?          @map("updated_by")
+  updatedBy                  String?          @map("updated_by")
   createdAt                  DateTime         @default(now()) @map("created_at")
   updatedAt                  DateTime         @updatedAt @map("updated_at")
 
@@ -243,9 +262,11 @@ model Outlet {
   createdAt   DateTime     @default(now()) @map("created_at")
   updatedAt   DateTime     @updatedAt @map("updated_at")
 
-  admins      OutletAdmin[]
-  bills       Bill[]
-  redemptions PointsRedemption[]
+  admins           OutletAdmin[]
+  bills            Bill[]
+  redemptions      PointsRedemption[]
+  /// Partners who named this outlet as "Referred by" when registering.
+  referredPartners Partner[]
 
   @@index([status])
   @@map("outlets")

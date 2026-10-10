@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "turbo run dev",
-    "dev:partner": "pnpm --filter @lotmorewins/partner-app dev",
+    "dev:partner": "pnpm --dir apps/partner-app dev",
     "dev:outlet": "pnpm --filter @lotmorewins/outlet-admin-app dev",
     "dev:web": "pnpm --filter @lotmorewins/web dev",
     "dev:landing": "pnpm --filter @lotmorewins/landing-page dev",

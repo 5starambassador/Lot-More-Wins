@@ -37,6 +37,16 @@ export function useNotifications() {
   });
 }
 
+/** Public outlet names for the registration "Referred by" list (no session yet). */
+export function useOutletOptions(enabled = true) {
+  return useQuery({
+    queryKey: ['outlet-options'],
+    queryFn: async () => (await apiClient.getOutletOptions()).data,
+    staleTime: 5 * 60_000,
+    enabled,
+  });
+}
+
 /** Public offers shown while registering (no session yet). */
 export function useOffers() {
   return useQuery({

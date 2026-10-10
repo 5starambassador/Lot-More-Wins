@@ -1,5 +1,13 @@
 import { Prisma, type Partner, type QRCode } from '@prisma/client';
-import type { PartnerHome, PartnerOnboardingResponse, PartnerProfile, PermanentQRItem, ProgramSettings } from '@lotmorewins/types';
+import type {
+  AdminPartnerReferredBy,
+  PartnerHome,
+  PartnerOnboardingResponse,
+  PartnerProfile,
+  PartnerReferredByPayload,
+  PermanentQRItem,
+  ProgramSettings,
+} from '@lotmorewins/types';
 import prisma from './prisma';
 import { HttpError, PARTNER_TOKEN_TTL_SEC, signToken } from './auth';
 import { appDownloadLinks, getProgramSettings } from './settings';
@@ -96,6 +104,52 @@ export function duplicatePartnerField(error: unknown): 'mobile number' | 'email 
   if (target.includes('mobile')) return 'mobile number';
   if (target.includes('email')) return 'email address';
   return null;
+}
+
+/**
+ * Partner columns for the "Referred by" answer given at registration. A typed partner ID is kept
+ * as entered and linked to the partner it matches (by partner code or mobile), if any: a mistyped
+ * ID never blocks registration. The outlet's name is stored too, so it outlives the outlet.
+ */
+export async function referredByData(
+  input: PartnerReferredByPayload | null | undefined
+): Promise<Pick<Prisma.PartnerUncheckedCreateInput, 'referredByType' | 'referredByText' | 'referredByPartnerId' | 'referredByOutletId'>> {
+  if (!input) return {};
+  if (input.type === 'PARTNER') {
+    const entered = (input.partnerCode ?? '').trim();
+    const match = await prisma.partner.findFirst({
+      where: { OR: [{ partnerCode: { equals: entered, mode: 'insensitive' } }, { mobile: entered }] },
+      select: { id: true },
+    });
+    return { referredByType: 'PARTNER', referredByText: entered, referredByPartnerId: match?.id ?? null };
+  }
+  if (input.type === 'OUTLET') {
+    const outlet = input.outletId
+      ? await prisma.outlet.findUnique({ where: { id: input.outletId }, select: { id: true, name: true } })
+      : null;
+    return { referredByType: 'OUTLET', referredByText: outlet?.name ?? null, referredByOutletId: outlet?.id ?? null };
+  }
+  if (input.type === 'OTHER') return { referredByType: 'OTHER', referredByText: (input.other ?? '').trim() };
+  return { referredByType: 'MARKETING_REP' };
+}
+
+export const referredBySelect = {
+  referredByType: true,
+  referredByText: true,
+  referredByPartner: { select: { id: true, name: true, partnerCode: true } },
+  referredByOutlet: { select: { id: true, name: true } },
+} satisfies Prisma.PartnerSelect;
+
+export function serializeReferredBy(
+  partner: Prisma.PartnerGetPayload<{ select: typeof referredBySelect }>
+): AdminPartnerReferredBy | null {
+  if (!partner.referredByType) return null;
+  return {
+    type: partner.referredByType,
+    detail: partner.referredByText,
+    partner: partner.referredByPartner,
+    outlet: partner.referredByOutlet,
+  };
 }
 
 export const activeQrInclude = { qrCodes: { where: { status: 'ACTIVE' }, orderBy: { type: 'asc' } } } as const;

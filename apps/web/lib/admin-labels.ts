@@ -4,6 +4,7 @@ import type {
   OutletStatus,
   PartnerStatus,
   QRCodeType,
+  ReferredByType,
 } from '@lotmorewins/types';
 import type { Tone } from '@/components/ui/badge';
 
@@ -14,6 +15,13 @@ export const PARTNER_STATUS: Record<PartnerStatus, { label: string; tone: Tone }
   PENDING: { label: 'Pending', tone: 'warning' },
   SUSPENDED: { label: 'Suspended', tone: 'danger' },
   REJECTED: { label: 'Rejected', tone: 'neutral' },
+};
+
+export const REFERRED_BY_LABEL: Record<ReferredByType, string> = {
+  PARTNER: 'Partner',
+  OUTLET: 'Outlet',
+  MARKETING_REP: 'Marketing rep',
+  OTHER: 'Others',
 };
 
 export const OUTLET_STATUS: Record<OutletStatus, { label: string; tone: Tone }> = {

@@ -27,7 +27,7 @@ import { HttpError } from './auth';
 import { billInclude, serializeBill, startOfTodayIst } from './billing';
 import { getPartnerWallet, unexpiredPoints } from './points';
 import { getProgramSettings } from './settings';
-import { toDateOnly } from './partners';
+import { referredBySelect, serializeReferredBy, toDateOnly } from './partners';
 import { referralProgress } from './referral-rewards';
 import { adminOutletInclude, serializeAdminOutlet } from './outlets';
 import { CSV_MAX_ROWS, csvDateTime, toCsv, type CsvColumn } from './admin-csv';
@@ -121,6 +121,7 @@ const partnerListSelect = {
   city: true,
   status: true,
   createdAt: true,
+  ...referredBySelect,
   _count: { select: { directBills: true, referredBills: true } },
 } satisfies Prisma.PartnerSelect;
 
@@ -161,8 +162,19 @@ function toListItem(p: PartnerListRow, balance: number, shares: number): AdminPa
     directBillCount: p._count.directBills,
     referredBillCount: p._count.referredBills,
     referralShareCount: shares,
+    referredBy: serializeReferredBy(p),
     createdAt: p.createdAt.toISOString(),
   };
+}
+
+/** "Referred by" as one line of text, e.g. "Partner: Asha (LMW-P-1A2B3C)". */
+function referredByText(p: AdminPartnerListItem): string {
+  const r = p.referredBy;
+  if (!r) return '';
+  if (r.type === 'MARKETING_REP') return 'Marketing rep';
+  if (r.type === 'PARTNER') return `Partner: ${r.partner ? `${r.partner.name} (${r.partner.partnerCode})` : (r.detail ?? '')}`;
+  if (r.type === 'OUTLET') return `Outlet: ${r.outlet?.name ?? r.detail ?? ''}`;
+  return `Others: ${r.detail ?? ''}`;
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -222,6 +234,7 @@ const PARTNER_CSV: CsvColumn<AdminPartnerListItem>[] = [
   { header: 'Email', value: (p) => p.email },
   { header: 'City', value: (p) => p.city },
   { header: 'Status', value: (p) => p.status },
+  { header: 'Referred by', value: (p) => referredByText(p) },
   { header: 'Joined (IST)', value: (p) => csvDateTime(p.createdAt) },
   { header: 'Points balance', value: (p) => p.pointsBalance },
   { header: 'Own bills', value: (p) => p.directBillCount },

@@ -13,7 +13,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { Panel } from '@/components/ui/panel';
 import { Pagination, SkeletonRows, TBody, TD, TH, THead, TR, Table, TableScroll } from '@/components/ui/table';
 import { adminApi, useAdminQuery, useDebounced } from '@/lib/admin-client';
-import { PARTNER_STATUS } from '@/lib/admin-labels';
+import { PARTNER_STATUS, REFERRED_BY_LABEL } from '@/lib/admin-labels';
 import { formatDate, formatNumber, initials } from '@/lib/format';
 
 const PAGE_SIZE = 20;
@@ -141,12 +141,13 @@ function PartnersView() {
           />
         ) : (
           <TableScroll>
-            <Table className="min-w-[960px]">
+            <Table className="min-w-[1100px]">
               <THead>
                 <tr>
                   <TH>Partner</TH>
                   <TH>Contact</TH>
                   <TH>City</TH>
+                  <TH>Referred by</TH>
                   <TH align="right">Own bills</TH>
                   <TH align="right">Referrals</TH>
                   <TH align="right">Points</TH>
@@ -156,7 +157,7 @@ function PartnersView() {
               </THead>
               <TBody className={loading && partners ? 'opacity-60 transition-opacity' : undefined}>
                 {!partners ? (
-                  <SkeletonRows cols={8} rows={8} />
+                  <SkeletonRows cols={9} rows={8} />
                 ) : (
                   partners.map((p) => (
                     <TR
@@ -182,6 +183,20 @@ function PartnersView() {
                         <p className="max-w-[220px] truncate text-xs text-stone-500">{p.email}</p>
                       </TD>
                       <TD className="text-stone-700">{p.city ?? <span className="text-stone-300">—</span>}</TD>
+                      <TD>
+                        {p.referredBy ? (
+                          <>
+                            <p className="text-stone-800">{REFERRED_BY_LABEL[p.referredBy.type]}</p>
+                            {p.referredBy.type !== 'MARKETING_REP' && (
+                              <p className="max-w-[180px] truncate text-xs text-stone-500">
+                                {p.referredBy.partner?.name ?? p.referredBy.outlet?.name ?? p.referredBy.detail}
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-stone-300">—</span>
+                        )}
+                      </TD>
                       <TD align="right" className="text-stone-900">
                         {formatNumber(p.directBillCount)}
                       </TD>

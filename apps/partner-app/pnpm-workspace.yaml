@@ -1,0 +1,11 @@
+# The Partner App installs on its own, outside the monorepo workspace: it runs a newer
+# Expo SDK / React / React Native than the other apps, and a shared hoisted node_modules
+# cannot hold both. Shared @lotmorewins/* packages are linked from ../../packages.
+packages:
+  - '.'
+
+nodeLinker: hoisted
+
+allowBuilds:
+  esbuild: true
+  unrs-resolver: true

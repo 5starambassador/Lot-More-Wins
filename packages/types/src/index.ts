@@ -86,6 +86,25 @@ export interface OtpVerifyResponse {
   verificationToken?: string;
 }
 
+/** Who introduced the partner to the programme: the optional "Referred by" answer at registration. */
+export type ReferredByType = 'PARTNER' | 'OUTLET' | 'MARKETING_REP' | 'OTHER';
+
+export interface PartnerReferredByPayload {
+  type: ReferredByType;
+  /** PARTNER: the referring partner's ID (partner code) as typed. */
+  partnerCode?: string;
+  /** OUTLET: the outlet chosen from the list. */
+  outletId?: string;
+  /** OTHER: free text. */
+  other?: string;
+}
+
+/** An outlet in the registration "Referred by" list. */
+export interface OutletOption {
+  id: ID;
+  name: string;
+}
+
 /** Every partner registers the same way; there is a single partner role. */
 export interface PartnerOnboardingPayload {
   name: string;
@@ -96,6 +115,8 @@ export interface PartnerOnboardingPayload {
   pincode: string;
   /** YYYY-MM-DD. Optional: the birthday step can be skipped. */
   dateOfBirth?: string | null;
+  /** Optional: omitted or null when the partner did not answer. */
+  referredBy?: PartnerReferredByPayload | null;
   password: string;
   confirmPassword: string;
   otp: string;
@@ -947,6 +968,17 @@ export interface AdminPartnerListQuery {
   to?: string;
 }
 
+/** A partner's "Referred by" answer from registration, as shown in the Super Admin panel. */
+export interface AdminPartnerReferredBy {
+  type: ReferredByType;
+  /** The partner ID typed, the outlet's name, or the "Others" text; null for a marketing rep. */
+  detail: string | null;
+  /** PARTNER: the partner the typed ID matched; null when it matched none. */
+  partner: { id: ID; name: string; partnerCode: string } | null;
+  /** OUTLET: the chosen outlet; null once that outlet has been deleted. */
+  outlet: AdminOutletOption | null;
+}
+
 export interface AdminPartnerListItem {
   id: ID;
   partnerCode: string;
@@ -960,6 +992,8 @@ export interface AdminPartnerListItem {
   referredBillCount: number;
   /** Taps of "Share QR" on the partner's referral QR page. */
   referralShareCount: number;
+  /** null when the partner did not answer "Referred by". */
+  referredBy: AdminPartnerReferredBy | null;
   createdAt: string;
 }
 

@@ -1,5 +1,7 @@
 packages:
   - 'apps/*'
+  # Own install (apps/partner-app/pnpm-workspace.yaml): it is on a newer Expo SDK / React than the other apps.
+  - '!apps/partner-app'
   - 'packages/*'
 
 # Expo/Metro cannot resolve packages inside pnpm's isolated store; use a hoisted

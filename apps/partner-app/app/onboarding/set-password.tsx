@@ -57,6 +57,7 @@ export default function SetPasswordScreen() {
         state: onboarding.state,
         pincode: onboarding.pincode,
         dateOfBirth: onboarding.dateOfBirth,
+        referredBy: onboarding.referredBy,
         password,
         confirmPassword,
         otp: onboarding.otp,

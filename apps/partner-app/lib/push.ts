@@ -15,7 +15,7 @@ const supported = Platform.OS !== 'web';
 if (supported) {
   // Show notifications while the app is open too.
   Notifications.setNotificationHandler({
-    handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }),
+    handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }),
   });
 }
 

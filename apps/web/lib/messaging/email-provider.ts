@@ -3,97 +3,143 @@ import type { Transporter } from 'nodemailer';
 import { promises as dns } from 'dns';
 import type { SendOtpOptions, SendInvoiceOptions, MessagingResult } from './types';
 
+/** How the SMTP server is reached: by hostname (IPv4) or by its resolved IPv6 address. */
+type SmtpRoute = 'hostname' | 'ipv6';
+
+interface SmtpConfig {
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+}
+
+/**
+ * Delivery is retried within one request. The Partner App waits 15s for a response, so new
+ * attempts stop being started once RETRY_BUDGET_MS has passed.
+ */
+const MAX_ATTEMPTS = 4;
+const RETRY_BUDGET_MS = 9_000;
+const RETRY_DELAY_MS = 400;
+const IPV6_LOOKUP_TIMEOUT_MS = 2_000;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * - permanent: the server refused the message or the credentials (5xx); retrying cannot help.
+ * - throttled: a temporary SMTP refusal (4xx), e.g. Gmail's "too many login attempts".
+ * - network: the connection failed or dropped; worth trying again, on the other route if any.
+ */
+function classifySmtpError(err: unknown): 'permanent' | 'throttled' | 'network' {
+  const { code, responseCode } = err as { code?: string; responseCode?: number };
+  if (responseCode && responseCode >= 400 && responseCode < 500) return 'throttled';
+  if ((responseCode && responseCode >= 500) || code === 'EAUTH' || code === 'EENVELOPE') return 'permanent';
+  return 'network';
+}
+
 export class EmailProvider {
-  private transporter: Transporter | null = null;
-  private isInitializing: Promise<Transporter | null> | null = null;
-  /** True when the cached transporter targets a resolved IPv6 address rather than the hostname. */
-  private pinnedToIp = false;
-  /** Set after the pinned IPv6 route fails; later transporters connect by hostname. */
-  private useHostnameOnly = false;
+  /** One pooled transporter per route, reused by every send on this server instance. */
+  private transporters = new Map<SmtpRoute, Transporter>();
+  /** The route the last successful send used; tried first from then on. */
+  private preferredRoute: SmtpRoute | null = null;
+  private ipv6Lookup: Promise<string | null> | null = null;
 
   private getFromAddress(): string {
     return process.env.SMTP_FROM || `"Lot More Wins" <${process.env.SMTP_USER || 'notifications@lotmorewins.com'}>`;
   }
 
-  /**
-   * Lazily initializes and caches the Nodemailer transporter.
-   * Dynamically handles IPv6 resolution for Gmail SMTP to prevent ISP-level IPv4 timeouts.
-   */
-  private async getTransporter(): Promise<Transporter | null> {
-    if (this.transporter) {
-      return this.transporter;
+  /** SMTP settings from the environment, or null when no credentials are configured. */
+  private smtpConfig(): SmtpConfig | null {
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS ? process.env.SMTP_PASS.replace(/\s+/g, '') : undefined;
+    if (!user || !pass) return null;
+    return {
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: Number(process.env.SMTP_PORT) || 465,
+      user,
+      pass,
+    };
+  }
+
+  /** The host's IPv6 address, for networks whose IPv4 route to Gmail SMTP times out. Null when unavailable. */
+  private resolveIpv6(host: string): Promise<string | null> {
+    if (!this.ipv6Lookup) {
+      this.ipv6Lookup = Promise.race([
+        dns.resolve6(host).then((addrs) => addrs[0] ?? null),
+        sleep(IPV6_LOOKUP_TIMEOUT_MS).then(() => null),
+      ]).catch(() => null);
     }
-
-    if (this.isInitializing) {
-      return this.isInitializing;
-    }
-
-    this.isInitializing = (async () => {
-      const host = process.env.SMTP_HOST || 'smtp.gmail.com';
-      const user = process.env.SMTP_USER;
-      const pass = process.env.SMTP_PASS ? process.env.SMTP_PASS.replace(/\s+/g, '') : undefined;
-      const port = Number(process.env.SMTP_PORT) || 465;
-      const secure = port === 465;
-
-      if (!user || !pass) {
-        return null;
-      }
-
-      let targetHost = host;
-
-      // When connecting to Gmail SMTP, resolve IPv6 if preferred by ISP network routing
-      if (host.includes('gmail') && !this.useHostnameOnly) {
-        try {
-          const addrs = await dns.resolve6(host);
-          if (addrs && addrs.length > 0) {
-            targetHost = addrs[0];
-          }
-        } catch {
-          // Fall back to original host if IPv6 lookup is not available
-          targetHost = host;
-        }
-      }
-
-      const transport = nodemailer.createTransport({
-        host: targetHost,
-        port,
-        secure,
-        tls: {
-          servername: host,
-        },
-        auth: {
-          user,
-          pass,
-        },
-      });
-
-      this.transporter = transport;
-      this.pinnedToIp = targetHost !== host;
-      return transport;
-    })();
-
-    return this.isInitializing;
+    return this.ipv6Lookup;
   }
 
   /**
-   * Sends through the cached transporter. If the pinned IPv6 route is unreachable, the
-   * transporter is rebuilt once against the hostname (letting the OS pick IPv4) and retried.
+   * Routes to try, best first. Hosting platforms reach Gmail over IPv4, so production starts with
+   * the hostname; a development machine starts with IPv6. Whichever route delivers is remembered.
    */
-  private async sendMail(transporter: Transporter, message: Parameters<Transporter['sendMail']>[0]) {
-    try {
-      return await transporter.sendMail(message);
-    } catch (err: unknown) {
-      const code = (err as { code?: string }).code;
-      const networkFailure = ['ENETUNREACH', 'EHOSTUNREACH', 'ECONNREFUSED', 'ETIMEDOUT', 'ESOCKET', 'ECONNECTION'].includes(code ?? '');
-      if (!this.pinnedToIp || !networkFailure) throw err;
+  private routeOrder(host: string): SmtpRoute[] {
+    if (!host.includes('gmail')) return ['hostname'];
+    const first: SmtpRoute = this.preferredRoute ?? (process.env.NODE_ENV === 'production' ? 'hostname' : 'ipv6');
+    return first === 'hostname' ? ['hostname', 'ipv6'] : ['ipv6', 'hostname'];
+  }
 
-      console.warn(`[EmailProvider] IPv6 SMTP route failed (${code}); retrying via hostname`);
-      this.useHostnameOnly = true;
-      this.transporter = null;
-      this.isInitializing = null;
-      const fallback = await this.getTransporter();
-      if (!fallback) throw err;
-      return fallback.sendMail(message);
+  private async transporterFor(route: SmtpRoute, config: SmtpConfig): Promise<Transporter> {
+    const cached = this.transporters.get(route);
+    if (cached) return cached;
+
+    // Without an IPv6 address the "ipv6" route is simply a second connection by hostname.
+    const target = (route === 'ipv6' && (await this.resolveIpv6(config.host))) || config.host;
+    const transport = nodemailer.createTransport({
+      host: target,
+      port: config.port,
+      secure: config.port === 465,
+      // Connections are kept open and reused, so a burst of sends does not sign in once per email
+      // (Gmail throttles frequent sign-ins). A broken connection is replaced by the pool.
+      pool: true,
+      maxConnections: 5,
+      maxMessages: 50,
+      connectionTimeout: 5_000,
+      greetingTimeout: 5_000,
+      socketTimeout: 10_000,
+      tls: {
+        servername: config.host,
+      },
+      auth: {
+        user: config.user,
+        pass: config.pass,
+      },
+    });
+
+    this.transporters.set(route, transport);
+    return transport;
+  }
+
+  /**
+   * Sends one message, retrying temporary failures: a dropped or unreachable connection moves to
+   * the other route, a temporary refusal by the server is retried after a short pause. Throws the
+   * last error once the attempts or the time budget run out, or at once when it is permanent.
+   */
+  private async deliver(config: SmtpConfig, message: Parameters<Transporter['sendMail']>[0]) {
+    const startedAt = Date.now();
+    const routes = this.routeOrder(config.host);
+    let routeIndex = 0;
+
+    for (let attempt = 1; ; attempt++) {
+      const route = routes[routeIndex % routes.length];
+      try {
+        const transporter = await this.transporterFor(route, config);
+        const info = await transporter.sendMail(message);
+        this.preferredRoute = route;
+        return info;
+      } catch (err: unknown) {
+        const kind = classifySmtpError(err);
+        const outOfTries = attempt >= MAX_ATTEMPTS || Date.now() - startedAt > RETRY_BUDGET_MS;
+        if (kind === 'permanent' || outOfTries) throw err;
+
+        const reason = (err as { code?: string }).code ?? (err instanceof Error ? err.message : String(err));
+        console.warn(`[EmailProvider] Send attempt ${attempt} via ${route} failed (${reason}); retrying`);
+        const switchesRoute = kind === 'network' && routes.length > 1;
+        if (switchesRoute) routeIndex++;
+        else await sleep(RETRY_DELAY_MS * attempt);
+      }
     }
   }
 
@@ -101,8 +147,9 @@ export class EmailProvider {
    * Service 1: Partner Registration OTP Email
    */
   public async sendOtp(options: SendOtpOptions): Promise<MessagingResult> {
-    const { to, name = 'Partner', otp } = options;
-    const transporter = await this.getTransporter();
+    const { to, otp } = options;
+    const name = escapeHtml(options.name || 'Partner');
+    const smtp = this.smtpConfig();
     const from = this.getFromAddress();
 
     const html = `
@@ -173,13 +220,13 @@ export class EmailProvider {
       </html>
     `;
 
-    if (transporter) {
+    if (smtp) {
       try {
-        const info = await this.sendMail(transporter, {
+        const info = await this.deliver(smtp, {
           from,
           to,
           subject: `${otp} is your Lot More Wins Partner verification code`,
-          text: `Hello ${name},\n\nYour Lot More Wins registration verification code is: ${otp}\n\nThis code expires in 10 minutes.`,
+          text: `Hello ${options.name || 'Partner'},\n\nYour Lot More Wins registration verification code is: ${otp}\n\nThis code expires in 10 minutes.`,
           html,
         });
 
@@ -227,7 +274,7 @@ export class EmailProvider {
     const { to, billNumber, subtotal, totalAmount, discountAmount, pointsEarned, pointsPending, downloadLink } = options;
     const name = escapeHtml(options.name);
     const outletName = escapeHtml(options.outletName);
-    const transporter = await this.getTransporter();
+    const smtp = this.smtpConfig();
     const from = this.getFromAddress();
     const inr = (v: number) => `₹${v.toFixed(2)}`;
     const pointsNote = pointsPending
@@ -317,9 +364,9 @@ export class EmailProvider {
       `Purchase Points Earned: ${pointsEarned}\n${pointsNote}\n` +
       (downloadLink ? `\nDownload the Lot More Wins Partner App: ${downloadLink}\n` : '');
 
-    if (transporter) {
+    if (smtp) {
       try {
-        const info = await this.sendMail(transporter, {
+        const info = await this.deliver(smtp, {
           from,
           to,
           subject: `Your bill #${billNumber} at ${options.outletName} — Lot More Wins`,

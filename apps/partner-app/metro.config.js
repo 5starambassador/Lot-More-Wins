@@ -9,18 +9,18 @@ const monorepoRoot = path.resolve(projectRoot, '../..');
 
 const config = getDefaultConfig(projectRoot);
 
-config.watchFolders = [monorepoRoot];
-config.resolver.nodeModulesPaths = [
-  path.resolve(projectRoot, 'node_modules'),
-  path.resolve(monorepoRoot, 'node_modules'),
-];
+// This app has its own install (see pnpm-workspace.yaml here): everything resolves from its own
+// node_modules, never the monorepo root's, which holds the other apps' older React / React Native.
+// Only the shared packages are read from outside the app.
+const packagesDir = path.join(monorepoRoot, 'packages');
+config.watchFolders = [packagesDir];
+config.resolver.nodeModulesPaths = [path.resolve(projectRoot, 'node_modules')];
 
 // pnpm links workspace packages (@lotmorewins/*) as junctions to their absolute C:\ path.
 // When the repo is opened through a mapped drive (`subst L:`, used to stay under Windows'
 // path-length limit for release builds) Metro cannot follow a link across drives, so resolve
 // those packages from the monorepo's own packages/ folder. Metro only consults this when
 // normal node_modules resolution fails, so the usual C:\ setup is unaffected.
-const packagesDir = path.join(monorepoRoot, 'packages');
 config.resolver.extraNodeModules = Object.fromEntries(
   fs
     .readdirSync(packagesDir)

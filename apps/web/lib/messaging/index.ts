@@ -29,10 +29,11 @@ export class MessagingService {
 
   /**
    * Service 1: Partner Registration OTP
-   * Routed strictly according to the runtime messaging mode
+   * Routed strictly according to the runtime messaging mode. A caller that has already read
+   * the mode passes it in to save the lookup.
    */
-  public async sendRegistrationOtp(options: SendOtpOptions): Promise<MessagingResult> {
-    const mode = await this.getMode();
+  public async sendRegistrationOtp(options: SendOtpOptions, knownMode?: MessagingMode): Promise<MessagingResult> {
+    const mode = knownMode ?? (await this.getMode());
 
     if (mode === 'whatsapp') {
       return this.whatsappProvider.sendOtp(options);

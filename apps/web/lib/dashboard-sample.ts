@@ -187,6 +187,7 @@ export function sampleDashboard(range: AdminDashboard['range'], buckets: AdminTr
     directBillCount: 4 - Math.min(i, 3),
     referredBillCount: i % 2,
     referralShareCount: 6 - i,
+    referredBy: null,
     createdAt: new Date(now - (i * 5 + 2) * 60 * 60 * 1000).toISOString(),
   }));
 

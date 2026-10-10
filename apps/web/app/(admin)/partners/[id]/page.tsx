@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { Suspense, use, useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Activity, ArrowRight, BellRing, Coins, Gift, QrCode } from 'lucide-react';
-import type { AdminPartnerActivityKind, AdminPartnerActivityRow } from '@lotmorewins/types';
+import type { AdminPartnerActivityKind, AdminPartnerActivityRow, AdminPartnerReferredBy } from '@lotmorewins/types';
 import { DateRangeFilter, FilterBar, NO_DATES, dateQuery, readDateRange } from '@/components/admin/filter-bar';
 import { Badge, Tag } from '@/components/ui/badge';
 import { Button, buttonClass } from '@/components/ui/button';
@@ -16,7 +16,7 @@ import { Pagination, SkeletonRows, TBody, TD, TH, THead, TR, Table, TableScroll 
 import { useToast } from '@/components/ui/toast';
 import { DeleteRecordButton } from '@/components/admin/delete-record';
 import { adminApi, errorMessage, useAdminQuery } from '@/lib/admin-client';
-import { PARTNER_STATUS, QR_TYPE_LABEL } from '@/lib/admin-labels';
+import { PARTNER_STATUS, QR_TYPE_LABEL, REFERRED_BY_LABEL } from '@/lib/admin-labels';
 import { formatDate, formatDateTime, formatINR, formatNumber, formatRelative } from '@/lib/format';
 
 const PAGE_SIZE = 25;
@@ -94,6 +94,48 @@ function TestPushButton({ partnerId }: { partnerId: string }) {
     <Button variant="secondary" onClick={send} disabled={busy}>
       <BellRing className="h-4 w-4" /> {busy ? 'Sending…' : 'Send test notification'}
     </Button>
+  );
+}
+
+/** The "Referred by" answer from registration: who it was, linked to their page where there is one. */
+function ReferredBy({ value }: { value: AdminPartnerReferredBy | null }) {
+  if (!value) return <>Not provided</>;
+  const label = REFERRED_BY_LABEL[value.type];
+  if (value.type === 'MARKETING_REP') return <>{label}</>;
+  if (value.type === 'PARTNER') {
+    return value.partner ? (
+      <>
+        {label} ·{' '}
+        <Link href={`/partners/${value.partner.id}`} className="font-medium text-maroon-700 hover:underline">
+          {value.partner.name}
+        </Link>{' '}
+        <span className="font-mono text-xs text-stone-500">{value.partner.partnerCode}</span>
+      </>
+    ) : (
+      <>
+        {label} · <span className="font-mono">{value.detail}</span>{' '}
+        <span className="text-xs text-stone-500">(no partner with this ID)</span>
+      </>
+    );
+  }
+  if (value.type === 'OUTLET') {
+    return value.outlet ? (
+      <>
+        {label} ·{' '}
+        <Link href={`/outlets/${value.outlet.id}`} className="font-medium text-maroon-700 hover:underline">
+          {value.outlet.name}
+        </Link>
+      </>
+    ) : (
+      <>
+        {label} · {value.detail ?? 'Unknown'}
+      </>
+    );
+  }
+  return (
+    <>
+      {label} · {value.detail}
+    </>
   );
 }
 
@@ -458,6 +500,7 @@ function PartnerDetailView({ id }: { id: string }) {
                   { label: 'City / State', value: location || '—' },
                   { label: 'Pincode', value: p.pincode ? <span className="tabular">{p.pincode}</span> : '—' },
                   { label: 'Date of birth', value: p.dateOfBirth ? formatDate(p.dateOfBirth) : 'Not provided' },
+                  { label: 'Referred by', value: <ReferredBy value={p.referredBy} /> },
                   { label: 'Joined', value: formatDateTime(p.createdAt) },
                   { label: 'Last updated', value: formatRelative(p.updatedAt) },
                 ]}

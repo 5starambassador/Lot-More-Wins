@@ -6,6 +6,7 @@ import type {
   OtpVerifyPayload,
   OtpVerifyResponse,
   PartnerOnboardingPayload,
+  OutletOption,
   PartnerOnboardingResponse,
   PartnerQrResponse,
   PartnerQrCardResponse,
@@ -299,6 +300,11 @@ export class ApiClient {
   /** Active outlets managed by the Super Admin. */
   public getOutlets(): Promise<ApiResponse<Outlet[]>> {
     return this.get<ApiResponse<Outlet[]>>('/outlets');
+  }
+
+  /** Public: active outlet names for the "Referred by" list shown while registering. */
+  public getOutletOptions(): Promise<ApiResponse<OutletOption[]>> {
+    return this.get<ApiResponse<OutletOption[]>>('/outlets/options');
   }
 
   // ==========================================================================

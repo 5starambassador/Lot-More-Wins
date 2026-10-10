@@ -24,6 +24,7 @@
         "backgroundColor": "#D12426"
       },
       "package": "com.lotmorewins.partner",
+      "versionCode": 3,
       "googleServicesFile": "./google-services.json"
     },
     "web": {
