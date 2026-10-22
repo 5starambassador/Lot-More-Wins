@@ -76,9 +76,14 @@ export function Footer() {
           <span>Lot More Wins Partner App</span>
         </div>
         <p>More connections. More discounts. More prizes.</p>
-        <Link to="/download" className="font-medium text-gilt transition-colors hover:text-gilt-bright">
-          Download
-        </Link>
+        <div className="flex items-center gap-6">
+          <Link to="/privacy-policy" className="transition-colors hover:text-gilt-bright">
+            Privacy Policy
+          </Link>
+          {/* <Link to="/download" className="font-medium text-gilt transition-colors hover:text-gilt-bright">
+            Download
+          </Link> */}
+        </div>
       </div>
     </footer>
   );
