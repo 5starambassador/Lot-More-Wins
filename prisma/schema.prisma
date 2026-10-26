@@ -52,6 +52,12 @@ enum ReferredByType {
   OTHER
 }
 
+/// Partner classification set by the Super Admin. Drives the first-time discount and referral points.
+enum PartnerCategory {
+  ACHARIYA
+  NON_ACHARIYA
+}
+
 model Partner {
   id                  String          @id @default(uuid())
   partnerCode         String          @unique @map("partner_code")
@@ -75,6 +81,9 @@ model Partner {
   /// The partner the typed ID matched, when it matched one.
   referredByPartnerId String?         @map("referred_by_partner_id")
   referredByOutletId  String?         @map("referred_by_outlet_id")
+  category            PartnerCategory @default(NON_ACHARIYA)
+  /// UPI ID (name@handle) cash reward payouts are paid to. Payouts are blocked while it is null.
+  upiId               String?         @map("upi_id")
   createdAt           DateTime        @default(now()) @map("created_at")
   updatedAt           DateTime        @updatedAt @map("updated_at")
 
@@ -91,6 +100,10 @@ model Partner {
   notifications  Notification[]
   pushDevices    PushDevice[]
   referralShares ReferralShare[]
+  cashEntries    CashRewardEntry[]
+  payouts        Payout[]
+  transfersOut   WalletTransfer[]   @relation("TransferFrom")
+  transfersIn    WalletTransfer[]   @relation("TransferTo")
 
   @@map("partners")
 }
@@ -162,6 +175,8 @@ enum OutletStatus {
 enum BillTransactionType {
   DIRECT_PARTNER
   REFERRAL
+  /// Paid partly from the partner's wallet with a redeem QR: no discount, no rewards.
+  WALLET_REDEEM
 }
 
 /// SUPER_ADMIN has every page and manages admin accounts; ADMIN only has the pages it was given.
@@ -195,43 +210,56 @@ model SuperAdmin {
 /// Singleton row (id = "GLOBAL"). When absent, runtime defaults apply and the
 /// messaging mode falls back to the MESSAGING_MODE environment variable.
 model ProgramSetting {
-  id                         String           @id @default("GLOBAL")
-  messagingMode              MessagingChannel @map("messaging_mode")
-  firstTimeDiscount          Decimal          @default(20) @map("first_time_discount") @db.Decimal(5, 2)
+  id                               String           @id @default("GLOBAL")
+  messagingMode                    MessagingChannel @map("messaging_mode")
+  firstTimeDiscount                Decimal          @default(20) @map("first_time_discount") @db.Decimal(5, 2)
   /// Days after partner registration the first-time discount stays usable. 0 = no expiry.
-  firstTimeValidityDays      Int              @default(0) @map("first_time_validity_days")
-  repeatDiscount             Decimal          @default(10) @map("repeat_discount") @db.Decimal(5, 2)
+  firstTimeValidityDays            Int              @default(0) @map("first_time_validity_days")
+  repeatDiscount                   Decimal          @default(10) @map("repeat_discount") @db.Decimal(5, 2)
   /// Extra discount added to a partner's own bill on their birthday.
-  birthdayBonusDiscount      Decimal          @default(5) @map("birthday_bonus_discount") @db.Decimal(5, 2)
-  pointsRatioPoints          Decimal          @default(10) @map("points_ratio_points") @db.Decimal(12, 2)
-  pointsRatioRupees          Decimal          @default(1) @map("points_ratio_rupees") @db.Decimal(12, 2)
-  referralPointsPercentage   Decimal          @default(0) @map("referral_points_percentage") @db.Decimal(5, 2)
-  purchasePointsPercentage   Decimal          @default(0) @map("purchase_points_percentage") @db.Decimal(5, 2)
+  birthdayBonusDiscount            Decimal          @default(5) @map("birthday_bonus_discount") @db.Decimal(5, 2)
+  pointsRatioPoints                Decimal          @default(10) @map("points_ratio_points") @db.Decimal(12, 2)
+  pointsRatioRupees                Decimal          @default(1) @map("points_ratio_rupees") @db.Decimal(12, 2)
+  referralPointsPercentage         Decimal          @default(0) @map("referral_points_percentage") @db.Decimal(5, 2)
+  purchasePointsPercentage         Decimal          @default(0) @map("purchase_points_percentage") @db.Decimal(5, 2)
   /// Days earned points stay in the wallet before they expire. 0 = no expiry.
-  purchasePointsValidityDays Int              @default(0) @map("purchase_points_validity_days")
-  referralPointsValidityDays Int              @default(0) @map("referral_points_validity_days")
-  referralDiscount           Decimal          @default(10) @map("referral_discount") @db.Decimal(5, 2)
+  purchasePointsValidityDays       Int              @default(0) @map("purchase_points_validity_days")
+  referralPointsValidityDays       Int              @default(0) @map("referral_points_validity_days")
+  referralDiscount                 Decimal          @default(10) @map("referral_discount") @db.Decimal(5, 2)
   /// Successful referrals (bills closed with the partner's referral QR) needed for one referral reward.
-  referralRewardGoal         Int              @default(10) @map("referral_reward_goal")
+  referralRewardGoal               Int              @default(10) @map("referral_reward_goal")
   /// Special discount on the partner's next own purchase once the goal is reached.
-  referralRewardDiscount     Decimal          @default(20) @map("referral_reward_discount") @db.Decimal(5, 2)
-  pointsBasis                PointsBasis      @default(PAYABLE_AMOUNT) @map("points_basis")
-  appDownloadUrl             String?          @map("app_download_url")
+  referralRewardDiscount           Decimal          @default(20) @map("referral_reward_discount") @db.Decimal(5, 2)
+  pointsBasis                      PointsBasis      @default(PAYABLE_AMOUNT) @map("points_basis")
+  appDownloadUrl                   String?          @map("app_download_url")
   /// Image attached to the Partner App invite message; the app logo when null.
-  inviteImageUrl             String?          @map("invite_image_url")
+  inviteImageUrl                   String?          @map("invite_image_url")
   /// Show the "new version available" popup on the Partner App home page.
-  homePopupEnabled           Boolean          @default(false) @map("home_popup_enabled")
+  homePopupEnabled                 Boolean          @default(false) @map("home_popup_enabled")
   /// The popup only shows on Partner App versions older than this (e.g. "1.1.0"); null = every version.
-  latestAppVersion           String?          @map("latest_app_version")
-  walletDisplay              WalletDisplay    @default(POINTS) @map("wallet_display")
+  latestAppVersion                 String?          @map("latest_app_version")
+  walletDisplay                    WalletDisplay    @default(POINTS) @map("wallet_display")
   /// Partner App download links per platform, used by the landing page and the update popup.
-  androidAppUrl              String?          @map("android_app_url")
-  androidAppLinkType         AppLinkType      @default(DIRECT) @map("android_app_link_type")
-  iosAppUrl                  String?          @map("ios_app_url")
-  iosAppLinkType             AppLinkType      @default(DIRECT) @map("ios_app_link_type")
-  updatedBy                  String?          @map("updated_by")
-  createdAt                  DateTime         @default(now()) @map("created_at")
-  updatedAt                  DateTime         @updatedAt @map("updated_at")
+  androidAppUrl                    String?          @map("android_app_url")
+  androidAppLinkType               AppLinkType      @default(DIRECT) @map("android_app_link_type")
+  iosAppUrl                        String?          @map("ios_app_url")
+  iosAppLinkType                   AppLinkType      @default(DIRECT) @map("ios_app_link_type")
+  /// Achariya partners: first-time discount and referral points %. The plain columns above are the
+  /// Non-Achariya values (every partner was Non-Achariya before the classification existed).
+  achariyaFirstTimeDiscount        Decimal          @default(0) @map("achariya_first_time_discount") @db.Decimal(5, 2)
+  achariyaReferralPointsPercentage Decimal          @default(0) @map("achariya_referral_points_percentage") @db.Decimal(5, 2)
+  /// Cash reward (₹ wallet), credited only at outlets with cash reward turned on.
+  cashRewardPurchasePercentage     Decimal          @default(0) @map("cash_reward_purchase_percentage") @db.Decimal(5, 2)
+  cashRewardReferralPercentage     Decimal          @default(0) @map("cash_reward_referral_percentage") @db.Decimal(5, 2)
+  /// Weekly payout: balances at or above the minimum get a Pending payout on this IST weekday (0 = Sunday).
+  weeklyPayoutEnabled              Boolean          @default(true) @map("weekly_payout_enabled")
+  payoutMinimumAmount              Decimal          @default(100) @map("payout_minimum_amount") @db.Decimal(12, 2)
+  payoutWeekday                    Int              @default(1) @map("payout_weekday")
+  /// Outlet-scanned redeem QR for spending points. Off: hidden in the apps and refused by the API.
+  redeemQrEnabled                  Boolean          @default(false) @map("redeem_qr_enabled")
+  updatedBy                        String?          @map("updated_by")
+  createdAt                        DateTime         @default(now()) @map("created_at")
+  updatedAt                        DateTime         @updatedAt @map("updated_at")
 
   @@map("program_settings")
 }
@@ -259,14 +287,36 @@ model Outlet {
   logoUrl     String?      @map("logo_url")
   images      String[]     @default([])
   status      OutletStatus @default(ACTIVE)
-  createdAt   DateTime     @default(now()) @map("created_at")
-  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  // Offer settings. A null discount falls back to the programme setting of the same type.
+  firstTimeDiscount         Decimal? @map("first_time_discount") @db.Decimal(5, 2)
+  achariyaFirstTimeDiscount Decimal? @map("achariya_first_time_discount") @db.Decimal(5, 2)
+  repeatDiscount            Decimal? @map("repeat_discount") @db.Decimal(5, 2)
+  referralDiscount          Decimal? @map("referral_discount") @db.Decimal(5, 2)
+  /// GST charged on the discounted amount. 0 = no GST line on the bill.
+  gstPercentage             Decimal  @default(0) @map("gst_percentage") @db.Decimal(5, 2)
+  /// Bills here credit the cash reward (purchase and referral) into the wallet on top of points.
+  givesCashReward           Boolean  @default(false) @map("gives_cash_reward")
+  // Reward overrides. Null falls back to the programme setting of the same name.
+  purchasePointsPercentage         Decimal? @map("purchase_points_percentage") @db.Decimal(5, 2)
+  referralPointsPercentage         Decimal? @map("referral_points_percentage") @db.Decimal(5, 2)
+  achariyaReferralPointsPercentage Decimal? @map("achariya_referral_points_percentage") @db.Decimal(5, 2)
+  cashRewardPurchasePercentage     Decimal? @map("cash_reward_purchase_percentage") @db.Decimal(5, 2)
+  cashRewardReferralPercentage     Decimal? @map("cash_reward_referral_percentage") @db.Decimal(5, 2)
+  /// The Outlet Admin may change the discounts and GST above from the Outlet Admin app.
+  canEditOffers             Boolean  @default(false) @map("can_edit_offers")
+  /// Version of the offer settings above; bumped on every change and snapshotted on each bill.
+  offersUpdatedAt           DateTime @default(now()) @map("offers_updated_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   admins           OutletAdmin[]
   bills            Bill[]
   redemptions      PointsRedemption[]
   /// Partners who named this outlet as "Referred by" when registering.
   referredPartners Partner[]
+  offerChanges     OutletOfferChange[]
 
   @@index([status])
   @@map("outlets")
@@ -300,9 +350,10 @@ model Customer {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  partner      Partner?      @relation(fields: [partnerId], references: [id])
+  partner      Partner?          @relation(fields: [partnerId], references: [id])
   bills        Bill[]
   pointEntries PointsEntry[]
+  cashEntries  CashRewardEntry[]
 
   @@map("customers")
 }
@@ -312,6 +363,14 @@ enum PointsEntryType {
   PURCHASE
   /// Referral points for the partner whose referral QR was scanned.
   REFERRAL
+  /// Purchase cash reward (outlets with cash reward on), credited as wallet points at the ratio.
+  CASHBACK_PURCHASE
+  /// Referral cash reward for the referring partner, credited as wallet points at the ratio.
+  CASHBACK_REFERRAL
+  /// Received from another partner's wallet.
+  TRANSFER_IN
+  /// The cash reward balance moved in when the two wallets became one.
+  CASH_WALLET_MERGE
 }
 
 enum BillNotificationStatus {
@@ -330,9 +389,12 @@ model PointsEntry {
   id             String          @id @default(uuid())
   type           PointsEntryType
   points         Decimal         @db.Decimal(14, 2)
-  /// Part of this entry already spent through redemptions (soonest-expiring entries are spent first).
+  /// Part of this entry already spent through redemptions and transfers (soonest-expiring first).
   redeemedPoints Decimal         @default(0) @map("redeemed_points") @db.Decimal(14, 2)
-  billId         String          @map("bill_id")
+  /// The bill that earned it; null for TRANSFER_IN and CASH_WALLET_MERGE entries.
+  billId         String?         @map("bill_id")
+  /// TRANSFER_IN: the transfer it came from.
+  transferId     String?         @unique @map("transfer_id")
   partnerId      String?         @map("partner_id")
   customerId     String?         @map("customer_id")
   claimedAt      DateTime?       @map("claimed_at")
@@ -340,9 +402,10 @@ model PointsEntry {
   expiresAt      DateTime?       @map("expires_at")
   createdAt      DateTime        @default(now()) @map("created_at")
 
-  bill     Bill      @relation(fields: [billId], references: [id], onDelete: Cascade)
-  partner  Partner?  @relation(fields: [partnerId], references: [id])
-  customer Customer? @relation(fields: [customerId], references: [id])
+  bill     Bill?           @relation(fields: [billId], references: [id], onDelete: Cascade)
+  transfer WalletTransfer? @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  partner  Partner?        @relation(fields: [partnerId], references: [id])
+  customer Customer?       @relation(fields: [customerId], references: [id])
 
   @@unique([billId, type])
   @@index([partnerId, createdAt])
@@ -354,7 +417,8 @@ model Bill {
   id                       String              @id @default(uuid())
   billNumber               String              @unique @map("bill_number")
   outletId                 String              @map("outlet_id")
-  qrCodeId                 String              @map("qr_code_id")
+  /// The permanent QR scanned; null on WALLET_REDEEM bills (a short-lived redeem QR was scanned).
+  qrCodeId                 String?             @map("qr_code_id")
   transactionType          BillTransactionType @map("transaction_type")
   /// DIRECT_PARTNER: the partner who is purchasing.
   partnerId                String?             @map("partner_id")
@@ -372,17 +436,34 @@ model Bill {
   /// Successful referrals this bill's reward used up (the goal at the time); 0 when no reward was used.
   referralRewardReferrals  Int                 @default(0) @map("referral_reward_referrals")
   discountAmount           Decimal             @map("discount_amount") @db.Decimal(12, 2)
+  /// Amount after discount, before GST (whole rupees). Null on bills from before GST: equal to finalAmount there.
+  taxableAmount            Decimal?            @map("taxable_amount") @db.Decimal(12, 2)
+  gstPercentage            Decimal             @default(0) @map("gst_percentage") @db.Decimal(5, 2)
+  gstAmount                Decimal             @default(0) @map("gst_amount") @db.Decimal(12, 2)
+  /// WALLET_REDEEM: wallet points spent on this bill and their rupee worth (at most half the bill).
+  walletRedeemPoints       Decimal             @default(0) @map("wallet_redeem_points") @db.Decimal(14, 2)
+  walletRedeemAmount       Decimal             @default(0) @map("wallet_redeem_amount") @db.Decimal(12, 2)
+  /// Final payable by the customer: taxable amount + GST − wallet redeem amount.
   finalAmount              Decimal             @map("final_amount") @db.Decimal(12, 2)
 
   // Settings snapshot: the Super Admin values this bill was calculated with.
-  settingsVersion          DateTime?   @map("settings_version")
-  purchasePointsPercentage Decimal     @default(0) @map("purchase_points_percentage") @db.Decimal(5, 2)
-  referralPointsPercentage Decimal     @default(0) @map("referral_points_percentage") @db.Decimal(5, 2)
-  pointsRatioPoints        Decimal     @default(0) @map("points_ratio_points") @db.Decimal(12, 2)
-  pointsRatioRupees        Decimal     @default(0) @map("points_ratio_rupees") @db.Decimal(12, 2)
-  pointsBasis              PointsBasis @default(PAYABLE_AMOUNT) @map("points_basis")
-  purchasePoints           Decimal     @default(0) @map("purchase_points") @db.Decimal(14, 2)
-  referralPoints           Decimal     @default(0) @map("referral_points") @db.Decimal(14, 2)
+  settingsVersion              DateTime?        @map("settings_version")
+  /// The outlet's offer settings version (offersUpdatedAt) used; null on bills from before outlet offers.
+  outletSettingsVersion        DateTime?        @map("outlet_settings_version")
+  /// Classification of the partner whose QR was scanned, as used for this bill.
+  partnerCategory              PartnerCategory? @map("partner_category")
+  purchasePointsPercentage     Decimal          @default(0) @map("purchase_points_percentage") @db.Decimal(5, 2)
+  referralPointsPercentage     Decimal          @default(0) @map("referral_points_percentage") @db.Decimal(5, 2)
+  pointsRatioPoints            Decimal          @default(0) @map("points_ratio_points") @db.Decimal(12, 2)
+  pointsRatioRupees            Decimal          @default(0) @map("points_ratio_rupees") @db.Decimal(12, 2)
+  pointsBasis                  PointsBasis      @default(PAYABLE_AMOUNT) @map("points_basis")
+  purchasePoints               Decimal          @default(0) @map("purchase_points") @db.Decimal(14, 2)
+  referralPoints               Decimal          @default(0) @map("referral_points") @db.Decimal(14, 2)
+  /// Cash reward credited by this bill (0 at outlets without cash reward), and the % used.
+  cashRewardPurchasePercentage Decimal          @default(0) @map("cash_reward_purchase_percentage") @db.Decimal(5, 2)
+  cashRewardReferralPercentage Decimal          @default(0) @map("cash_reward_referral_percentage") @db.Decimal(5, 2)
+  cashRewardPurchaseAmount     Decimal          @default(0) @map("cash_reward_purchase_amount") @db.Decimal(12, 2)
+  cashRewardReferralAmount     Decimal          @default(0) @map("cash_reward_referral_amount") @db.Decimal(12, 2)
 
   // Bill message (WhatsApp / email) delivery.
   notificationStatus    BillNotificationStatus @default(PENDING) @map("notification_status")
@@ -396,14 +477,16 @@ model Bill {
   createdByAdminId String   @map("created_by_admin_id")
   createdAt        DateTime @default(now()) @map("created_at")
 
-  outlet          Outlet         @relation(fields: [outletId], references: [id])
-  qrCode          QRCode         @relation(fields: [qrCodeId], references: [id])
-  partner         Partner?       @relation("BillPartner", fields: [partnerId], references: [id])
-  referrerPartner Partner?       @relation("BillReferrer", fields: [referrerPartnerId], references: [id])
-  customer        Customer?      @relation(fields: [customerId], references: [id])
-  createdByAdmin  OutletAdmin    @relation(fields: [createdByAdminId], references: [id])
+  outlet          Outlet            @relation(fields: [outletId], references: [id])
+  qrCode          QRCode?           @relation(fields: [qrCodeId], references: [id], onDelete: Restrict)
+  partner         Partner?          @relation("BillPartner", fields: [partnerId], references: [id])
+  referrerPartner Partner?          @relation("BillReferrer", fields: [referrerPartnerId], references: [id])
+  customer        Customer?         @relation(fields: [customerId], references: [id])
+  createdByAdmin  OutletAdmin       @relation(fields: [createdByAdminId], references: [id])
   pointEntries    PointsEntry[]
+  cashEntries     CashRewardEntry[]
   notifications   Notification[]
+  redemption      PointsRedemption?
 
   @@unique([outletId, idempotencyKey])
   @@index([outletId, createdAt])
@@ -448,15 +531,45 @@ model PointsRedemption {
   pointsRatioRupees Decimal  @map("points_ratio_rupees") @db.Decimal(12, 2)
   /// Id of the redeem QR token: each generated QR can be redeemed once.
   tokenId           String   @unique @map("token_id")
+  /// The WALLET_REDEEM bill it paid part of; null for redemptions from before redeem bills.
+  billId            String?  @unique @map("bill_id")
   createdAt         DateTime @default(now()) @map("created_at")
 
   partner        Partner     @relation(fields: [partnerId], references: [id])
   outlet         Outlet      @relation(fields: [outletId], references: [id])
   createdByAdmin OutletAdmin @relation(fields: [createdByAdminId], references: [id])
+  bill           Bill?       @relation(fields: [billId], references: [id], onDelete: SetNull)
 
   @@index([partnerId, createdAt])
   @@index([outletId, createdAt])
   @@map("points_redemptions")
+}
+
+/// Partner-to-partner wallet transfer (confirmed with a one-time code). The sender's entries are
+/// spent soonest-expiring first; the recipient gets one TRANSFER_IN entry with the soonest expiry
+/// among the points sent, so a transfer never extends their validity.
+model WalletTransfer {
+  id                String   @id @default(uuid())
+  /// Human-readable reference, e.g. LMW-T-20261023-1A2B3C4D.
+  transferNumber    String   @unique @map("transfer_number")
+  fromPartnerId     String   @map("from_partner_id")
+  toPartnerId       String   @map("to_partner_id")
+  points            Decimal  @db.Decimal(14, 2)
+  rupeeValue        Decimal  @map("rupee_value") @db.Decimal(12, 2)
+  pointsRatioPoints Decimal  @map("points_ratio_points") @db.Decimal(12, 2)
+  pointsRatioRupees Decimal  @map("points_ratio_rupees") @db.Decimal(12, 2)
+  /// Client-generated key so a retried request does not send twice.
+  idempotencyKey    String   @map("idempotency_key")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  fromPartner Partner      @relation("TransferFrom", fields: [fromPartnerId], references: [id], onDelete: Cascade)
+  toPartner   Partner      @relation("TransferTo", fields: [toPartnerId], references: [id], onDelete: Cascade)
+  credit      PointsEntry?
+
+  @@unique([fromPartnerId, idempotencyKey])
+  @@index([fromPartnerId, createdAt])
+  @@index([toPartnerId, createdAt])
+  @@map("wallet_transfers")
 }
 
 enum NotificationType {
@@ -466,6 +579,15 @@ enum NotificationType {
   POINTS_REDEEMED
   /// Reached the referral goal: a special discount is waiting on the Personal Discount QR.
   REFERRAL_REWARD
+  /// Receipt of the partner's own bill: amounts, GST and what it earned.
+  BILL_RECEIPT
+  /// Cash reward from a referred friend's purchase.
+  CASH_REWARD
+  PAYOUT_REQUESTED
+  PAYOUT_PAID
+  PAYOUT_FAILED
+  WALLET_TRANSFER_IN
+  WALLET_TRANSFER_OUT
 }
 
 /// Partner activity feed, also delivered as a push notification.
@@ -476,14 +598,18 @@ model Notification {
   title     String
   body      String
   points    Decimal?         @db.Decimal(14, 2)
+  /// Rupee amount (cash reward or payout) the notification is about.
+  amount    Decimal?         @db.Decimal(12, 2)
   /// Validity of the points this notification is about (null = never expire / not applicable).
   expiresAt DateTime?        @map("expires_at")
   billId    String?          @map("bill_id")
+  payoutId  String?          @map("payout_id")
   readAt    DateTime?        @map("read_at")
   createdAt DateTime         @default(now()) @map("created_at")
 
   partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
   bill    Bill?   @relation(fields: [billId], references: [id], onDelete: SetNull)
+  payout  Payout? @relation(fields: [payoutId], references: [id], onDelete: SetNull)
 
   @@index([partnerId, createdAt])
   @@index([billId])
@@ -515,4 +641,139 @@ model ReferralShare {
 
   @@index([partnerId, createdAt])
   @@map("referral_shares")
+}
+
+// ============================================================================
+// Cash reward wallet, payouts & outlet offer audit
+// ============================================================================
+
+enum CashEntryType {
+  /// Cash reward for whoever made the purchase at a cash-reward outlet.
+  PURCHASE
+  /// Cash reward for the partner whose referral QR was scanned at a cash-reward outlet.
+  REFERRAL
+  /// Debit: the amount Finance paid out to the partner's UPI ID.
+  PAYOUT
+}
+
+/// Cash reward ledger (₹). A partner's balance is credits (PURCHASE + REFERRAL) minus PAYOUT
+/// debits. Like points, a credit with customerId and no partnerId is held for a referred
+/// customer and claimed when a partner registers with that mobile. Rows are never edited.
+model CashRewardEntry {
+  id         String        @id @default(uuid())
+  type       CashEntryType
+  amount     Decimal       @db.Decimal(12, 2)
+  billId     String?       @map("bill_id")
+  payoutId   String?       @unique @map("payout_id")
+  partnerId  String?       @map("partner_id")
+  customerId String?       @map("customer_id")
+  claimedAt  DateTime?     @map("claimed_at")
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  bill     Bill?     @relation(fields: [billId], references: [id], onDelete: Cascade)
+  payout   Payout?   @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+  partner  Partner?  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id])
+
+  @@unique([billId, type])
+  @@index([partnerId, createdAt])
+  @@index([customerId, partnerId])
+  @@map("cash_reward_entries")
+}
+
+enum PayoutStatus {
+  PENDING
+  PAID
+  FAILED
+  /// Pending when UPI payouts ended; the amount moved into the wallet.
+  CANCELLED
+}
+
+enum PayoutSource {
+  WEEKLY
+  MANUAL
+}
+
+/// A cash reward payout. Created Pending (weekly run or the partner's request) for the available
+/// balance; Finance pays it outside the system and the uploaded payout sheet marks it Paid, which
+/// writes the PAYOUT debit for the amount actually paid, or Failed, which releases the amount.
+model Payout {
+  id           String       @id @default(uuid())
+  /// Human-readable payout ID used in the Finance sheet, e.g. LMW-PO-20261019-1A2B3C4D.
+  payoutNumber String       @unique @map("payout_number")
+  partnerId    String       @map("partner_id")
+  amount       Decimal      @db.Decimal(12, 2)
+  status       PayoutStatus @default(PENDING)
+  source       PayoutSource
+  /// UPI ID at the time of the request; Finance pays this one.
+  upiId        String       @map("upi_id")
+  /// WEEKLY: the IST week of the run (e.g. 2026-W42), so a re-run of the same week adds nothing.
+  weekKey      String?      @map("week_key")
+  requestedAt  DateTime     @default(now()) @map("requested_at")
+  paidAmount   Decimal?     @map("paid_amount") @db.Decimal(12, 2)
+  /// Date Finance paid it, from the sheet (IST calendar date).
+  paidOn       DateTime?    @map("paid_on") @db.Date
+  upiTxnRef    String?      @unique @map("upi_txn_ref")
+  failureNote  String?      @map("failure_note")
+  /// When the sheet that settled it was applied.
+  settledAt    DateTime?    @map("settled_at")
+  uploadId     String?      @map("upload_id")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  partner       Partner          @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  upload        PayoutUpload?    @relation(fields: [uploadId], references: [id], onDelete: SetNull)
+  debit         CashRewardEntry?
+  notifications Notification[]
+
+  @@unique([partnerId, weekKey])
+  @@index([partnerId, requestedAt])
+  @@index([status, requestedAt])
+  @@map("payouts")
+}
+
+/// Every payout sheet Finance applied: who uploaded which file and what it changed.
+model PayoutUpload {
+  id              String   @id @default(uuid())
+  fileName        String   @map("file_name")
+  /// SHA-256 of the uploaded file.
+  fileHash        String   @map("file_hash")
+  uploadedById    String   @map("uploaded_by_id")
+  uploadedByEmail String   @map("uploaded_by_email")
+  rowCount        Int      @map("row_count")
+  paidCount       Int      @map("paid_count")
+  failedCount     Int      @map("failed_count")
+  /// Rows that changed nothing: still Pending, or already settled the same way by an earlier upload.
+  unchangedCount  Int      @map("unchanged_count")
+  paidAmount      Decimal  @map("paid_amount") @db.Decimal(14, 2)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  payouts Payout[]
+
+  @@index([createdAt])
+  @@map("payout_uploads")
+}
+
+enum OfferChangeActor {
+  SUPER_ADMIN
+  OUTLET_ADMIN
+}
+
+/// Audit log of outlet offer settings (discounts, GST, cash reward, edit permission): one row per changed field.
+model OutletOfferChange {
+  id         String           @id @default(uuid())
+  outletId   String           @map("outlet_id")
+  actorType  OfferChangeActor @map("actor_type")
+  actorId    String           @map("actor_id")
+  actorEmail String           @map("actor_email")
+  field      String
+  /// Previous / new value as text; null = not set (falls back to the programme setting).
+  oldValue   String?          @map("old_value")
+  newValue   String?          @map("new_value")
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  outlet Outlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@index([outletId, createdAt])
+  @@map("outlet_offer_changes")
 }

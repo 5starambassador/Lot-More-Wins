@@ -105,7 +105,10 @@ export interface OutletOption {
   name: string;
 }
 
-/** Every partner registers the same way; there is a single partner role. */
+/** Set by the Super Admin; decides the first-time discount and referral points a partner gets. */
+export type PartnerCategory = 'ACHARIYA' | 'NON_ACHARIYA';
+
+/** Every partner registers the same way; the Super Admin may classify them afterwards. */
 export interface PartnerOnboardingPayload {
   name: string;
   mobile: string;
@@ -117,8 +120,8 @@ export interface PartnerOnboardingPayload {
   dateOfBirth?: string | null;
   /** Optional: omitted or null when the partner did not answer. */
   referredBy?: PartnerReferredByPayload | null;
-  password: string;
-  confirmPassword: string;
+  /** UPI ID (name@handle) for cash reward payouts. Not asked at registration; added later in Profile. */
+  upiId?: string | null;
   otp: string;
 }
 
@@ -145,6 +148,9 @@ export interface PartnerProfile {
   dateOfBirth: string | null;
   photoUrl: string | null;
   status: PartnerStatus;
+  /** Cash reward payouts go here; null until the partner adds it. */
+  upiId: string | null;
+  category: PartnerCategory;
   createdAt: string;
 }
 
@@ -161,6 +167,8 @@ export interface UpdatePartnerProfilePayload {
   pincode?: string;
   dateOfBirth?: string | null;
   photoUrl?: string | null;
+  /** Changing it also moves payouts that are still Pending to the new UPI ID. */
+  upiId?: string;
 }
 
 export interface PartnerOnboardingResponse {
@@ -286,7 +294,8 @@ export interface AuditLog {
 // ============================================================================
 
 export type OutletStatus = 'ACTIVE' | 'INACTIVE';
-export type BillTransactionType = 'DIRECT_PARTNER' | 'REFERRAL';
+/** WALLET_REDEEM: paid partly from the partner's wallet with a redeem QR (no discount, no rewards). */
+export type BillTransactionType = 'DIRECT_PARTNER' | 'REFERRAL' | 'WALLET_REDEEM';
 
 /** Amount that purchase and referral point percentages are applied to. */
 export type PointsBasis = 'BILL_AMOUNT' | 'PAYABLE_AMOUNT';
@@ -347,10 +356,37 @@ export interface ProgramSettings {
   androidAppLinkType: AppLinkType;
   iosAppUrl: string | null;
   iosAppLinkType: AppLinkType;
+  /**
+   * Achariya partners' first-time discount and referral points %. firstTimeDiscount and
+   * referralPointsPercentage above are the Non-Achariya values.
+   */
+  achariyaFirstTimeDiscount: number;
+  achariyaReferralPointsPercentage: number;
+  /** Cash reward % of the purchase, for the purchaser, at outlets with cash reward on. */
+  cashRewardPurchasePercentage: number;
+  /** Cash reward % of a referred friend's purchase, for the referring partner, at outlets with cash reward on. */
+  cashRewardReferralPercentage: number;
+  /** Weekly run that creates Pending payouts for balances at or above payoutMinimumAmount. */
+  weeklyPayoutEnabled: boolean;
+  payoutMinimumAmount: number;
+  /** IST weekday of the weekly payout run: 0 = Sunday … 6 = Saturday. */
+  payoutWeekday: number;
+  /** The redeem QR for spending points at an outlet. Off by default: the revised flow has no redemption step. */
+  redeemQrEnabled: boolean;
   /** false when no row exists yet and runtime defaults are being served */
   isPersisted: boolean;
   updatedAt: string | null;
 }
+
+type RevisedFlowSettingKey =
+  | 'achariyaFirstTimeDiscount'
+  | 'achariyaReferralPointsPercentage'
+  | 'cashRewardPurchasePercentage'
+  | 'cashRewardReferralPercentage'
+  | 'weeklyPayoutEnabled'
+  | 'payoutMinimumAmount'
+  | 'payoutWeekday'
+  | 'redeemQrEnabled';
 
 /** Settings added after the first release are optional: omitted keeps the stored value. */
 export type UpdateProgramSettingsPayload = Omit<
@@ -365,19 +401,21 @@ export type UpdateProgramSettingsPayload = Omit<
   | 'androidAppLinkType'
   | 'iosAppUrl'
   | 'iosAppLinkType'
-> & {
-  androidAppUrl?: string | null;
-  androidAppLinkType?: AppLinkType;
-  iosAppUrl?: string | null;
-  iosAppLinkType?: AppLinkType;
-  inviteImageUrl?: string | null;
-  homePopupEnabled?: boolean;
-  latestAppVersion?: string | null;
-  walletDisplay?: WalletDisplay;
-};
+  | RevisedFlowSettingKey
+> &
+  Partial<Pick<ProgramSettings, RevisedFlowSettingKey>> & {
+    androidAppUrl?: string | null;
+    androidAppLinkType?: AppLinkType;
+    iosAppUrl?: string | null;
+    iosAppLinkType?: AppLinkType;
+    inviteImageUrl?: string | null;
+    homePopupEnabled?: boolean;
+    latestAppVersion?: string | null;
+    walletDisplay?: WalletDisplay;
+  };
 
 /** Web panel pages an admin can be given (Super Admins have all of them, plus Admins). */
-export type AdminPage = 'dashboard' | 'partners' | 'outlets' | 'transactions' | 'settings';
+export type AdminPage = 'dashboard' | 'partners' | 'outlets' | 'transactions' | 'settings' | 'finance';
 
 export type AdminRole = 'SUPER_ADMIN' | 'ADMIN';
 
@@ -445,14 +483,116 @@ export interface Outlet extends Timestamps {
   logoUrl: string | null;
   images: string[];
   status: OutletStatus;
+  /** The outlet's discount label for the Partner App ("Flat 5% discount", "Up to 20% discount"). */
+  offer?: OutletOfferSummary;
+}
+
+/** An outlet's own offer settings. A null discount uses the programme setting of the same type. */
+export interface OutletOfferSettings {
+  /** Non-Achariya partners' first purchase. */
+  firstTimeDiscount: number | null;
+  achariyaFirstTimeDiscount: number | null;
+  repeatDiscount: number | null;
+  /** A referred friend's purchase with a partner's referral QR. */
+  referralDiscount: number | null;
+  /** Charged on the discounted amount. */
+  gstPercentage: number;
+  /** Reward overrides; null = the programme setting. */
+  purchasePointsPercentage: number | null;
+  referralPointsPercentage: number | null;
+  achariyaReferralPointsPercentage: number | null;
+  /** Used only while givesCashReward is on. */
+  cashRewardPurchasePercentage: number | null;
+  cashRewardReferralPercentage: number | null;
+  /** Bills here also credit the cash reward into the wallet. */
+  givesCashReward: boolean;
+  /** No longer enforced: every Outlet Admin may edit the outlet's slabs. Kept for older clients. */
+  canEditOffers: boolean;
+  /** Offer settings version, snapshotted on every bill. */
+  updatedAt: string;
+}
+
+/** The discount each type actually gets at an outlet: its override, or the programme setting. */
+export interface OutletEffectiveDiscounts {
+  firstTimeDiscount: number;
+  achariyaFirstTimeDiscount: number;
+  repeatDiscount: number;
+  referralDiscount: number;
+}
+
+/** The reward percentages each bill gets at an outlet: its override, or the programme setting. */
+export interface OutletEffectiveRewards {
+  purchasePointsPercentage: number;
+  referralPointsPercentage: number;
+  achariyaReferralPointsPercentage: number;
+  cashRewardPurchasePercentage: number;
+  cashRewardReferralPercentage: number;
+}
+
+export interface OutletOfferSummary {
+  /** Highest discount the outlet gives (birthday bonus and referral reward aside). */
+  maxDiscount: number;
+  /** Every discount type is the same percentage. */
+  isFlat: boolean;
+  /** Always "Up to 20% discount" (never "Flat"): what a bill gets depends on the partner and the bill. */
+  label: string;
+  givesCashReward: boolean;
+}
+
+/** One changed field in the outlet offer audit log. */
+export interface OutletOfferChangeRecord {
+  id: ID;
+  actorType: 'SUPER_ADMIN' | 'OUTLET_ADMIN';
+  actorEmail: string;
+  field: string;
+  /** null = not set (uses the programme setting). */
+  oldValue: string | null;
+  newValue: string | null;
+  createdAt: string;
 }
 
 export interface AdminOutlet extends Outlet {
   adminEmail: string | null;
   billCount: number;
+  offers: OutletOfferSettings;
+  effectiveDiscounts: OutletEffectiveDiscounts;
+  effectiveRewards: OutletEffectiveRewards;
 }
 
-export interface CreateOutletPayload {
+/** Outlet Admin app: this outlet's offers, what they resolve to, and the recent change log. */
+export interface OutletSettingsView {
+  offers: OutletOfferSettings;
+  effectiveDiscounts: OutletEffectiveDiscounts;
+  /** The programme values a blank discount falls back to. */
+  programmeDiscounts: OutletEffectiveDiscounts;
+  effectiveRewards: OutletEffectiveRewards;
+  /** The programme values a blank reward falls back to. */
+  programmeRewards: OutletEffectiveRewards;
+  summary: OutletOfferSummary;
+  changes: OutletOfferChangeRecord[];
+}
+
+/** Outlet Admin edit of its slabs: null clears a discount back to the programme setting. */
+export interface UpdateOutletOffersPayload {
+  firstTimeDiscount?: number | null;
+  achariyaFirstTimeDiscount?: number | null;
+  repeatDiscount?: number | null;
+  referralDiscount?: number | null;
+  gstPercentage?: number;
+  purchasePointsPercentage?: number | null;
+  referralPointsPercentage?: number | null;
+  achariyaReferralPointsPercentage?: number | null;
+  cashRewardPurchasePercentage?: number | null;
+  cashRewardReferralPercentage?: number | null;
+}
+
+/** Super Admin outlet create / edit: the Outlet Admin fields plus the cash reward and edit permission. */
+export interface OutletOfferFieldsPayload extends UpdateOutletOffersPayload {
+  givesCashReward?: boolean;
+  canEditOffers?: boolean;
+}
+
+export interface CreateOutletPayload extends OutletOfferFieldsPayload {
   name: string;
   email: string;
   mobile: string;
@@ -466,7 +606,7 @@ export interface CreateOutletPayload {
   adminPassword: string;
 }
 
-export interface UpdateOutletPayload {
+export interface UpdateOutletPayload extends OutletOfferFieldsPayload {
   name?: string;
   email?: string;
   mobile?: string;
@@ -531,7 +671,7 @@ export interface ScannedPartner {
 
 /** Server-computed discount basis, taken from the Super Admin settings. */
 export interface DiscountBasis {
-  /** Direct QR: partner's first bill ever. Referral QR: null until the customer is known. */
+  /** Direct QR: partner's first bill at this outlet. Referral QR: null until the customer is known. */
   isFirstTime: boolean | null;
   /** Total discount, birthday bonus included. */
   discountPercentage: number;
@@ -546,7 +686,11 @@ export interface ScanResult {
   transactionType: BillTransactionType;
   partner: ScannedPartner;
   discount: DiscountBasis;
-  /** Settings version (updatedAt) the scan was evaluated with. */
+  /** This outlet's GST %, charged on the discounted amount. */
+  gstPercentage: number;
+  /** Bills here credit the cash reward wallet. */
+  givesCashReward: boolean;
+  /** Pricing version the scan was evaluated with (later of the programme settings and the outlet's offers). */
   settingsVersion: string;
 }
 
@@ -608,9 +752,25 @@ export interface BillCalculation {
   /** Referral reward (special discount) used on this bill in place of the usual discount; 0 when none. */
   referralRewardPercentage: number;
   discountAmount: number;
+  /** Amount after discount, before GST (whole rupees). */
+  taxableAmount: number;
+  /** The outlet's GST %, charged on the taxable amount; 0 = no GST. */
+  gstPercentage: number;
+  gstAmount: number;
+  /** WALLET_REDEEM only: wallet points spent and their rupee worth (at most half the bill); 0 otherwise. */
+  walletRedeemPoints: number;
+  walletRedeemAmount: number;
+  /**
+   * Paise added or taken off to bring the payable to whole rupees (−0.49 to +0.50); 0 on bills from
+   * before round-off.
+   */
+  roundOffAmount: number;
+  /** Final payable by the customer, whole rupees: taxableAmount + gstAmount − walletRedeemAmount + roundOffAmount. */
   finalAmount: number;
+  /** Classification of the partner whose QR was scanned (first-time discount and referral points follow it). */
+  partnerCategory: PartnerCategory;
   pointsBasis: PointsBasis;
-  /** Amount the point percentages were applied to (bill or payable amount). */
+  /** Amount the point and cash reward percentages were applied to (bill or taxable amount; never GST). */
   pointsBaseAmount: number;
   pointsRatio: { points: number; rupees: number };
   purchasePointsPercentage: number;
@@ -619,40 +779,77 @@ export interface BillCalculation {
   /** Referral QR only; 0 for direct bills. */
   referralPointsPercentage: number;
   referralPoints: number;
+  /** Cash reward (₹) for the purchaser, same recipient as the purchase points; 0 unless the outlet gives cash reward. */
+  cashRewardPurchasePercentage: number;
+  cashRewardPurchaseAmount: number;
+  /** Referral QR only: cash reward (₹) for the referring partner. */
+  cashRewardReferralPercentage: number;
+  cashRewardReferralAmount: number;
+  /** Pricing version: the later of the programme settings and the outlet's offer settings versions. */
   settingsVersion: string;
+  /** The outlet's offer settings version used. */
+  outletSettingsVersion: string;
 }
 
 export interface BillHistorySummary {
   billCount: number;
   billAmount: number;
   discountAmount: number;
+  gstAmount: number;
   finalAmount: number;
   purchasePoints: number;
   referralPoints: number;
+  /** Purchase + referral cash reward credited. */
+  cashReward: number;
 }
 
 export type BillHistoryRange = 'today' | 'all';
 
-export interface BillRecord extends Omit<BillCalculation, 'settingsVersion'> {
-  /** Settings version the bill was calculated with; null for bills created before snapshots existed. */
+export interface BillRecord extends Omit<BillCalculation, 'settingsVersion' | 'outletSettingsVersion' | 'partnerCategory'> {
+  /** Programme settings version the bill was calculated with; null for bills created before snapshots existed. */
   settingsVersion: string | null;
+  /** null for bills created before outlet offers existed. */
+  outletSettingsVersion: string | null;
+  /** null for bills created before the classification existed (they were all Non-Achariya). */
+  partnerCategory: PartnerCategory | null;
   id: ID;
   billNumber: string;
-  qrType: QRCodeType;
+  /** The permanent QR scanned; null on WALLET_REDEEM bills. */
+  qrType: QRCodeType | null;
   createdAt: string;
   outlet: { id: ID; name: string };
   partner: { id: ID; name: string; mobile: string; partnerCode: string } | null;
-  referrerPartner: { id: ID; name: string; mobile: string; partnerCode: string } | null;
-  customer: { id: ID; name: string; mobile: string; email: string | null } | null;
+  referrerPartner: {
+    id: ID;
+    name: string;
+    mobile: string;
+    partnerCode: string;
+  } | null;
+  customer: {
+    id: ID;
+    name: string;
+    mobile: string;
+    email: string | null;
+  } | null;
   notification: BillNotification;
 }
 
+/**
+ * PURCHASE / REFERRAL: points; CASHBACK_*: the cash reward, credited as points at the ratio;
+ * TRANSFER_IN: from another partner; CASH_WALLET_MERGE: the cash reward balance moved in when the
+ * two wallets became one.
+ */
+export type WalletEntryType = 'PURCHASE' | 'REFERRAL' | 'CASHBACK_PURCHASE' | 'CASHBACK_REFERRAL' | 'TRANSFER_IN' | 'CASH_WALLET_MERGE';
+
 export interface PointsLedgerEntry {
   id: ID;
-  type: 'PURCHASE' | 'REFERRAL';
+  type: WalletEntryType;
   points: number;
-  billNumber: string;
-  outletName: string;
+  /** null for entries without a bill (transfers, the merged cash balance). */
+  billNumber: string | null;
+  outletName: string | null;
+  /** TRANSFER_IN: who sent it. */
+  fromPartnerName: string | null;
   /** Set when the points were earned as a customer before registering and claimed on registration. */
   claimedAt: string | null;
   /** When these points leave the wallet; null when they never expire. */
@@ -668,11 +865,30 @@ export interface PointsRedemptionRecord {
   points: number;
   rupeeValue: number;
   outletName: string;
+  /** The redeem bill it paid part of; null for redemptions from before redeem bills. */
+  billNumber: string | null;
+  billAmount: number | null;
   createdAt: string;
 }
 
+/** A partner-to-partner wallet transfer, from this partner's side. */
+export interface WalletTransferRecord {
+  id: ID;
+  transferNumber: string;
+  direction: 'IN' | 'OUT';
+  points: number;
+  rupeeValue: number;
+  /** The other partner. */
+  counterparty: { name: string; mobile: string };
+  createdAt: string;
+}
+
+/**
+ * The partner's one wallet: purchase and referral points, cash rewards (credited as points),
+ * transfers received; minus redemptions and transfers sent.
+ */
 export interface PartnerWallet {
-  /** Purchase + referral points still available (unexpired, not yet redeemed). */
+  /** Everything still available (unexpired, not yet redeemed or sent). */
   balancePoints: number;
   /** Balance converted with the current Super Admin points-to-rupees ratio. */
   rupeeValue: number;
@@ -680,12 +896,185 @@ export interface PartnerWallet {
   /** How the Partner App shows these values (Super Admin setting). */
   walletDisplay: WalletDisplay;
   /** Available points by source. */
-  totals: { purchasePoints: number; referralPoints: number };
+  totals: {
+    purchasePoints: number;
+    referralPoints: number;
+    /** Cash rewards (purchase + referral) and the merged cash balance. */
+    cashbackPoints: number;
+    transferInPoints: number;
+  };
   entries: PointsLedgerEntry[];
   redemptions: PointsRedemptionRecord[];
+  transfers: WalletTransferRecord[];
+  /** The redeem QR is turned on (Super Admin setting); the app hides it otherwise. */
+  redeemEnabled: boolean;
+  /** A redeem QR is worth up to half the balance. */
+  redeemMaxPoints: number;
+  redeemMaxRupees: number;
+  /**
+   * @deprecated The cash wallet merged into this one and UPI payouts ended. Always empty; kept so
+   * app versions from before the merge do not break.
+   */
+  cash: CashWallet;
 }
 
-/** Short-lived QR the partner shows at an outlet to spend wallet points. */
+/** Wallet page filter: one kind of transaction, or everything. */
+export type PartnerTransactionFilter = 'ALL' | 'BILLS' | 'PURCHASE' | 'REFERRAL' | 'CASHBACK' | 'RECEIVED' | 'SENT' | 'REDEEMED';
+
+/**
+ * BILL: a bill this partner paid (with their discount QR, a friend's referral QR before they
+ * registered, or their redeem QR). REWARD: a wallet credit (points, cashback, a transfer received,
+ * the merged cash balance). SENT: a transfer to another partner. REDEEMED: a redemption from before
+ * redeem bills (newer ones are BILL rows).
+ */
+export type PartnerTransactionKind = 'BILL' | 'REWARD' | 'SENT' | 'REDEEMED';
+
+/** A bill as the partner sees it: their own purchase, or the purchase of a friend they referred. */
+export interface PartnerTransactionBill {
+  billNumber: string;
+  outletName: string;
+  transactionType: BillTransactionType;
+  /** BUYER: this partner paid the bill. REFERRER: a friend paid it with this partner's referral QR. */
+  role: 'BUYER' | 'REFERRER';
+  /** REFERRER: the friend who bought. */
+  buyerName: string | null;
+  isFirstTime: boolean;
+  billAmount: number;
+  discountPercentage: number;
+  discountAmount: number;
+  birthdayBonusPercentage: number;
+  referralRewardPercentage: number;
+  /** After discount, before GST. */
+  taxableAmount: number;
+  gstPercentage: number;
+  gstAmount: number;
+  walletRedeemPoints: number;
+  walletRedeemAmount: number;
+  /** Paise added or taken off to reach whole rupees; 0 on bills from before round-off. */
+  roundOffAmount: number;
+  /** What the buyer paid the outlet. */
+  finalAmount: number;
+  createdAt: string;
+}
+
+/** A wallet credit a bill gave this partner. */
+export interface PartnerTransactionReward {
+  id: ID;
+  type: WalletEntryType;
+  points: number;
+  rupeeValue: number;
+  expiresAt: string | null;
+  expired: boolean;
+}
+
+export interface PartnerTransaction {
+  /** Unique across kinds, used for the details page: "bill_<id>", "entry_<id>", "transfer_<id>", "redemption_<id>". */
+  id: string;
+  kind: PartnerTransactionKind;
+  /** REWARD: what the credit is. */
+  entryType: WalletEntryType | null;
+  /** Wallet points moved: positive in, negative out, 0 for a bill paid without the wallet. */
+  points: number;
+  /** Rupee worth of `points` (REWARD rows at the current ratio; the others as recorded). */
+  rupeeValue: number;
+  createdAt: string;
+  outletName: string | null;
+  /** BILL rows, and REWARD rows earned on a bill. */
+  bill: PartnerTransactionBill | null;
+  /** BILL: the credits this bill added to this partner's wallet. */
+  rewards: PartnerTransactionReward[];
+  /** REWARD: when it leaves the wallet; null when it never expires. */
+  expiresAt: string | null;
+  expired: boolean;
+  /** REWARD: earned as a customer before registering, added on registration. */
+  claimedAt: string | null;
+  /** SENT: the recipient. REWARD TRANSFER_IN: the sender. */
+  counterparty: { name: string; mobile: string } | null;
+  /** Transfer number (SENT and received transfers). */
+  reference: string | null;
+  /** REDEEMED: the bill the redemption was taken off, when recorded. */
+  redemptionBillAmount: number | null;
+}
+
+export interface PartnerTransactionsPage {
+  items: PartnerTransaction[];
+  /** More transactions match than were returned: ask again with a larger limit. */
+  hasMore: boolean;
+}
+
+export interface PartnerTransactionsQuery {
+  type?: PartnerTransactionFilter;
+  /** Inclusive IST calendar dates, YYYY-MM-DD. */
+  from?: string;
+  to?: string;
+  limit?: number;
+}
+
+export type CashEntryType = 'PURCHASE' | 'REFERRAL' | 'PAYOUT';
+export type PayoutStatus = 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED';
+export type PayoutSource = 'WEEKLY' | 'MANUAL';
+
+export interface CashWalletEntry {
+  id: ID;
+  /** PURCHASE / REFERRAL credit the wallet; PAYOUT is the amount paid out. */
+  type: CashEntryType;
+  amount: number;
+  billNumber: string | null;
+  outletName: string | null;
+  payoutNumber: string | null;
+  /** Earned as a referred customer before registering, claimed on registration. */
+  claimedAt: string | null;
+  createdAt: string;
+}
+
+export interface PayoutRecord {
+  id: ID;
+  /** The payout ID on the Finance sheet. */
+  payoutNumber: string;
+  amount: number;
+  status: PayoutStatus;
+  source: PayoutSource;
+  upiId: string;
+  requestedAt: string;
+  /** PAID: the amount Finance actually paid (the wallet went down by this). */
+  paidAmount: number | null;
+  /** PAID: YYYY-MM-DD. */
+  paidOn: string | null;
+  upiTxnRef: string | null;
+  failureNote: string | null;
+  settledAt: string | null;
+}
+
+export interface CashWallet {
+  /** Credits minus amounts paid out. */
+  balance: number;
+  /** Held by Pending payouts. */
+  pendingPayout: number;
+  /** balance - pendingPayout: what a new payout request would be for. */
+  available: number;
+  upiId: string | null;
+  /** Weekly run threshold. */
+  minimumPayout: number;
+  weeklyPayoutEnabled: boolean;
+  /** 0 = Sunday … 6 = Saturday (IST). */
+  payoutWeekday: number;
+  /** A request would succeed now: UPI ID set, something available and no payout already Pending. */
+  canRequestPayout: boolean;
+  totals: { purchase: number; referral: number; paidOut: number };
+  entries: CashWalletEntry[];
+  payouts: PayoutRecord[];
+}
+
+export interface PayoutRequestResponse {
+  payout: PayoutRecord;
+  wallet: CashWallet;
+}
+
+/**
+ * Short-lived, single-use QR the partner shows at an outlet to pay part of a bill from the wallet.
+ * It is worth up to half the wallet; at the outlet at most half the bill is taken, and whatever is
+ * not used simply stays in the wallet (nothing is held when the QR is generated).
+ */
 export interface RedeemQr {
   /** Value to render as the QR. Single use. */
   code: string;
@@ -694,16 +1083,26 @@ export interface RedeemQr {
   /** Wallet snapshot when the QR was generated; the outlet always sees the live balance. */
   balancePoints: number;
   rupeeValue: number;
+  /** What this QR is worth at most: half the balance. */
+  maxPoints: number;
+  maxRupees: number;
   pointsRatio: { points: number; rupees: number };
 }
 
-/** What the Outlet Admin sees after scanning a redeem QR. */
+/** What the Outlet Admin sees after scanning a redeem QR, before entering the bill. */
 export interface RedeemScanResult {
   partner: ScannedPartner;
   balancePoints: number;
   rupeeValue: number;
+  /** The QR's worth (capped by the live balance). At most half the bill is taken. */
+  maxPoints: number;
+  maxRupees: number;
   pointsRatio: { points: number; rupees: number };
+  /** This outlet's GST %, charged on the bill. */
+  gstPercentage: number;
   expiresAt: string;
+  /** Pricing version for the bill preview / create calls. */
+  settingsVersion: string;
 }
 
 export interface RedeemPayload {
@@ -740,6 +1139,8 @@ export interface RedemptionReceipt {
 export interface PartnerOffers {
   firstTimeDiscount: number;
   birthdayBonusDiscount: number;
+  /** Highest discount any active outlet gives ("Get up to X%"); null when there is no active outlet. */
+  maxOutletDiscount: number | null;
 }
 
 export interface PartnerHome {
@@ -779,6 +1180,15 @@ export interface PartnerHome {
   walletDisplay: WalletDisplay;
   /** Download links per platform; the update popup uses the one for this phone. */
   appLinks: AppDownloadLinks;
+  /** Highest discount this partner can get at any active outlet; null when there is none. */
+  maxOutletDiscount: number | null;
+  /** Active outlets with their own discount label. */
+  outlets: Outlet[];
+  /** @deprecated The cash wallet merged into the one wallet. Always 0. */
+  cashBalance: number;
+  /** @deprecated UPI payouts ended. Always false. */
+  upiMissing: boolean;
+  redeemEnabled: boolean;
 }
 
 export type PartnerNotificationType =
@@ -786,7 +1196,14 @@ export type PartnerNotificationType =
   | 'REFERRAL_POINTS'
   | 'POINTS_CLAIMED'
   | 'POINTS_REDEEMED'
-  | 'REFERRAL_REWARD';
+  | 'REFERRAL_REWARD'
+  | 'BILL_RECEIPT'
+  | 'CASH_REWARD'
+  | 'PAYOUT_REQUESTED'
+  | 'PAYOUT_PAID'
+  | 'PAYOUT_FAILED'
+  | 'WALLET_TRANSFER_IN'
+  | 'WALLET_TRANSFER_OUT';
 
 export interface PartnerNotification {
   id: ID;
@@ -794,6 +1211,8 @@ export interface PartnerNotification {
   title: string;
   body: string;
   points: number | null;
+  /** Rupee amount for cash reward and payout notifications. */
+  amount: number | null;
   /** Validity of the points the notification is about; null when they never expire or it does not apply. */
   expiresAt: string | null;
   read: boolean;
@@ -804,6 +1223,49 @@ export interface PartnerNotificationPage {
   notifications: PartnerNotification[];
   unread: number;
   meta: PaginationMeta;
+}
+
+// ============================================================================
+// Partner-to-partner wallet transfer
+// ============================================================================
+
+/** The partner registered with a mobile number, shown before sending. */
+export interface WalletTransferRecipient {
+  name: string;
+  partnerCode: string;
+  mobile: string;
+}
+
+export interface WalletTransferOtpPayload {
+  mobile: string;
+  points: number;
+}
+
+/** The confirmation code went out on the Super Admin's messaging channel. */
+export interface WalletTransferOtpResponse {
+  mode: MessagingMode;
+  /** Masked email address or mobile number of the sender. */
+  destination: string;
+  expiresAt: string;
+  /** Only in development (or with ENABLE_DEV_OTP=true). */
+  devOtp?: string;
+}
+
+export interface WalletTransferPayload {
+  mobile: string;
+  /** Wallet points to send. */
+  points: number;
+  otp: string;
+  idempotencyKey: string;
+}
+
+export interface WalletTransferResponse {
+  transfer: WalletTransferRecord;
+  /** The sender's balance after the transfer. */
+  balancePoints: number;
+  rupeeValue: number;
+  /** true when this response replays an already-completed transfer of the same key. */
+  replayed: boolean;
 }
 
 export interface PushTokenPayload {
@@ -826,9 +1288,14 @@ export interface BillTotals {
   billCount: number;
   billAmount: number;
   discountAmount: number;
+  gstAmount: number;
   finalAmount: number;
   purchasePoints: number;
   referralPoints: number;
+  /** Purchase + referral cash reward credited. */
+  cashReward: number;
+  /** Paid from partner wallets on redeem bills (not in finalAmount, which is what customers paid). */
+  walletRedeemAmount: number;
 }
 
 /** One bucket of the dashboard trend: an IST day (YYYY-MM-DD) or month (YYYY-MM). */
@@ -881,7 +1348,12 @@ export interface AdminDashboard {
   outlet: AdminOutletOption | null;
   generatedAt: string;
   /** The period every "in period" figure and chart below covers. */
-  range: { from: string; to: string; days: number; granularity: 'day' | 'month' };
+  range: {
+    from: string;
+    to: string;
+    days: number;
+    granularity: 'day' | 'month';
+  };
   /** The headline programme figures for the period (the two rows of tiles above the charts). */
   programMetrics: {
     /** Partners who registered in the period. */
@@ -906,11 +1378,28 @@ export interface AdminDashboard {
   trend: AdminTrendPoint[];
   periodByType: Record<BillTransactionType, { billCount: number; billAmount: number }>;
   /** Partners whose referral QR brought in the most bills in the period. */
-  topReferrers: { id: ID; name: string; partnerCode: string; referralCount: number; billAmount: number; referralPoints: number }[];
+  topReferrers: {
+    id: ID;
+    name: string;
+    partnerCode: string;
+    referralCount: number;
+    billAmount: number;
+    referralPoints: number;
+  }[];
   /** Referral funnel in the period. */
-  referrals: { shares: number; successful: number; uniqueCustomers: number; rewardsUsed: number };
+  referrals: {
+    shares: number;
+    successful: number;
+    uniqueCustomers: number;
+    rewardsUsed: number;
+  };
   /** Points issued on bills vs spent through redeem QRs, in the period. */
-  pointsFlow: { credited: number; redeemed: number; redemptionCount: number; redeemedRupees: number };
+  pointsFlow: {
+    credited: number;
+    redeemed: number;
+    redemptionCount: number;
+    redeemedRupees: number;
+  };
   partners: {
     total: number;
     byStatus: Record<PartnerStatus, number>;
@@ -936,7 +1425,13 @@ export interface AdminDashboard {
     pointsRatio: { points: number; rupees: number };
   };
   notifications: Record<BillNotificationStatus, number>;
-  topOutlets: { id: ID; name: string; status: OutletStatus; billCount: number; billAmount: number }[];
+  topOutlets: {
+    id: ID;
+    name: string;
+    status: OutletStatus;
+    billCount: number;
+    billAmount: number;
+  }[];
   recentBills: BillRecord[];
   recentPartners: AdminPartnerListItem[];
   system: {
@@ -994,7 +1489,17 @@ export interface AdminPartnerListItem {
   referralShareCount: number;
   /** null when the partner did not answer "Referred by". */
   referredBy: AdminPartnerReferredBy | null;
+  category: PartnerCategory;
+  upiId: string | null;
+  /** Cash reward wallet balance (₹), Pending payouts included. */
+  cashBalance: number;
   createdAt: string;
+}
+
+/** Super Admin partner edit: activate / deactivate and classification. */
+export interface UpdateAdminPartnerPayload {
+  status?: PartnerStatus;
+  category?: PartnerCategory;
 }
 
 /** All-time referral tracking of one partner. */
@@ -1039,8 +1544,18 @@ export interface AdminPartnerActivityRow {
 
 /** Totals for the partner's activity under the current date / outlet filter (all kinds). */
 export interface AdminPartnerActivitySummary {
-  purchases: { count: number; billAmount: number; discountAmount: number; points: number };
-  referrals: { count: number; uniqueCustomers: number; billAmount: number; points: number };
+  purchases: {
+    count: number;
+    billAmount: number;
+    discountAmount: number;
+    points: number;
+  };
+  referrals: {
+    count: number;
+    uniqueCustomers: number;
+    billAmount: number;
+    points: number;
+  };
   redemptions: { count: number; points: number; rupeeValue: number };
   shares: number;
 }
@@ -1088,7 +1603,13 @@ export interface AdminPartnerDetail extends AdminPartnerListItem {
   /** YYYY-MM-DD */
   dateOfBirth: string | null;
   photoUrl: string | null;
-  qrCodes: { id: ID; code: string; type: QRCodeType; status: QRCodeStatus; createdAt: string }[];
+  qrCodes: {
+    id: ID;
+    code: string;
+    type: QRCodeType;
+    status: QRCodeStatus;
+    createdAt: string;
+  }[];
   wallet: PartnerWallet;
   directTotals: BillTotals;
   referredTotals: BillTotals;
@@ -1120,11 +1641,147 @@ export interface AdminTransactionPage {
 }
 
 // ============================================================================
+// Finance: partner wallets and payouts (Super Admin panel, "finance" page)
+// ============================================================================
+
+export interface FinancePartnerRef {
+  id: ID;
+  name: string;
+  partnerCode: string;
+  mobile: string;
+  upiId: string | null;
+  category: PartnerCategory;
+}
+
+export interface FinancePartnerBalance {
+  partner: FinancePartnerRef;
+  /** Cash reward credited in the date range (all time without one). */
+  earned: number;
+  /** Paid out in the date range (all time without one). */
+  paid: number;
+  /** Current balance, Pending payouts included. */
+  balance: number;
+  pending: number;
+  available: number;
+}
+
+export interface FinancePayoutRow extends PayoutRecord {
+  partner: FinancePartnerRef;
+}
+
+export interface FinanceReportQuery extends AdminDateRangeQuery {
+  search?: string;
+  partnerId?: string;
+  status?: PayoutStatus;
+  page?: number;
+  limit?: number;
+}
+
+export interface FinanceReport {
+  totals: {
+    /** All partners, current. */
+    balance: number;
+    pending: number;
+    available: number;
+    partnersWithBalance: number;
+    /** In the date range (all time without one). */
+    earned: number;
+    paid: number;
+    pendingCount: number;
+  };
+  /** Partners with a balance or activity, largest balance first. */
+  balances: FinancePartnerBalance[];
+  /** Payouts requested in the date range, newest first. */
+  payouts: FinancePayoutRow[];
+  meta: PaginationMeta;
+}
+
+export interface PayoutUploadPayload {
+  fileName: string;
+  /** The .xlsx (or .csv) file, base64. */
+  base64: string;
+  /** false: validate and preview only. true: validate again and apply everything in one transaction. */
+  apply: boolean;
+}
+
+export type PayoutSheetAction = 'PAID' | 'FAILED' | 'UNCHANGED' | 'ERROR';
+
+export interface PayoutSheetRowResult {
+  /** Row number in the sheet (the header is row 1). */
+  row: number;
+  payoutNumber: string | null;
+  partnerName: string | null;
+  amount: number | null;
+  action: PayoutSheetAction;
+  /** Why an UNCHANGED row changes nothing, e.g. "Already paid by an earlier upload". */
+  note: string | null;
+  errors: string[];
+}
+
+export interface PayoutUploadResult {
+  applied: boolean;
+  /** Set once applied. */
+  uploadId: string | null;
+  fileName: string;
+  rowCount: number;
+  paidCount: number;
+  failedCount: number;
+  unchangedCount: number;
+  errorCount: number;
+  paidAmount: number;
+  rows: PayoutSheetRowResult[];
+}
+
+export interface PayoutUploadRecord {
+  id: ID;
+  fileName: string;
+  uploadedByEmail: string;
+  rowCount: number;
+  paidCount: number;
+  failedCount: number;
+  unchangedCount: number;
+  paidAmount: number;
+  createdAt: string;
+}
+
+/** Outcome of one weekly payout run. */
+export interface WeeklyPayoutRunResult {
+  weekKey: string;
+  /** false when today is not the payout weekday or the weekly run is off (nothing was created). */
+  ran: boolean;
+  reason: string | null;
+  created: number;
+  createdAmount: number;
+  /** Balances at or above the minimum that have no UPI ID yet. */
+  skippedNoUpi: number;
+  /** Already had a Pending payout, or this week's payout exists. */
+  skippedExisting: number;
+}
+
+// ============================================================================
 // Partner sign-in
 // ============================================================================
 
-/** `identifier` is the partner's registered 10-digit mobile number or email address. */
+/**
+ * Partners sign in with a one-time code only (no password). `identifier` is the partner's
+ * registered 10-digit mobile number or email address; the code goes out on the channel the
+ * Super Admin chose in Settings (email or WhatsApp), never one the partner picks.
+ */
+export interface PartnerLoginOtpRequestPayload {
+  identifier: string;
+}
+
+export interface PartnerLoginOtpResponse {
+  /** The channel the code was sent on (the Super Admin messaging setting). */
+  mode: MessagingMode;
+  /** Masked email address or mobile number the code was sent to, for display. */
+  destination: string;
+  expiresAt: string;
+  /** Only in development (or with ENABLE_DEV_OTP=true). */
+  devOtp?: string;
+}
+
 export interface PartnerLoginPayload {
   identifier: string;
-  password: string;
+  otp: string;
 }

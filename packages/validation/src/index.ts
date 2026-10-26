@@ -94,15 +94,35 @@ export const referredBySchema = z
   })
   .superRefine((value, ctx) => {
     if (value.type === 'PARTNER' && !value.partnerCode) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['partnerCode'], message: 'Please enter the partner ID' });
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['partnerCode'],
+        message: 'Please enter the partner ID',
+      });
     }
     if (value.type === 'OUTLET' && !value.outletId) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['outletId'], message: 'Please choose an outlet' });
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['outletId'],
+        message: 'Please choose an outlet',
+      });
     }
     if (value.type === 'OTHER' && !value.other) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['other'], message: 'Please tell us who referred you' });
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['other'],
+        message: 'Please tell us who referred you',
+      });
     }
   });
+
+/** UPI virtual payment address, name@handle (e.g. ravi.kumar@okhdfc). Stored lowercase. */
+export const upiIdSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(100, 'UPI ID is too long')
+  .regex(/^[a-z0-9][a-z0-9._-]{1,63}@[a-z][a-z0-9]{1,63}$/, 'Please enter a valid UPI ID, like name@bank');
 
 export const partnerOnboardingSchema = z
   .object({
@@ -112,15 +132,14 @@ export const partnerOnboardingSchema = z
     ...partnerAddressFields,
     dateOfBirth: dateOfBirthSchema.optional().nullable(),
     referredBy: referredBySchema.optional().nullable(),
-    password: z.string().min(6, 'Password must be at least 6 characters'),
-    confirmPassword: z.string().min(6, 'Confirm password must be at least 6 characters'),
+    /** Optional: the Partner App no longer asks for it at registration (partners add it in Profile); older app versions still send it. */
+    upiId: upiIdSchema.optional().nullable(),
+    /** Partners sign in with a one-time code; older app versions still send a password, which is ignored. */
+    password: z.string().max(200).optional(),
+    confirmPassword: z.string().max(200).optional(),
     otp: z.string().trim().regex(/^\d{6}$/, 'OTP must be exactly 6 digits'),
   })
-  .strict()
-  .refine((data) => data.password === data.confirmPassword, {
-    message: 'Passwords do not match',
-    path: ['confirmPassword'],
-  });
+  .strict();
 
 export type PartnerOnboardingFormValues = z.infer<typeof partnerOnboardingSchema>;
 
@@ -161,6 +180,19 @@ export const percentageSchema = z
   .max(100, 'Percentage cannot exceed 100')
   .refine(hasAtMostTwoDecimals, 'Percentage can have at most 2 decimal places');
 
+/**
+ * A bill is never reduced by more than this share of the bill amount: every discount (with any
+ * birthday bonus or referral reward on top) and every wallet redemption stops here, so a bill can
+ * never come to ₹0.
+ */
+export const MAX_BILL_REDUCTION_PERCENT = 50;
+
+/** A discount percentage: at most half the bill. */
+export const discountPercentageSchema = percentageSchema.refine(
+  (v) => v <= MAX_BILL_REDUCTION_PERCENT,
+  `A discount cannot exceed ${MAX_BILL_REDUCTION_PERCENT}% of the bill`
+);
+
 const ratioPartSchema = z
   .number({ invalid_type_error: 'Ratio must be a number' })
   .finite()
@@ -187,32 +219,38 @@ const appLinkUrlSchema = (label: string) =>
     .optional();
 
 const appLinkTypeSchema = z
-  .enum(['DIRECT', 'STORE'], { errorMap: () => ({ message: 'Link type must be "DIRECT" or "STORE"' }) })
+  .enum(['DIRECT', 'STORE'], {
+    errorMap: () => ({ message: 'Link type must be "DIRECT" or "STORE"' }),
+  })
   .optional();
 
 export const programSettingsUpdateSchema = z
   .object({
     messagingMode: z.enum(['email', 'whatsapp'], {
-      errorMap: () => ({ message: 'Messaging mode must be "email" or "whatsapp"' }),
+      errorMap: () => ({
+        message: 'Messaging mode must be "email" or "whatsapp"',
+      }),
     }),
-    firstTimeDiscount: percentageSchema,
+    firstTimeDiscount: discountPercentageSchema,
     firstTimeValidityDays: validityDaysSchema,
-    repeatDiscount: percentageSchema,
-    birthdayBonusDiscount: percentageSchema,
-    referralDiscount: percentageSchema,
+    repeatDiscount: discountPercentageSchema,
+    birthdayBonusDiscount: discountPercentageSchema,
+    referralDiscount: discountPercentageSchema,
     referralRewardGoal: z
       .number({ invalid_type_error: 'Referral goal must be a number' })
       .int('Referral goal must be a whole number')
       .min(1, 'Referral goal must be at least 1')
       .max(1000, 'Referral goal cannot exceed 1000'),
-    referralRewardDiscount: percentageSchema,
+    referralRewardDiscount: discountPercentageSchema,
     pointsToRupees: z.object({ points: ratioPartSchema, rupees: ratioPartSchema }).strict(),
     referralPointsPercentage: percentageSchema,
     purchasePointsPercentage: percentageSchema,
     purchasePointsValidityDays: validityDaysSchema,
     referralPointsValidityDays: validityDaysSchema,
     pointsBasis: z.enum(['BILL_AMOUNT', 'PAYABLE_AMOUNT'], {
-      errorMap: () => ({ message: 'Points basis must be "BILL_AMOUNT" or "PAYABLE_AMOUNT"' }),
+      errorMap: () => ({
+        message: 'Points basis must be "BILL_AMOUNT" or "PAYABLE_AMOUNT"',
+      }),
     }),
     /** Empty string clears the link. */
     appDownloadUrl: z
@@ -235,13 +273,37 @@ export const programSettingsUpdateSchema = z
       .nullable()
       .optional(),
     walletDisplay: z
-      .enum(['POINTS', 'RUPEES'], { errorMap: () => ({ message: 'Wallet display must be "POINTS" or "RUPEES"' }) })
+      .enum(['POINTS', 'RUPEES'], {
+        errorMap: () => ({
+          message: 'Wallet display must be "POINTS" or "RUPEES"',
+        }),
+      })
       .optional(),
     /** Empty string or null clears a link; omitted keeps it. */
     androidAppUrl: appLinkUrlSchema('Android download link'),
     androidAppLinkType: appLinkTypeSchema,
     iosAppUrl: appLinkUrlSchema('iOS download link'),
     iosAppLinkType: appLinkTypeSchema,
+    // Revised flow: omitted keeps the stored value.
+    achariyaFirstTimeDiscount: discountPercentageSchema.optional(),
+    achariyaReferralPointsPercentage: percentageSchema.optional(),
+    cashRewardPurchasePercentage: percentageSchema.optional(),
+    cashRewardReferralPercentage: percentageSchema.optional(),
+    weeklyPayoutEnabled: z.boolean({ invalid_type_error: 'Weekly payout must be on or off' }).optional(),
+    payoutMinimumAmount: z
+      .number({ invalid_type_error: 'Minimum payout must be a number' })
+      .finite()
+      .min(1, 'Minimum payout must be at least ₹1')
+      .max(1_000_000, 'Minimum payout is too large')
+      .refine(hasAtMostTwoDecimals, 'Minimum payout can have at most 2 decimal places')
+      .optional(),
+    payoutWeekday: z
+      .number({ invalid_type_error: 'Payout day must be a weekday' })
+      .int()
+      .min(0, 'Payout day must be a weekday')
+      .max(6, 'Payout day must be a weekday')
+      .optional(),
+    redeemQrEnabled: z.boolean({ invalid_type_error: 'Redeem QR must be on or off' }).optional(),
   })
   .strict();
 
@@ -292,6 +354,53 @@ const outletProfileFields = {
 
 const outletPasswordSchema = z.string().min(8, 'Password must be at least 8 characters').max(200);
 
+/** Discount override: null (or empty in a form) uses the programme setting. At most half the bill. */
+const discountOverrideSchema = discountPercentageSchema.nullable();
+
+/** Reward override (points or cash reward %): null (or empty in a form) uses the programme setting. */
+const rewardOverrideSchema = percentageSchema.nullable();
+
+/** The offer fields (slabs) an Outlet Admin may edit. */
+const outletOfferFields = {
+  firstTimeDiscount: discountOverrideSchema,
+  achariyaFirstTimeDiscount: discountOverrideSchema,
+  repeatDiscount: discountOverrideSchema,
+  referralDiscount: discountOverrideSchema,
+  gstPercentage: percentageSchema.refine((v) => v <= 50, 'GST cannot exceed 50%'),
+  purchasePointsPercentage: rewardOverrideSchema,
+  referralPointsPercentage: rewardOverrideSchema,
+  achariyaReferralPointsPercentage: rewardOverrideSchema,
+  cashRewardPurchasePercentage: rewardOverrideSchema,
+  cashRewardReferralPercentage: rewardOverrideSchema,
+};
+
+/** Super Admin only, on top of the offer fields. */
+const outletOfferAdminFields = {
+  givesCashReward: z.boolean({
+    invalid_type_error: 'Cash reward must be on or off',
+  }),
+  canEditOffers: z.boolean({
+    invalid_type_error: 'Outlet editing must be on or off',
+  }),
+};
+
+export const OUTLET_OFFER_FIELDS = [
+  'firstTimeDiscount',
+  'achariyaFirstTimeDiscount',
+  'repeatDiscount',
+  'referralDiscount',
+  'gstPercentage',
+  'purchasePointsPercentage',
+  'referralPointsPercentage',
+  'achariyaReferralPointsPercentage',
+  'cashRewardPurchasePercentage',
+  'cashRewardReferralPercentage',
+  'givesCashReward',
+  'canEditOffers',
+] as const;
+
+export const outletOffersUpdateSchema = z.object(outletOfferFields).partial().strict();
+
 export const outletCreateSchema = z
   .object({
     ...outletProfileFields,
@@ -301,6 +410,18 @@ export const outletCreateSchema = z
     logoUrl: outletProfileFields.logoUrl.optional(),
     images: outletProfileFields.images.optional(),
     status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+    firstTimeDiscount: outletOfferFields.firstTimeDiscount.optional(),
+    achariyaFirstTimeDiscount: outletOfferFields.achariyaFirstTimeDiscount.optional(),
+    repeatDiscount: outletOfferFields.repeatDiscount.optional(),
+    referralDiscount: outletOfferFields.referralDiscount.optional(),
+    gstPercentage: outletOfferFields.gstPercentage.optional(),
+    purchasePointsPercentage: outletOfferFields.purchasePointsPercentage.optional(),
+    referralPointsPercentage: outletOfferFields.referralPointsPercentage.optional(),
+    achariyaReferralPointsPercentage: outletOfferFields.achariyaReferralPointsPercentage.optional(),
+    cashRewardPurchasePercentage: outletOfferFields.cashRewardPurchasePercentage.optional(),
+    cashRewardReferralPercentage: outletOfferFields.cashRewardReferralPercentage.optional(),
+    givesCashReward: outletOfferAdminFields.givesCashReward.optional(),
+    canEditOffers: outletOfferAdminFields.canEditOffers.optional(),
     adminEmail: emailSchema,
     adminPassword: outletPasswordSchema,
   })
@@ -309,6 +430,8 @@ export const outletCreateSchema = z
 export const outletUpdateSchema = z
   .object({
     ...outletProfileFields,
+    ...outletOfferFields,
+    ...outletOfferAdminFields,
     status: z.enum(['ACTIVE', 'INACTIVE']),
     adminPassword: outletPasswordSchema,
   })
@@ -326,7 +449,7 @@ export const outletProfileUpdateSchema = z.object(outletProfileFields).partial()
  * Pages a Super Admin can give an admin. "Admins" (account management) is never in this list:
  * only Super Admins have it.
  */
-export const ADMIN_PAGES = ['dashboard', 'partners', 'outlets', 'transactions', 'settings'] as const;
+export const ADMIN_PAGES = ['dashboard', 'partners', 'outlets', 'transactions', 'settings', 'finance'] as const;
 
 export const ADMIN_PAGE_LABELS: Record<(typeof ADMIN_PAGES)[number], string> = {
   dashboard: 'Dashboard',
@@ -334,6 +457,7 @@ export const ADMIN_PAGE_LABELS: Record<(typeof ADMIN_PAGES)[number], string> = {
   outlets: 'Outlets',
   transactions: 'Transactions',
   settings: 'Programme settings',
+  finance: 'Finance (wallets & payouts)',
 };
 
 const adminPasswordSchema = z
@@ -353,7 +477,11 @@ const adminAccountFields = {
 };
 
 export const adminAccountCreateSchema = z
-  .object({ ...adminAccountFields, isActive: adminAccountFields.isActive.optional(), password: adminPasswordSchema })
+  .object({
+    ...adminAccountFields,
+    isActive: adminAccountFields.isActive.optional(),
+    password: adminPasswordSchema,
+  })
   .strict();
 
 /** Every field optional; a password resets the account's password. */
@@ -442,7 +570,10 @@ const adminFilterFields = {
 };
 
 const fromNotAfterTo = (v: { from?: string; to?: string }) => !v.from || !v.to || v.from <= v.to;
-const fromNotAfterToError = { message: 'The start date cannot be after the end date', path: ['from'] };
+const fromNotAfterToError = {
+  message: 'The start date cannot be after the end date',
+  path: ['from'],
+};
 
 export const adminPartnerListQuerySchema = paginationQuerySchema
   .extend({
@@ -489,26 +620,41 @@ export const adminOutletRedemptionsQuerySchema = paginationQuerySchema
 
 /** Dashboard period; defaults to the last 30 days. */
 export const adminDashboardQuerySchema = z
-  .object({ ...adminFilterFields, source: z.enum(['live', 'test']).default('live'), outletId: z.string().trim().min(1).max(64).optional() })
+  .object({
+    ...adminFilterFields,
+    source: z.enum(['live', 'test']).default('live'),
+    outletId: z.string().trim().min(1).max(64).optional(),
+  })
   .refine(fromNotAfterTo, fromNotAfterToError);
 
 /** Dashboard search across partners and outlets. */
-export const adminSearchQuerySchema = z.object({ q: z.string().trim().min(1, 'Enter something to search for').max(100) });
+export const adminSearchQuerySchema = z.object({
+  q: z.string().trim().min(1, 'Enter something to search for').max(100),
+});
 
-/** Partner sign-in: registered mobile number (any common Indian format) or email, plus password. */
-export const partnerLoginSchema = z
-  .object({
-    identifier: z.string().trim().min(3, 'Enter your mobile number or email').max(200),
-    password: z.string().min(1, 'Password is required').max(200),
-  })
-  .transform(({ identifier, password }) => {
-    if (identifier.includes('@')) return { kind: 'email' as const, value: identifier.toLowerCase(), password };
-    return { kind: 'mobile' as const, value: normalizeIndianMobile(identifier), password };
-  })
+/** A partner's registered mobile number (any common Indian format) or email, resolved to the stored form. */
+export const partnerLoginIdentifierSchema = z
+  .string()
+  .trim()
+  .min(3, 'Enter your mobile number or email')
+  .max(200)
+  .transform((identifier) =>
+    identifier.includes('@')
+      ? { kind: 'email' as const, value: identifier.toLowerCase() }
+      : { kind: 'mobile' as const, value: normalizeIndianMobile(identifier) }
+  )
   .refine((v) => (v.kind === 'email' ? emailSchema.safeParse(v.value).success : /^[6-9]\d{9}$/.test(v.value)), {
     message: 'Enter a valid 10-digit mobile number or email address',
-    path: ['identifier'],
   });
+
+/** Partner sign-in, step 1: ask for a one-time code for the registered mobile number or email. */
+export const partnerLoginOtpRequestSchema = z.object({ identifier: partnerLoginIdentifierSchema });
+
+/** Partner sign-in, step 2: the registered mobile number or email plus the 6-digit code. No password. */
+export const partnerLoginSchema = z.object({
+  identifier: partnerLoginIdentifierSchema,
+  otp: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code'),
+});
 
 /** Partner profile edit: any subset of the registration details, plus the profile photo. */
 export const partnerProfileUpdateSchema = z
@@ -519,9 +665,66 @@ export const partnerProfileUpdateSchema = z
     ...partnerAddressFields,
     dateOfBirth: dateOfBirthSchema.nullable(),
     photoUrl: imageUrlSchema.nullable(),
+    /** Can be changed, not removed: payouts need it. */
+    upiId: upiIdSchema,
   })
   .partial()
   .strict();
+
+/** Super Admin partner edit. */
+export const adminPartnerUpdateSchema = z
+  .object({
+    status: z.enum(['ACTIVE', 'PENDING', 'SUSPENDED', 'REJECTED']),
+    category: z.enum(['ACHARIYA', 'NON_ACHARIYA']),
+  })
+  .partial()
+  .strict()
+  .refine((v) => v.status !== undefined || v.category !== undefined, 'Nothing to update');
+
+// ============================================================================
+// Cash reward payouts & Finance
+// ============================================================================
+
+/** A manual payout request is for the whole available balance; the body is empty. */
+export const payoutRequestSchema = z.object({}).strict();
+
+export const financeReportQuerySchema = paginationQuerySchema
+  .extend({
+    partnerId: z.string().uuid().optional(),
+    status: z.enum(['PENDING', 'PAID', 'FAILED']).optional(),
+    from: adminDateSchema.optional(),
+    to: adminDateSchema.optional(),
+    /** xlsx: the payout sheet (Payouts + Wallets) for the same filter. */
+    format: z.enum(['json', 'xlsx']).default('json'),
+  })
+  .refine(fromNotAfterTo, fromNotAfterToError);
+
+export const payoutUploadSchema = z
+  .object({
+    fileName: z.string().trim().min(1, 'File name is required').max(200),
+    base64: z.string().min(1, 'The file is empty').max(14_000_000, 'The file is too large (max ~10 MB)'),
+    apply: z.boolean(),
+  })
+  .strict()
+  .refine((v) => /\.(xlsx|csv)$/i.test(v.fileName), {
+    message: 'Upload the payout sheet as .xlsx or .csv',
+    path: ['fileName'],
+  });
+
+/** Columns of the payout sheet, in order: the export has all of them, Finance fills the last three. */
+export const PAYOUT_SHEET_COLUMNS = [
+  'payout_id',
+  'partner_id',
+  'partner_name',
+  'mobile',
+  'upi_id',
+  'amount',
+  'requested_on',
+  'source',
+  'upi_txn_ref',
+  'paid_on',
+  'status',
+] as const;
 
 // ============================================================================
 // Wallet redemption, notifications & push
@@ -551,6 +754,48 @@ export const redeemSchema = z
     message: 'The amount to redeem cannot be more than the bill',
     path: ['rupees'],
   });
+
+// ============================================================================
+// Partner-to-partner wallet transfer
+// ============================================================================
+
+const transferPointsSchema = z
+  .number({ invalid_type_error: 'Amount must be a number' })
+  .finite()
+  .positive('Amount must be greater than 0')
+  .max(100_000_000, 'Amount is too large')
+  .refine(hasAtMostTwoDecimals, 'Amount can have at most 2 decimal places');
+
+/** Look up the partner to send to: by their registered mobile number only. */
+export const walletTransferRecipientQuerySchema = z.object({ mobile: normalizedMobileSchema }).strict();
+
+/** Wallet page history: filter by kind and an inclusive IST date range; the app asks for more by raising the limit. */
+export const PARTNER_TRANSACTIONS_MAX_LIMIT = 500;
+export const partnerTransactionsQuerySchema = z
+  .object({
+    type: z.enum(['ALL', 'BILLS', 'PURCHASE', 'REFERRAL', 'CASHBACK', 'RECEIVED', 'SENT', 'REDEEMED']).default('ALL'),
+    from: adminDateSchema.optional(),
+    to: adminDateSchema.optional(),
+    limit: z.coerce.number().int().min(1).max(PARTNER_TRANSACTIONS_MAX_LIMIT).default(50),
+  })
+  .strict()
+  .refine((v) => !v.from || !v.to || v.from <= v.to, { message: 'The start date cannot be after the end date', path: ['from'] });
+
+/** Step 1: ask for the one-time code that confirms this transfer. */
+export const walletTransferOtpSchema = z.object({ mobile: normalizedMobileSchema, points: transferPointsSchema }).strict();
+
+/** Step 2: send. `points` is in wallet points (the app converts a rupee amount at the ratio). */
+export const walletTransferSchema = z
+  .object({
+    mobile: normalizedMobileSchema,
+    points: transferPointsSchema,
+    otp: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code'),
+    idempotencyKey: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9_-]{8,100}$/, 'Invalid idempotency key'),
+  })
+  .strict();
 
 export const pushTokenSchema = z
   .object({
