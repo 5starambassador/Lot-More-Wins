@@ -37,6 +37,18 @@ export function maskMobile(mobile: string): string {
   return `+91 ${mobile.slice(0, 2)}****${mobile.slice(-4)}`;
 }
 
+/**
+ * App store review login: store reviewers cannot receive the emailed code, so the review account
+ * (REVIEW_LOGIN_EMAIL, apptest@lotmorewins.com by default) signs in with the fixed code in
+ * REVIEW_LOGIN_OTP and no message is sent. Off unless REVIEW_LOGIN_OTP is a 6-digit code; it only
+ * covers sign-in, never wallet transfers.
+ */
+function reviewLoginOtp(partner: Pick<Partner, 'email'>, purpose: PartnerOtpPurpose): string | null {
+  const otp = process.env.REVIEW_LOGIN_OTP?.trim() ?? '';
+  const email = (process.env.REVIEW_LOGIN_EMAIL?.trim() || 'apptest@lotmorewins.com').toLowerCase();
+  return purpose === 'login' && /^\d{6}$/.test(otp) && partner.email.toLowerCase() === email ? otp : null;
+}
+
 export interface SentPartnerOtp {
   mode: MessagingMode;
   /** Masked address the code was sent to, for display. */
@@ -59,7 +71,8 @@ export async function sendPartnerOtp(
     throw new HttpError(429, 'Too many code requests. Please wait a few minutes before trying again.', 'RATE_LIMITED');
   }
 
-  const rawOtp = crypto.randomInt(100000, 1000000).toString();
+  const reviewOtp = reviewLoginOtp(partner, purpose);
+  const rawOtp = reviewOtp ?? crypto.randomInt(100000, 1000000).toString();
   const expiresAt = new Date(Date.now() + OTP_VALIDITY_MS);
   const record = await prisma.otpVerification.create({
     data: {
@@ -72,7 +85,9 @@ export async function sendPartnerOtp(
   });
 
   const to = mode === 'whatsapp' ? partner.mobile : partner.email;
-  const sendResult = await messagingService.sendRegistrationOtp({ to, name: partner.name, otp: rawOtp, purpose }, mode);
+  const sendResult = reviewOtp
+    ? { success: true }
+    : await messagingService.sendRegistrationOtp({ to, name: partner.name, otp: rawOtp, purpose }, mode);
   if (!sendResult.success) {
     // A code that never went out must not count towards the request limit.
     await prisma.otpVerification.delete({ where: { id: record.id } }).catch(() => undefined);
