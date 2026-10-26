@@ -134,7 +134,7 @@ export const partnerOnboardingSchema = z
     referredBy: referredBySchema.optional().nullable(),
     /** Optional: the Partner App no longer asks for it at registration (partners add it in Profile); older app versions still send it. */
     upiId: upiIdSchema.optional().nullable(),
-    /** Partners sign in with a one-time code; older app versions still send a password, which is ignored. */
+    /** The current app sends none (code sign-in only); v1.0.0 apps send one, which the partner then signs in with. */
     password: z.string().max(200).optional(),
     confirmPassword: z.string().max(200).optional(),
     otp: z.string().trim().regex(/^\d{6}$/, 'OTP must be exactly 6 digits'),
@@ -656,6 +656,15 @@ export const partnerLoginSchema = z.object({
   otp: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code'),
 });
 
+/**
+ * Partner sign-in with a password: only Partner App versions from before code sign-in (v1.0.0, still
+ * installed as APKs) send it. The current app signs in with a code only.
+ */
+export const partnerPasswordLoginSchema = z.object({
+  identifier: partnerLoginIdentifierSchema,
+  password: z.string().min(1, 'Password is required').max(200),
+});
+
 /** Partner profile edit: any subset of the registration details, plus the profile photo. */
 export const partnerProfileUpdateSchema = z
   .object({
@@ -732,6 +741,10 @@ export const PAYOUT_SHEET_COLUMNS = [
 
 export const redeemScanSchema = z.object({ qrCode: z.string().trim().min(1, 'QR code is required').max(1024) }).strict();
 
+/**
+ * Outlet Admin app versions from before redeem bills (v1.0.0) redeem with this: the rupees to take
+ * off and the bill. The server turns it into a redeem bill.
+ */
 export const redeemSchema = z
   .object({
     qrCode: z.string().trim().min(1, 'QR code is required').max(1024),
@@ -758,6 +771,9 @@ export const redeemSchema = z
 // ============================================================================
 // Partner-to-partner wallet transfer
 // ============================================================================
+
+/** A partner can send at most this share of their wallet in one transfer. */
+export const MAX_WALLET_TRANSFER_PERCENT = 50;
 
 const transferPointsSchema = z
   .number({ invalid_type_error: 'Amount must be a number' })

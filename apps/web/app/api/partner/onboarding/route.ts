@@ -14,13 +14,21 @@ export const dynamic = 'force-dynamic';
 /**
  * POST /api/partner/onboarding — register a partner. Every partner registers the same way
  * (contact, optional "Referred by", address, optional date of birth, verified OTP) and receives
- * the two permanent QR codes. There is no password: partners always sign in with a one-time code.
+ * the two permanent QR codes. The current app sends no password: those partners sign in with a
+ * one-time code. App versions from before code sign-in (v1.0.0) still send one, and sign in with it.
  */
 export async function POST(req: NextRequest) {
   try {
     const parsed = partnerOnboardingSchema.safeParse(await readJson(req));
     if (!parsed.success) return validationError(parsed.error);
-    const { name, mobile, email, city, state, pincode, dateOfBirth, referredBy, upiId, otp } = parsed.data;
+    const { name, mobile, email, city, state, pincode, dateOfBirth, referredBy, upiId, password, confirmPassword, otp } =
+      parsed.data;
+    if (password !== undefined) {
+      if (password.length < 6) return fail(400, 'Password must be at least 6 characters', 'VALIDATION_ERROR');
+      if (confirmPassword !== undefined && confirmPassword !== password) {
+        return fail(400, 'Passwords do not match', 'VALIDATION_ERROR');
+      }
+    }
 
     // 1. Check for duplicate account
     const existingPartner = await prisma.partner.findFirst({
@@ -68,9 +76,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 3. Partner code and EXACTLY TWO permanent unique QR tokens. The password column is still
-    // required by the schema, so it holds the hash of a random secret nobody knows: unusable.
-    const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
+    // 3. Partner code and EXACTLY TWO permanent unique QR tokens. Without a password (the current
+    // app) the required column holds the hash of a random secret nobody knows: unusable.
+    const passwordHash = await bcrypt.hash(password ?? crypto.randomBytes(32).toString('hex'), 10);
     const partnerCode = `LMW-P-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
     const defaultDiscountQrToken = `LMW-DISC-${crypto.randomBytes(8).toString('hex').toUpperCase()}`;
     const referralQrToken = `LMW-REF-${crypto.randomBytes(8).toString('hex').toUpperCase()}`;

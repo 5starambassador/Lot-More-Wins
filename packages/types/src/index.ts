@@ -908,9 +908,12 @@ export interface PartnerWallet {
   transfers: WalletTransferRecord[];
   /** The redeem QR is turned on (Super Admin setting); the app hides it otherwise. */
   redeemEnabled: boolean;
-  /** A redeem QR is worth up to half the balance. */
+  /** A redeem QR is worth the whole balance (the outlet takes at most half the bill). */
   redeemMaxPoints: number;
   redeemMaxRupees: number;
+  /** The most one transfer can send: half the balance. */
+  transferMaxPoints: number;
+  transferMaxRupees: number;
   /**
    * @deprecated The cash wallet merged into this one and UPI payouts ended. Always empty; kept so
    * app versions from before the merge do not break.
@@ -1072,8 +1075,8 @@ export interface PayoutRequestResponse {
 
 /**
  * Short-lived, single-use QR the partner shows at an outlet to pay part of a bill from the wallet.
- * It is worth up to half the wallet; at the outlet at most half the bill is taken, and whatever is
- * not used simply stays in the wallet (nothing is held when the QR is generated).
+ * It is worth the whole wallet; at the outlet at most half the bill is taken, and whatever is not
+ * used simply stays in the wallet (nothing is held when the QR is generated).
  */
 export interface RedeemQr {
   /** Value to render as the QR. Single use. */
@@ -1083,7 +1086,7 @@ export interface RedeemQr {
   /** Wallet snapshot when the QR was generated; the outlet always sees the live balance. */
   balancePoints: number;
   rupeeValue: number;
-  /** What this QR is worth at most: half the balance. */
+  /** What this QR is worth at most: the whole balance. */
   maxPoints: number;
   maxRupees: number;
   pointsRatio: { points: number; rupees: number };

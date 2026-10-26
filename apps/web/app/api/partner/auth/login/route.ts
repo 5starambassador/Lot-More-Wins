@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
-import { partnerLoginSchema } from '@lotmorewins/validation';
+import bcrypt from 'bcryptjs';
+import { partnerLoginSchema, partnerPasswordLoginSchema } from '@lotmorewins/validation';
 import prisma from '@/lib/prisma';
 import { HttpError } from '@/lib/auth';
 import { activeQrInclude, partnerSession } from '@/lib/partners';
@@ -15,43 +16,63 @@ import {
 
 export const dynamic = 'force-dynamic';
 
+// Compared against when the account is unknown so response time does not reveal registered partners.
+const DUMMY_HASH = bcrypt.hashSync('lmw-timing-equalizer', 10);
+
+type Identifier = { kind: 'email' | 'mobile'; value: string };
+
+function findPartner(identifier: Identifier) {
+  return prisma.partner.findUnique({
+    where: identifier.kind === 'email' ? { email: identifier.value } : { mobile: identifier.value },
+    include: activeQrInclude,
+  });
+}
+
 /**
- * POST /api/partner/auth/login — partner sign-in, step 2: the registered mobile number or email
- * and the one-time code from POST /api/partner/auth/otp. There is no password sign-in. Returns
- * the same session payload as onboarding (profile, permanent QR codes, a token that never expires).
+ * POST /api/partner/auth/login — partner sign-in. Returns the same session payload as onboarding
+ * (profile, permanent QR codes, a token that never expires).
+ * - The current app: the registered mobile number or email and the one-time code from
+ *   POST /api/partner/auth/otp (step 2 of code sign-in).
+ * - App versions from before code sign-in (v1.0.0, still installed as APKs): the mobile number or
+ *   email and the password set at registration. Partners who registered without a password (the
+ *   current app) hold an unusable random one, so they can only sign in with a code.
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await readJson(req);
-    // App versions from before code sign-in send a password and no code.
-    if (body && typeof body === 'object' && 'password' in body && !('otp' in body)) {
-      return fail(
-        426,
-        'Password sign-in has been replaced by a one-time code. Please update the Lot More Wins app to sign in.',
-        'APP_UPDATE_REQUIRED'
-      );
-    }
-    const parsed = partnerLoginSchema.safeParse(body);
-    if (!parsed.success) return validationError(parsed.error);
-    const { identifier, otp } = parsed.data;
-
     const ip = clientIp(req);
-    await assertLoginAllowed('partner', identifier.value, ip);
+    let partner: Awaited<ReturnType<typeof findPartner>>;
+    let identifier: Identifier;
 
-    const partner = await prisma.partner.findUnique({
-      where: identifier.kind === 'email' ? { email: identifier.value } : { mobile: identifier.value },
-      include: activeQrInclude,
-    });
-    if (!partner) {
-      await recordLoginFailure('partner', identifier.value, ip);
-      return fail(400, 'This code is not valid. Please request a new one.', 'OTP_INVALID');
-    }
+    if (body && typeof body === 'object' && 'password' in body && !('otp' in body)) {
+      const parsed = partnerPasswordLoginSchema.safeParse(body);
+      if (!parsed.success) return validationError(parsed.error);
+      identifier = parsed.data.identifier;
+      await assertLoginAllowed('partner', identifier.value, ip);
 
-    try {
-      await consumePartnerOtp(partner.id, 'login', otp);
-    } catch (error) {
-      if (error instanceof HttpError && error.code === 'OTP_INVALID') await recordLoginFailure('partner', identifier.value, ip);
-      throw error;
+      partner = await findPartner(identifier);
+      const valid = bcrypt.compareSync(parsed.data.password, partner?.passwordHash ?? DUMMY_HASH);
+      if (!partner || !valid) {
+        await recordLoginFailure('partner', identifier.value, ip);
+        return fail(401, 'Incorrect mobile number, email or password', 'INVALID_CREDENTIALS');
+      }
+    } else {
+      const parsed = partnerLoginSchema.safeParse(body);
+      if (!parsed.success) return validationError(parsed.error);
+      identifier = parsed.data.identifier;
+      await assertLoginAllowed('partner', identifier.value, ip);
+
+      partner = await findPartner(identifier);
+      if (!partner) {
+        await recordLoginFailure('partner', identifier.value, ip);
+        return fail(400, 'This code is not valid. Please request a new one.', 'OTP_INVALID');
+      }
+      try {
+        await consumePartnerOtp(partner.id, 'login', parsed.data.otp);
+      } catch (error) {
+        if (error instanceof HttpError && error.code === 'OTP_INVALID') await recordLoginFailure('partner', identifier.value, ip);
+        throw error;
+      }
     }
     await clearLoginFailures('partner', identifier.value, ip);
 

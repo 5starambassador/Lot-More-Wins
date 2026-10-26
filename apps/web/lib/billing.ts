@@ -321,10 +321,16 @@ export function calculateBill(
  * the bill as usual; the wallet then pays for up to half the bill (MAX_BILL_REDUCTION_PERCENT),
  * never more than the redeem QR is worth or the live balance. The customer pays the rest.
  * Whatever the QR was worth beyond that is never taken, so it simply stays in the wallet.
+ * `requestedRupees` (old Outlet Admin apps, which ask for an amount) caps the wallet part further.
  */
 export function calculateRedeemBill(
   settings: ConfiguredProgramSettings,
-  wallet: { qrMaxPoints: Prisma.Decimal; balancePoints: Prisma.Decimal; partnerCategory: PartnerCategory },
+  wallet: {
+    qrMaxPoints: Prisma.Decimal;
+    balancePoints: Prisma.Decimal;
+    partnerCategory: PartnerCategory;
+    requestedRupees?: Prisma.Decimal;
+  },
   billAmount: number,
   outlet: OutletBillTerms
 ): BillCalculation {
@@ -333,7 +339,7 @@ export function calculateRedeemBill(
   const gstAmount = roundMoney(amount.mul(outlet.gstPercentage).div(100));
   const usablePoints = Decimal.max(0, Decimal.min(wallet.qrMaxPoints, wallet.balancePoints));
   const halfBill = amount.mul(MAX_BILL_REDUCTION_PERCENT).div(100).toDecimalPlaces(2, Decimal.ROUND_DOWN);
-  const rupees = Decimal.min(rupeeValueOf(usablePoints, ratio), halfBill);
+  const rupees = Decimal.min(rupeeValueOf(usablePoints, ratio), halfBill, wallet.requestedRupees ?? halfBill);
   // Rupees were rounded down from the points, so this never needs more points than are usable.
   const points = Decimal.min(
     rupees.mul(ratio.points).div(ratio.rupees).toDecimalPlaces(2, Decimal.ROUND_HALF_UP),

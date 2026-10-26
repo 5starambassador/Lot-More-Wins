@@ -1,7 +1,14 @@
 import crypto from 'crypto';
 import { Prisma } from '@prisma/client';
 import type { Outlet as OutletRow, Partner } from '@prisma/client';
-import type { BillCalculation, BillRecord, RedeemQr, RedeemScanResult, ScannedPartner } from '@lotmorewins/types';
+import type {
+  BillCalculation,
+  BillRecord,
+  RedeemQr,
+  RedeemScanResult,
+  RedemptionReceipt,
+  ScannedPartner,
+} from '@lotmorewins/types';
 import prisma from './prisma';
 import { HttpError, signToken, verifyToken } from './auth';
 import {
@@ -18,7 +25,7 @@ import { redeemedNotificationRow } from './partner-notifications';
 
 /**
  * Wallet redemption. The partner generates a short-lived, single-use redeem QR in the app, worth
- * up to half their wallet. It is one of the three QRs a bill can take (with the Personal Discount
+ * their whole wallet. It is one of the three QRs a bill can take (with the Personal Discount
  * QR and a Referral QR, never together): the Outlet Admin scans it, enters the bill, and the
  * wallet pays for up to half the bill (never more than the QR is worth or the live balance). The
  * customer pays the rest. Nothing is held when the QR is generated, so whatever the QR was worth
@@ -68,7 +75,7 @@ export async function createRedeemQr(partnerId: string): Promise<RedeemQr> {
     throw new HttpError(422, 'Your wallet has nothing to redeem yet', 'NO_POINTS');
   }
 
-  // The QR's worth is signed into it, so the outlet can never take more than half the wallet as it was.
+  // The QR's worth is signed into it, so the outlet can never take more than the wallet held then.
   const token = signToken(
     { typ: 'redeem', partnerId, jti: crypto.randomUUID(), maxPoints: maxPoints.toString() },
     REDEEM_QR_TTL_SEC
@@ -107,7 +114,7 @@ function parseRedeemQr(raw: string) {
       'REDEEM_QR_INVALID'
     );
   }
-  // QRs generated before redeem bills carry no worth: half the live balance applies to them.
+  // QRs generated before redeem bills carry no worth: the live balance applies to them.
   const maxPoints = typeof payload.maxPoints === 'string' ? new Decimal(payload.maxPoints) : null;
   return {
     partnerId: payload.partnerId,
@@ -202,7 +209,15 @@ function generateBillNumber() {
 export async function createRedeemBill(
   outlet: OutletRow,
   adminId: string,
-  input: { qrCode: string; billAmount: number; customer?: unknown; idempotencyKey: string; settingsVersion?: string }
+  input: {
+    qrCode: string;
+    billAmount: number;
+    customer?: unknown;
+    idempotencyKey: string;
+    settingsVersion?: string;
+    /** Old Outlet Admin apps only: the exact wallet amount asked for; refused if the bill cannot take it. */
+    requestedRupees?: number;
+  }
 ): Promise<{ bill: BillRecord; replayed: boolean }> {
   if (input.customer) {
     throw new HttpError(400, 'Customer details apply only to referral QR codes', 'CUSTOMER_NOT_ALLOWED');
@@ -237,12 +252,25 @@ export async function createRedeemBill(
         const settings = await requireConfiguredSettings(tx);
         assertRedeemEnabled(settings);
         const balance = await availablePoints(tx, partnerId);
+        const requested = input.requestedRupees === undefined ? undefined : new Decimal(input.requestedRupees).toDecimalPlaces(2);
         const calc = calculateRedeemBill(
           settings,
-          { qrMaxPoints: usableWorth(maxPoints, balance), balancePoints: balance, partnerCategory: partner.category },
+          {
+            qrMaxPoints: usableWorth(maxPoints, balance),
+            balancePoints: balance,
+            partnerCategory: partner.category,
+            requestedRupees: requested,
+          },
           input.billAmount,
           outletBillTerms(settings, currentOutlet)
         );
+        if (requested && requested.gt(calc.walletRedeemAmount)) {
+          throw new HttpError(
+            422,
+            `At most ₹${calc.walletRedeemAmount.toFixed(2)} can be paid from the wallet on this bill (up to half the bill). Enter that amount or less.`,
+            'REDEEM_OVER_LIMIT'
+          );
+        }
         if (input.settingsVersion && input.settingsVersion !== calc.settingsVersion) {
           throw new HttpError(
             409,
@@ -330,4 +358,47 @@ export async function createRedeemBill(
     }
     throw error;
   }
+}
+
+/**
+ * Wallet redemption from Outlet Admin app versions from before redeem bills (v1.0.0): they send the
+ * bill and the rupees to take off, and expect a redemption receipt back. It becomes a redeem bill,
+ * so the same rules apply (at most half the bill); an amount the bill cannot take is refused with
+ * the most it can. The QR is the idempotency key, so a retry replays the same receipt.
+ */
+export async function createLegacyRedemption(
+  outlet: OutletRow,
+  adminId: string,
+  input: { qrCode: string; rupees: number; billAmount?: number }
+): Promise<{ receipt: RedemptionReceipt; bill: BillRecord }> {
+  if (input.billAmount === undefined) {
+    throw new HttpError(400, 'Enter the bill amount to redeem against', 'BILL_AMOUNT_REQUIRED');
+  }
+  const { partnerId, tokenId } = parseRedeemQr(input.qrCode);
+  const { bill, replayed } = await createRedeemBill(outlet, adminId, {
+    qrCode: input.qrCode,
+    billAmount: input.billAmount,
+    idempotencyKey: `legacy-redeem-${tokenId}`,
+    requestedRupees: input.rupees,
+  });
+
+  const [partner, settings, balance] = await Promise.all([
+    prisma.partner.findUniqueOrThrow({ where: { id: partnerId } }),
+    getProgramSettings(),
+    availablePoints(prisma, partnerId),
+  ]);
+  const receipt: RedemptionReceipt = {
+    id: bill.id,
+    points: bill.walletRedeemPoints,
+    rupeeValue: bill.walletRedeemAmount,
+    billAmount: bill.billAmount,
+    payableAmount: bill.finalAmount,
+    partner: scannedPartner(partner),
+    outlet: bill.outlet,
+    balancePoints: balance.toNumber(),
+    balanceRupeeValue: rupeeValueOf(balance, settings.pointsToRupees).toNumber(),
+    createdAt: bill.createdAt,
+    replayed,
+  };
+  return { receipt, bill };
 }

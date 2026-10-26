@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import type { CashWallet, PartnerWallet, WalletEntryType } from '@lotmorewins/types';
-import { MAX_BILL_REDUCTION_PERCENT } from '@lotmorewins/validation';
+import { MAX_WALLET_TRANSFER_PERCENT } from '@lotmorewins/validation';
 import prisma from './prisma';
 import { HttpError } from './auth';
 import { getProgramSettings } from './settings';
@@ -38,9 +38,14 @@ export function rupeeValueOf(points: Prisma.Decimal, ratio: { points: number; ru
   return points.mul(ratio.rupees).div(ratio.points).toDecimalPlaces(2, Decimal.ROUND_DOWN);
 }
 
-/** A redeem QR is worth up to half the wallet. */
+/** A redeem QR is worth the whole wallet; the outlet still takes at most half the bill. */
 export function redeemQrWorth(balance: Prisma.Decimal): Prisma.Decimal {
-  return Decimal.max(0, balance).mul(MAX_BILL_REDUCTION_PERCENT).div(100).toDecimalPlaces(2, Decimal.ROUND_DOWN);
+  return Decimal.max(0, balance).toDecimalPlaces(2, Decimal.ROUND_DOWN);
+}
+
+/** The most one transfer can send: half the wallet. */
+export function transferLimit(balance: Prisma.Decimal): Prisma.Decimal {
+  return Decimal.max(0, balance).mul(MAX_WALLET_TRANSFER_PERCENT).div(100).toDecimalPlaces(2, Decimal.ROUND_DOWN);
 }
 
 /** The wallet's advisory lock: every spend (redemption, transfer) of one wallet is serialized on it. */
@@ -178,6 +183,7 @@ export async function getPartnerWallet(partnerId: string, limit = 50): Promise<P
   const balance = sumOf('PURCHASE', 'REFERRAL', 'TRANSFER_IN', ...CASHBACK_TYPES);
   const ratio = { ...settings.pointsToRupees };
   const redeemMax = redeemQrWorth(balance);
+  const transferMax = transferLimit(balance);
 
   return {
     balancePoints: balance.toNumber(),
@@ -227,6 +233,8 @@ export async function getPartnerWallet(partnerId: string, limit = 50): Promise<P
     redeemEnabled: settings.redeemQrEnabled,
     redeemMaxPoints: redeemMax.toNumber(),
     redeemMaxRupees: rupeeValueOf(redeemMax, ratio).toNumber(),
+    transferMaxPoints: transferMax.toNumber(),
+    transferMaxRupees: rupeeValueOf(transferMax, ratio).toNumber(),
     cash: retiredCashWallet(),
   };
 }

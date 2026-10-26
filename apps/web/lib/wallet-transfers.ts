@@ -5,7 +5,7 @@ import type { WalletTransferRecipient, WalletTransferResponse } from '@lotmorewi
 import prisma from './prisma';
 import { HttpError } from './auth';
 import { getProgramSettings } from './settings';
-import { availablePoints, lockWallet, rupeeValueOf, spendWalletPoints } from './points';
+import { availablePoints, lockWallet, rupeeValueOf, spendWalletPoints, transferLimit } from './points';
 import { consumePartnerOtp, sendPartnerOtp, type SentPartnerOtp } from './partner-otp';
 import { transferNotificationRows } from './partner-notifications';
 
@@ -15,7 +15,7 @@ import { transferNotificationRows } from './partner-notifications';
  * one-time code sent to the sender (sessions never expire, so the code is what stops a borrowed
  * phone from emptying the wallet). The sender's points are spent soonest-expiring first; the
  * recipient gets one entry carrying the soonest expiry among the points sent, so a transfer can
- * never extend how long points last.
+ * never extend how long points last. One transfer can send at most half the wallet.
  */
 
 const Decimal = Prisma.Decimal;
@@ -43,16 +43,30 @@ export async function findTransferRecipient(senderId: string, mobile: string): P
   return { name: recipient.name, partnerCode: recipient.partnerCode, mobile: recipient.mobile };
 }
 
-/** Checks the transfer can go ahead (recipient, balance), then sends the sender a confirmation code. */
+/** Refuses more than half the wallet (the balance before this transfer). */
+function assertWithinTransferLimit(points: Prisma.Decimal, balance: Prisma.Decimal, ratio: { points: number; rupees: number }) {
+  const limit = transferLimit(balance);
+  if (points.gt(limit)) {
+    throw new HttpError(
+      422,
+      `You can send up to half your wallet at a time: ${limit.toString()} points (worth ₹${rupeeValueOf(limit, ratio).toFixed(2)}).`,
+      'TRANSFER_LIMIT',
+      { balancePoints: balance.toNumber(), transferMaxPoints: limit.toNumber() }
+    );
+  }
+}
+
+/** Checks the transfer can go ahead (recipient, balance, half-wallet limit), then sends the sender a confirmation code. */
 export async function requestTransferOtp(senderId: string, mobile: string, points: number): Promise<SentPartnerOtp> {
   const sender = await activeSender(senderId);
   await recipientByMobile(senderId, mobile);
-  const balance = await availablePoints(prisma, senderId);
+  const [balance, settings] = await Promise.all([availablePoints(prisma, senderId), getProgramSettings()]);
   if (new Decimal(points).gt(balance)) {
     throw new HttpError(422, 'Your wallet does not have enough for this amount', 'INSUFFICIENT_POINTS', {
       balancePoints: balance.toNumber(),
     });
   }
+  assertWithinTransferLimit(new Decimal(points).toDecimalPlaces(2), balance, settings.pointsToRupees);
   return sendPartnerOtp(sender, 'transfer');
 }
 
@@ -121,6 +135,7 @@ export async function sendWalletTransfer(
         const settings = await getProgramSettings(tx);
         const ratio = settings.pointsToRupees;
         const points = new Decimal(input.points).toDecimalPlaces(2);
+        assertWithinTransferLimit(points, await availablePoints(tx, senderId), ratio);
         const { soonestExpiry } = await spendWalletPoints(tx, senderId, points, 'Your wallet does not have enough for this amount');
 
         const transfer = await tx.walletTransfer.create({

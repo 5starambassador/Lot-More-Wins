@@ -30,7 +30,7 @@ function withCors(res: NextResponse, origin: string) {
   res.headers.set('Access-Control-Allow-Origin', origin);
   res.headers.set('Vary', 'Origin');
   res.headers.set('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-  res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+  res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-LMW-Client');
   res.headers.set('Access-Control-Max-Age', '600');
   return res;
 }

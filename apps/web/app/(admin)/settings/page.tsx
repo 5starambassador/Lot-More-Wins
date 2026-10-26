@@ -823,7 +823,7 @@ export default function SettingsPage() {
 
                 <Field
                   label="Redeem QR"
-                  hint="Lets partners pay part of a bill from their wallet with a short-lived QR worth up to half the wallet. It is scanned in place of a discount QR; the wallet pays at most half the bill and the rest stays in the wallet."
+                  hint="Lets partners pay part of a bill from their wallet with a short-lived QR worth the whole wallet. It is scanned in place of a discount QR; the wallet pays at most half the bill and the rest stays in the wallet."
                 >
                   <ChoiceCards<'on' | 'off'>
                     name="Redeem QR"
