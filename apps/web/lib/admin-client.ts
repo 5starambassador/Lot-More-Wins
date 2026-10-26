@@ -25,18 +25,32 @@ export function isUnauthenticated(error: unknown): boolean {
  * `format=csv` with the whole filtered result, so the export matches the filters on screen.
  */
 export async function downloadCsv(path: string, params: Record<string, string | number | undefined> = {}): Promise<void> {
+  return downloadFile(path, params, 'csv');
+}
+
+/** Downloads `GET /api{path}?…&format=<format>` (csv, or xlsx for the Finance payout sheet) as a file. */
+export async function downloadFile(
+  path: string,
+  params: Record<string, string | number | undefined> = {},
+  format: 'csv' | 'xlsx' = 'csv'
+): Promise<void> {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== '') query.set(key, String(value));
   }
-  query.set('format', 'csv');
+  query.set('format', format);
 
-  const res = await fetch(`/api${path}?${query}`, { credentials: 'same-origin' });
+  const res = await fetch(`/api${path}?${query}`, {
+    credentials: 'same-origin',
+  });
   if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { message?: string; code?: string } | null;
+    const body = (await res.json().catch(() => null)) as {
+      message?: string;
+      code?: string;
+    } | null;
     throw new ApiClientError(res.status, body?.message ?? 'The export could not be created.', body?.code);
   }
-  const fileName = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? 'export.csv';
+  const fileName = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? `export.${format}`;
   const url = URL.createObjectURL(await res.blob());
   const link = document.createElement('a');
   link.href = url;
@@ -63,7 +77,11 @@ export async function fileToBase64(file: File): Promise<string> {
  */
 export function useAdminQuery<T>(fetcher: () => Promise<T>, deps: React.DependencyList) {
   const router = useRouter();
-  const [state, setState] = useState<{ data: T | null; error: string | null; loading: boolean }>({
+  const [state, setState] = useState<{
+    data: T | null;
+    error: string | null;
+    loading: boolean;
+  }>({
     data: null,
     error: null,
     loading: true,
@@ -79,7 +97,12 @@ export function useAdminQuery<T>(fetcher: () => Promise<T>, deps: React.Dependen
       .catch((err) => {
         if (id !== latest.current) return;
         if (isUnauthenticated(err)) router.replace('/login');
-        else setState((s) => ({ ...s, error: errorMessage(err, 'Could not load data.'), loading: false }));
+        else
+          setState((s) => ({
+            ...s,
+            error: errorMessage(err, 'Could not load data.'),
+            loading: false,
+          }));
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, nonce]);

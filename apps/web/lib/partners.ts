@@ -9,10 +9,11 @@ import type {
   ProgramSettings,
 } from '@lotmorewins/types';
 import prisma from './prisma';
-import { HttpError, PARTNER_TOKEN_TTL_SEC, signToken } from './auth';
+import { HttpError, signToken } from './auth';
 import { appDownloadLinks, getProgramSettings } from './settings';
-import { isFirstTimeDirect } from './billing';
+import { firstTimeWindowOpen } from './billing';
 import { referralProgress } from './referral-rewards';
+import { serializeOutlet } from './outlets';
 
 /**
  * Partner profile helpers. There is a single partner role: every partner gets the same
@@ -73,6 +74,8 @@ export function serializePartner(partner: Partner): PartnerProfile {
     dateOfBirth: toDateOnly(partner.dateOfBirth),
     photoUrl: partner.photoUrl,
     status: partner.status,
+    upiId: partner.upiId,
+    category: partner.category,
     createdAt: partner.createdAt.toISOString(),
   };
 }
@@ -118,18 +121,35 @@ export async function referredByData(
   if (input.type === 'PARTNER') {
     const entered = (input.partnerCode ?? '').trim();
     const match = await prisma.partner.findFirst({
-      where: { OR: [{ partnerCode: { equals: entered, mode: 'insensitive' } }, { mobile: entered }] },
+      where: {
+        OR: [{ partnerCode: { equals: entered, mode: 'insensitive' } }, { mobile: entered }],
+      },
       select: { id: true },
     });
-    return { referredByType: 'PARTNER', referredByText: entered, referredByPartnerId: match?.id ?? null };
+    return {
+      referredByType: 'PARTNER',
+      referredByText: entered,
+      referredByPartnerId: match?.id ?? null,
+    };
   }
   if (input.type === 'OUTLET') {
     const outlet = input.outletId
-      ? await prisma.outlet.findUnique({ where: { id: input.outletId }, select: { id: true, name: true } })
+      ? await prisma.outlet.findUnique({
+          where: { id: input.outletId },
+          select: { id: true, name: true },
+        })
       : null;
-    return { referredByType: 'OUTLET', referredByText: outlet?.name ?? null, referredByOutletId: outlet?.id ?? null };
+    return {
+      referredByType: 'OUTLET',
+      referredByText: outlet?.name ?? null,
+      referredByOutletId: outlet?.id ?? null,
+    };
   }
-  if (input.type === 'OTHER') return { referredByType: 'OTHER', referredByText: (input.other ?? '').trim() };
+  if (input.type === 'OTHER')
+    return {
+      referredByType: 'OTHER',
+      referredByText: (input.other ?? '').trim(),
+    };
   return { referredByType: 'MARKETING_REP' };
 }
 
@@ -152,17 +172,22 @@ export function serializeReferredBy(
   };
 }
 
-export const activeQrInclude = { qrCodes: { where: { status: 'ACTIVE' }, orderBy: { type: 'asc' } } } as const;
+export const activeQrInclude = {
+  qrCodes: { where: { status: 'ACTIVE' }, orderBy: { type: 'asc' } },
+} as const;
 
 /** Profile, permanent QR codes and a fresh token: the session payload of registration and sign-in. */
 export function partnerSession(partner: Partner & { qrCodes: QRCode[] }): PartnerOnboardingResponse {
   return {
     partner: serializePartner(partner),
     qrCodes: serializeQrCodes(partner.qrCodes),
-    token: signToken(
-      { typ: 'partner', partnerId: partner.id, partnerCode: partner.partnerCode, mobile: partner.mobile },
-      PARTNER_TOKEN_TTL_SEC
-    ),
+    // No expiry: the partner stays signed in on the device until they sign out.
+    token: signToken({
+      typ: 'partner',
+      partnerId: partner.id,
+      partnerCode: partner.partnerCode,
+      mobile: partner.mobile,
+    }),
   };
 }
 
@@ -170,10 +195,22 @@ export async function getPartnerHome(partnerId: string): Promise<PartnerHome> {
   const partner = await prisma.partner.findUnique({ where: { id: partnerId } });
   if (!partner) throw new HttpError(404, 'Partner account not found', 'PARTNER_NOT_FOUND');
 
-  const [settings, unreadNotifications] = await Promise.all([
+  const [settings, unreadNotifications, outlets, visited] = await Promise.all([
     getProgramSettings(),
     prisma.notification.count({ where: { partnerId, readAt: null } }),
+    prisma.outlet.findMany({
+      where: { status: 'ACTIVE' },
+      orderBy: { name: 'asc' },
+    }),
+    // First-time status is per outlet: outlets this partner already has a bill at.
+    prisma.bill.findMany({
+      where: { partnerId, transactionType: 'DIRECT_PARTNER' },
+      distinct: ['outletId'],
+      select: { outletId: true },
+    }),
   ]);
+  const visitedOutletIds = new Set(visited.map((b) => b.outletId));
+  const shownOutlets = outlets.map((o) => serializeOutlet(o, settings, partner.category));
   const validityDays = settings.firstTimeValidityDays;
   const referrals = await referralProgress(prisma, partnerId, settings.referralRewardGoal);
 
@@ -187,8 +224,9 @@ export async function getPartnerHome(partnerId: string): Promise<PartnerHome> {
       rewardDiscount: settings.referralRewardDiscount,
     },
     offers: {
-      firstTimeDiscount: settings.firstTimeDiscount,
-      firstTimeAvailable: await isFirstTimeDirect(prisma, partner, validityDays),
+      firstTimeDiscount: partner.category === 'ACHARIYA' ? settings.achariyaFirstTimeDiscount : settings.firstTimeDiscount,
+      // Still waiting at some active outlet the partner has not bought at yet.
+      firstTimeAvailable: firstTimeWindowOpen(partner, validityDays) && outlets.some((o) => !visitedOutletIds.has(o.id)),
       firstTimeExpiresAt:
         validityDays > 0 ? new Date(partner.createdAt.getTime() + validityDays * 86_400_000).toISOString() : null,
       birthdayBonusDiscount: settings.birthdayBonusDiscount,
@@ -202,5 +240,11 @@ export async function getPartnerHome(partnerId: string): Promise<PartnerHome> {
     latestAppVersion: settings.latestAppVersion,
     appLinks: appDownloadLinks(settings),
     walletDisplay: settings.walletDisplay,
+    maxOutletDiscount: shownOutlets.length ? Math.max(...shownOutlets.map((o) => o.offer!.maxDiscount)) : null,
+    outlets: shownOutlets,
+    // The cash wallet merged into the one wallet and UPI payouts ended; kept for older apps.
+    cashBalance: 0,
+    upiMissing: false,
+    redeemEnabled: settings.redeemQrEnabled,
   };
 }

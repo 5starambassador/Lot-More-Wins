@@ -6,7 +6,15 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRight, Coins, Power } from 'lucide-react';
 import type { BillRecord, BillTransactionType, UpdateOutletPayload } from '@lotmorewins/types';
 import { BillDrawer, BillsTable } from '@/components/admin/bills';
-import { OutletForm, OutletLogo, emptyOutletForm, type OutletFormValues } from '@/components/admin/outlet-form';
+import {
+  DISCOUNT_FIELDS,
+  REWARD_FIELDS,
+  OutletForm,
+  OutletLogo,
+  emptyOutletForm,
+  offerPayload,
+  type OutletFormValues,
+} from '@/components/admin/outlet-form';
 import { DateRangeFilter, ExportCsvButton, FilterBar, NO_DATES, dateQuery, readDateRange } from '@/components/admin/filter-bar';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonClass } from '@/components/ui/button';
@@ -27,7 +35,23 @@ type TabKey = 'overview' | 'profile';
 
 const BILLS_PAGE_SIZE = 10;
 const REDEMPTIONS_PAGE_SIZE = 10;
-const TYPES = ['DIRECT_PARTNER', 'REFERRAL'] as const;
+const TYPES = ['DIRECT_PARTNER', 'REFERRAL', 'WALLET_REDEEM'] as const;
+
+const OFFER_FIELD_LABEL: Record<string, string> = {
+  ...Object.fromEntries(DISCOUNT_FIELDS.map(({ key, label }) => [key, `${label} discount`])),
+  ...Object.fromEntries(REWARD_FIELDS.map(({ key, label }) => [key, `${label} rate`])),
+  gstPercentage: 'GST',
+  givesCashReward: 'Gives cashback',
+  canEditOffers: 'Outlet can edit offers',
+};
+
+/** Audit values are stored as text: percentages, "true"/"false", or null (programme setting). */
+function offerValue(field: string, value: string | null): string {
+  if (value === null) return 'Programme setting';
+  if (value === 'true') return 'On';
+  if (value === 'false') return 'Off';
+  return field === 'givesCashReward' || field === 'canEditOffers' ? value : `${value}%`;
+}
 
 function OutletDetailView({ id }: { id: string }) {
   const router = useRouter();
@@ -54,11 +78,25 @@ function OutletDetailView({ id }: { id: string }) {
   const { data: outlet, error: loadError, reload, setData } = useAdminQuery(() => adminApi.getAdminOutlet(id).then((r) => r.data), [id]);
   const billFilters = { outletId: id, ...dateQuery(dates), type };
   const activity = useAdminQuery(
-    () => adminApi.listAdminTransactions({ ...billFilters, page: billPage, limit: BILLS_PAGE_SIZE }).then((r) => r.data),
+    () =>
+      adminApi
+        .listAdminTransactions({
+          ...billFilters,
+          page: billPage,
+          limit: BILLS_PAGE_SIZE,
+        })
+        .then((r) => r.data),
     [id, dates.from, dates.to, type, billPage]
   );
   const redemptions = useAdminQuery(
-    () => adminApi.getAdminOutletRedemptions(id, { ...dateQuery(dates), page: redemptionPage, limit: REDEMPTIONS_PAGE_SIZE }).then((r) => r.data),
+    () =>
+      adminApi
+        .getAdminOutletRedemptions(id, {
+          ...dateQuery(dates),
+          page: redemptionPage,
+          limit: REDEMPTIONS_PAGE_SIZE,
+        })
+        .then((r) => r.data),
     [id, dates.from, dates.to, redemptionPage]
   );
   const filtered = Boolean(dates.from || dates.to || type);
@@ -75,10 +113,13 @@ function OutletDetailView({ id }: { id: string }) {
   const [toggling, setToggling] = useState(false);
   const [selected, setSelected] = useState<BillRecord | null>(null);
 
+  const offerChanges = useAdminQuery(() => adminApi.getAdminOutletOfferChanges(id).then((r) => r.data), [id]);
+
   const update = async (payload: UpdateOutletPayload) => {
     const res = await adminApi.updateAdminOutlet(id, payload);
     setData(() => res.data);
     setFormKey((k) => k + 1);
+    offerChanges.reload();
     return res.data;
   };
 
@@ -95,6 +136,7 @@ function OutletDetailView({ id }: { id: string }) {
         mapUrl: values.mapUrl,
         logoUrl: values.logoUrl,
         images: values.images,
+        ...offerPayload(values),
         ...(values.adminPassword ? { adminPassword: values.adminPassword } : {}),
       });
       toast('success', values.adminPassword ? 'Outlet saved and password reset' : 'Outlet saved');
@@ -215,7 +257,11 @@ function OutletDetailView({ id }: { id: string }) {
                 resetPages();
               })
             }
-            exportCsv={{ path: '/admin/transactions', params: billFilters, label: 'Export bills CSV' }}
+            exportCsv={{
+              path: '/admin/transactions',
+              params: billFilters,
+              label: 'Export bills CSV',
+            }}
           >
             <DateRangeFilter
               value={dates}
@@ -245,11 +291,24 @@ function OutletDetailView({ id }: { id: string }) {
           <Panel className="grid grid-cols-2 gap-px overflow-hidden bg-stone-150 md:grid-cols-3 xl:grid-cols-6">
             {[
               { label: 'Bills', value: s ? formatNumber(s.billCount) : '—' },
-              { label: 'Gross sales', value: s ? formatINR(s.billAmount) : '—', strong: true },
-              { label: 'Discounts given', value: s ? formatINR(s.discountAmount) : '—' },
+              {
+                label: 'Gross sales',
+                value: s ? formatINR(s.billAmount) : '—',
+                strong: true,
+              },
+              {
+                label: 'Discounts given',
+                value: s ? formatINR(s.discountAmount) : '—',
+              },
               { label: 'Collected', value: s ? formatINR(s.finalAmount) : '—' },
-              { label: 'Points issued', value: s ? formatNumber(s.purchasePoints + s.referralPoints) : '—' },
-              { label: 'Points redeemed', value: r ? `${formatNumber(r.points)} · ${formatINR(r.rupeeValue)}` : '—' },
+              {
+                label: 'Points issued',
+                value: s ? formatNumber(s.purchasePoints + s.referralPoints) : '—',
+              },
+              {
+                label: 'Points redeemed',
+                value: r ? `${formatNumber(r.points)} · ${formatINR(r.rupeeValue)}` : '—',
+              },
             ].map((m) => (
               <div key={m.label} className="bg-white px-5 py-4">
                 <p className="text-xs text-stone-500">{m.label}</p>
@@ -363,6 +422,95 @@ function OutletDetailView({ id }: { id: string }) {
           </Panel>
 
           <Panel>
+            <PanelHeader
+              title="Offers & GST"
+              description={`${outlet.offer?.label ?? ''}${outlet.offers.givesCashReward ? ' · gives cashback' : ''}`}
+              actions={
+                <Button variant="secondary" size="sm" onClick={() => setTab('profile')}>
+                  Edit offers
+                </Button>
+              }
+            />
+            <div className="grid grid-cols-2 gap-px overflow-hidden bg-stone-150 md:grid-cols-5">
+              {[
+                ...DISCOUNT_FIELDS.map(({ key, label }) => ({
+                  label,
+                  value: `${outlet.effectiveDiscounts[key]}%`,
+                  note: outlet.offers[key] === null ? 'Programme setting' : 'Outlet override',
+                })),
+                {
+                  label: 'GST',
+                  value: `${outlet.offers.gstPercentage}%`,
+                  note: 'On the discounted amount',
+                },
+                ...REWARD_FIELDS.filter((f) => !f.cashback || outlet.offers.givesCashReward).map(({ key, label }) => ({
+                  label,
+                  value: `${outlet.effectiveRewards[key]}%`,
+                  note: outlet.offers[key] === null ? 'Programme setting' : 'Outlet override',
+                })),
+              ].map((m) => (
+                <div key={m.label} className="bg-white px-5 py-4">
+                  <p className="text-xs text-stone-500">{m.label}</p>
+                  <p className="tabular mt-1 text-lg font-semibold text-stone-900">{m.value}</p>
+                  <p className="text-[11px] text-stone-400">{m.note}</p>
+                </div>
+              ))}
+            </div>
+          </Panel>
+
+          <Panel>
+            <PanelHeader
+              title="Offer change log"
+              description="Every change to this outlet's discounts, points and cashback rates, GST, cashback and edit permission."
+            />
+            {offerChanges.error ? (
+              <div className="p-5">
+                <Alert tone="danger">{offerChanges.error}</Alert>
+              </div>
+            ) : offerChanges.data && offerChanges.data.length === 0 ? (
+              <EmptyState icon={Coins} title="No changes yet" description="Changes from this panel or the Outlet Admin app appear here." />
+            ) : (
+              <TableScroll>
+                <Table className="min-w-[640px]">
+                  <THead>
+                    <tr>
+                      <TH>When</TH>
+                      <TH>By</TH>
+                      <TH>Field</TH>
+                      <TH align="right">Old</TH>
+                      <TH align="right">New</TH>
+                    </tr>
+                  </THead>
+                  <TBody>
+                    {!offerChanges.data ? (
+                      <SkeletonRows cols={5} rows={3} />
+                    ) : (
+                      offerChanges.data.map((c) => (
+                        <TR key={c.id}>
+                          <TD className="h-11 whitespace-nowrap text-stone-500">{formatDateTime(c.createdAt)}</TD>
+                          <TD className="h-11">
+                            <span className="text-stone-900">{c.actorEmail}</span>
+                            <span className="ml-2 text-[11px] text-stone-500">
+                              {c.actorType === 'OUTLET_ADMIN' ? 'Outlet Admin' : 'Super Admin panel'}
+                            </span>
+                          </TD>
+                          <TD className="h-11 text-stone-700">{OFFER_FIELD_LABEL[c.field] ?? c.field}</TD>
+                          <TD className="h-11 text-stone-500" align="right">
+                            {offerValue(c.field, c.oldValue)}
+                          </TD>
+                          <TD className="h-11 font-medium text-stone-900" align="right">
+                            {offerValue(c.field, c.newValue)}
+                          </TD>
+                        </TR>
+                      ))
+                    )}
+                  </TBody>
+                </Table>
+              </TableScroll>
+            )}
+          </Panel>
+
+          <Panel>
             <PanelHeader title="Outlet Admin access" description="Staff sign in to the Outlet Admin app with this login." />
             <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 text-[13px]">
               <span className="text-stone-800">{outlet.adminEmail ?? 'No admin login'}</span>
@@ -378,6 +526,10 @@ function OutletDetailView({ id }: { id: string }) {
             key={formKey}
             mode="edit"
             initial={emptyOutletForm(outlet)}
+            programme={Object.fromEntries([
+              ...DISCOUNT_FIELDS.filter(({ key }) => outlet.offers[key] === null).map(({ key }) => [key, outlet.effectiveDiscounts[key]]),
+              ...REWARD_FIELDS.filter(({ key }) => outlet.offers[key] === null).map(({ key }) => [key, outlet.effectiveRewards[key]]),
+            ])}
             submitting={saving}
             error={saveError}
             onSubmit={onSubmit}

@@ -15,6 +15,7 @@ import { Pagination, SkeletonRows, TBody, TD, TH, THead, TR, Table, TableScroll 
 import { adminApi, useAdminQuery, useDebounced } from '@/lib/admin-client';
 import { PARTNER_STATUS, REFERRED_BY_LABEL } from '@/lib/admin-labels';
 import { formatDate, formatNumber, initials } from '@/lib/format';
+import { PARTNER_CATEGORY } from '@/components/admin/revised-labels';
 
 const PAGE_SIZE = 20;
 const STATUSES = ['ACTIVE', 'PENDING', 'SUSPENDED', 'REJECTED'] as const;
@@ -52,7 +53,13 @@ function PartnersView() {
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }, [q, status, referrals, dates, sort, page, pathname, router]);
 
-  const filters = { search: q || undefined, status, referrals, sort, ...dateQuery(dates) };
+  const filters = {
+    search: q || undefined,
+    status,
+    referrals,
+    sort,
+    ...dateQuery(dates),
+  };
   const { data, error, loading, reload } = useAdminQuery(
     () => adminApi.listAdminPartners({ page, limit: PAGE_SIZE, ...filters }),
     [page, q, status, referrals, dates.from, dates.to, sort]
@@ -141,7 +148,7 @@ function PartnersView() {
           />
         ) : (
           <TableScroll>
-            <Table className="min-w-[1100px]">
+            <Table className="min-w-[1340px]">
               <THead>
                 <tr>
                   <TH>Partner</TH>
@@ -150,14 +157,15 @@ function PartnersView() {
                   <TH>Referred by</TH>
                   <TH align="right">Own bills</TH>
                   <TH align="right">Referrals</TH>
-                  <TH align="right">Points</TH>
+                  <TH align="right">Wallet</TH>
+                  <TH>Category</TH>
                   <TH>Status</TH>
                   <TH>Joined</TH>
                 </tr>
               </THead>
               <TBody className={loading && partners ? 'opacity-60 transition-opacity' : undefined}>
                 {!partners ? (
-                  <SkeletonRows cols={9} rows={8} />
+                  <SkeletonRows cols={10} rows={8} />
                 ) : (
                   partners.map((p) => (
                     <TR
@@ -208,6 +216,9 @@ function PartnersView() {
                       </TD>
                       <TD align="right" className="font-medium text-stone-900">
                         {formatNumber(p.pointsBalance)}
+                      </TD>
+                      <TD>
+                        <p className="text-stone-800">{PARTNER_CATEGORY[p.category]}</p>
                       </TD>
                       <TD>
                         <Badge tone={PARTNER_STATUS[p.status].tone}>{PARTNER_STATUS[p.status].label}</Badge>

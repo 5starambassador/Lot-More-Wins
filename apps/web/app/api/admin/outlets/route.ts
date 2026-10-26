@@ -6,6 +6,8 @@ import { adminOutletListQuerySchema, outletCreateSchema } from '@lotmorewins/val
 import prisma from '@/lib/prisma';
 import { requireAdmin } from '@/lib/auth';
 import { adminOutletInclude, serializeAdminOutlet } from '@/lib/outlets';
+import { applyOfferChanges, pickOfferFields } from '@/lib/outlet-offers';
+import { getProgramSettings } from '@/lib/settings';
 import { listOutlets, outletsCsv } from '@/lib/admin-insights';
 import { csvResponse } from '@/lib/admin-csv';
 import { fail, handleRouteError, ok, readJson, validationError } from '@/lib/api-response';
@@ -25,7 +27,10 @@ export async function GET(req: NextRequest) {
       if (!(['outlets', 'partners', 'transactions', 'dashboard'] as const).some((page) => admin.pages.includes(page))) {
         return fail(403, 'You do not have access to outlets', 'PAGE_FORBIDDEN');
       }
-      const options: AdminOutletOption[] = await prisma.outlet.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+      const options: AdminOutletOption[] = await prisma.outlet.findMany({
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      });
       return ok(options);
     }
 
@@ -42,27 +47,46 @@ export async function GET(req: NextRequest) {
 /** POST /api/admin/outlets — create an outlet together with its Outlet Admin login. */
 export async function POST(req: NextRequest) {
   try {
-    await requireAdmin(req, 'outlets');
+    const admin = await requireAdmin(req, 'outlets');
     const parsed = outletCreateSchema.safeParse(await readJson(req));
     if (!parsed.success) return validationError(parsed.error);
     const { adminEmail, adminPassword, ...fields } = parsed.data;
 
-    const outlet = await prisma.outlet.create({
-      data: {
-        name: fields.name,
-        email: fields.email,
-        mobile: fields.mobile,
-        description: fields.description ?? null,
-        address: fields.address ?? null,
-        mapUrl: fields.mapUrl ?? null,
-        logoUrl: fields.logoUrl ?? null,
-        images: fields.images ?? [],
-        status: fields.status ?? 'ACTIVE',
-        admins: { create: { email: adminEmail, passwordHash: bcrypt.hashSync(adminPassword, 10) } },
+    const outlet = await prisma.$transaction(
+      async (tx) => {
+        const created = await tx.outlet.create({
+          data: {
+            name: fields.name,
+            email: fields.email,
+            mobile: fields.mobile,
+            description: fields.description ?? null,
+            address: fields.address ?? null,
+            mapUrl: fields.mapUrl ?? null,
+            logoUrl: fields.logoUrl ?? null,
+            images: fields.images ?? [],
+            status: fields.status ?? 'ACTIVE',
+            admins: {
+              create: {
+                email: adminEmail,
+                passwordHash: bcrypt.hashSync(adminPassword, 10),
+              },
+            },
+          },
+        });
+        // Offers start at the defaults (no overrides, GST 0, no cash reward); the chosen values are logged as changes.
+        await applyOfferChanges(tx, created.id, pickOfferFields(fields), {
+          type: 'SUPER_ADMIN',
+          id: admin.id,
+          email: admin.email,
+        });
+        return tx.outlet.findUniqueOrThrow({
+          where: { id: created.id },
+          include: adminOutletInclude,
+        });
       },
-      include: adminOutletInclude,
-    });
-    return ok(serializeAdminOutlet(outlet), 201, 'Outlet created');
+      { maxWait: 10_000, timeout: 20_000 }
+    );
+    return ok(serializeAdminOutlet(outlet, await getProgramSettings()), 201, 'Outlet created');
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return fail(409, 'An Outlet Admin with this login email already exists', 'ADMIN_EMAIL_TAKEN');

@@ -1,20 +1,30 @@
 import crypto from 'crypto';
 import { Prisma } from '@prisma/client';
-import type { Notification, Outlet as OutletRow, Partner } from '@prisma/client';
-import type { RedeemQr, RedeemScanResult, RedemptionReceipt, ScannedPartner } from '@lotmorewins/types';
+import type { Outlet as OutletRow, Partner } from '@prisma/client';
+import type { BillCalculation, BillRecord, RedeemQr, RedeemScanResult, ScannedPartner } from '@lotmorewins/types';
 import prisma from './prisma';
 import { HttpError, signToken, verifyToken } from './auth';
-import { assertOutletCanTransact } from './billing';
+import {
+  assertOutletCanTransact,
+  billInclude,
+  calculateRedeemBill,
+  outletBillTerms,
+  pricingVersion,
+  serializeBill,
+} from './billing';
 import { getProgramSettings, requireConfiguredSettings } from './settings';
-import { availablePoints, rupeeValueOf, unexpiredPoints } from './points';
+import { availablePoints, lockWallet, redeemQrWorth, rupeeValueOf, spendWalletPoints } from './points';
 import { redeemedNotificationRow } from './partner-notifications';
 
 /**
- * Wallet redemption. The partner generates a short-lived, single-use redeem QR in the app;
- * the Outlet Admin scans it, sees the partner and their live balance, enters the bill and takes
- * a rupee amount (never more than the bill) off it. Points are spent from the soonest-expiring entries first.
- * The QR carries only a signed token: the partner, balance and worth are always read from
- * the database when it is scanned.
+ * Wallet redemption. The partner generates a short-lived, single-use redeem QR in the app, worth
+ * up to half their wallet. It is one of the three QRs a bill can take (with the Personal Discount
+ * QR and a Referral QR, never together): the Outlet Admin scans it, enters the bill, and the
+ * wallet pays for up to half the bill (never more than the QR is worth or the live balance). The
+ * customer pays the rest. Nothing is held when the QR is generated, so whatever the QR was worth
+ * beyond what the bill used simply stays in the wallet. A redeem bill gets no discount and earns
+ * no rewards. Points are spent from the soonest-expiring entries first. The QR carries only a
+ * signed token: the partner and balance are always read from the database.
  */
 
 const Decimal = Prisma.Decimal;
@@ -27,28 +37,55 @@ export function isRedeemQr(raw: string): boolean {
 }
 
 function scannedPartner(partner: Partner): ScannedPartner {
-  return { id: partner.id, partnerCode: partner.partnerCode, name: partner.name, mobile: partner.mobile, email: partner.email };
+  return {
+    id: partner.id,
+    partnerCode: partner.partnerCode,
+    name: partner.name,
+    mobile: partner.mobile,
+    email: partner.email,
+  };
+}
+
+/** The redeem QR is behind a Super Admin setting (off by default). 422, not 403: Outlet Admin apps sign out on 403s. */
+function assertRedeemEnabled(settings: { redeemQrEnabled: boolean }) {
+  if (!settings.redeemQrEnabled) {
+    throw new HttpError(422, 'Wallet redemption is turned off', 'REDEEM_DISABLED');
+  }
 }
 
 export async function createRedeemQr(partnerId: string): Promise<RedeemQr> {
+  const settings = await getProgramSettings();
+  assertRedeemEnabled(settings);
   const partner = await prisma.partner.findUnique({ where: { id: partnerId } });
   if (!partner) throw new HttpError(404, 'Partner account not found', 'PARTNER_NOT_FOUND');
   if (partner.status !== 'ACTIVE') {
     throw new HttpError(403, 'This partner account is not active', 'PARTNER_INACTIVE');
   }
 
-  const [settings, balance] = await Promise.all([getProgramSettings(), availablePoints(prisma, partnerId)]);
-  if (balance.lte(0)) {
-    throw new HttpError(422, 'You have no points to redeem yet', 'NO_POINTS');
+  const balance = await availablePoints(prisma, partnerId);
+  const maxPoints = redeemQrWorth(balance);
+  if (maxPoints.lte(0) || rupeeValueOf(maxPoints, settings.pointsToRupees).lte(0)) {
+    throw new HttpError(422, 'Your wallet has nothing to redeem yet', 'NO_POINTS');
   }
 
-  const token = signToken({ typ: 'redeem', partnerId, jti: crypto.randomUUID() }, REDEEM_QR_TTL_SEC);
+  // The QR's worth is signed into it, so the outlet can never take more than half the wallet as it was.
+  const token = signToken(
+    { typ: 'redeem', partnerId, jti: crypto.randomUUID(), maxPoints: maxPoints.toString() },
+    REDEEM_QR_TTL_SEC
+  );
   return {
     code: `${REDEEM_QR_PREFIX}${token}`,
     expiresAt: new Date(Date.now() + REDEEM_QR_TTL_SEC * 1000).toISOString(),
-    partner: { id: partner.id, partnerCode: partner.partnerCode, name: partner.name, mobile: partner.mobile },
+    partner: {
+      id: partner.id,
+      partnerCode: partner.partnerCode,
+      name: partner.name,
+      mobile: partner.mobile,
+    },
     balancePoints: balance.toNumber(),
     rupeeValue: rupeeValueOf(balance, settings.pointsToRupees).toNumber(),
+    maxPoints: maxPoints.toNumber(),
+    maxRupees: rupeeValueOf(maxPoints, settings.pointsToRupees).toNumber(),
     pointsRatio: { ...settings.pointsToRupees },
   };
 }
@@ -57,14 +94,27 @@ export async function createRedeemQr(partnerId: string): Promise<RedeemQr> {
 function parseRedeemQr(raw: string) {
   const value = raw.trim();
   const payload = value.startsWith(REDEEM_QR_PREFIX) ? verifyToken(value.slice(REDEEM_QR_PREFIX.length)) : null;
-  if (!payload || payload.typ !== 'redeem' || typeof payload.partnerId !== 'string' || typeof payload.jti !== 'string') {
+  if (
+    !payload ||
+    payload.typ !== 'redeem' ||
+    typeof payload.partnerId !== 'string' ||
+    typeof payload.jti !== 'string' ||
+    typeof payload.exp !== 'number'
+  ) {
     throw new HttpError(
       422,
       'This redeem QR has expired or is not valid. Ask the partner to generate a new one.',
       'REDEEM_QR_INVALID'
     );
   }
-  return { partnerId: payload.partnerId, tokenId: payload.jti, expiresAt: new Date(payload.exp * 1000) };
+  // QRs generated before redeem bills carry no worth: half the live balance applies to them.
+  const maxPoints = typeof payload.maxPoints === 'string' ? new Decimal(payload.maxPoints) : null;
+  return {
+    partnerId: payload.partnerId,
+    tokenId: payload.jti,
+    maxPoints,
+    expiresAt: new Date(payload.exp * 1000),
+  };
 }
 
 async function activePartner(db: Prisma.TransactionClient | typeof prisma, partnerId: string) {
@@ -75,133 +125,209 @@ async function activePartner(db: Prisma.TransactionClient | typeof prisma, partn
   return partner;
 }
 
-export async function scanRedeemQr(outlet: OutletRow, rawValue: string): Promise<RedeemScanResult> {
-  assertOutletCanTransact(outlet);
-  const { partnerId, tokenId, expiresAt } = parseRedeemQr(rawValue);
-  if (await prisma.pointsRedemption.findUnique({ where: { tokenId }, select: { id: true } })) {
+async function assertQrUnused(db: Prisma.TransactionClient | typeof prisma, tokenId: string) {
+  if (await db.pointsRedemption.findUnique({ where: { tokenId }, select: { id: true } })) {
     throw new HttpError(409, 'This redeem QR has already been used. Ask the partner to generate a new one.', 'REDEEM_QR_USED');
   }
+}
+
+/** The QR's worth, capped by the live balance. */
+function usableWorth(qrMaxPoints: Prisma.Decimal | null, balance: Prisma.Decimal) {
+  const worth = qrMaxPoints ?? redeemQrWorth(balance);
+  return Decimal.max(0, Decimal.min(worth, balance));
+}
+
+export async function scanRedeemQr(outlet: OutletRow, rawValue: string): Promise<RedeemScanResult> {
+  assertOutletCanTransact(outlet);
+  const { partnerId, tokenId, maxPoints, expiresAt } = parseRedeemQr(rawValue);
+  await assertQrUnused(prisma, tokenId);
 
   const [partner, settings, balance] = await Promise.all([
     activePartner(prisma, partnerId),
     requireConfiguredSettings(),
     availablePoints(prisma, partnerId),
   ]);
+  assertRedeemEnabled(settings);
+  const worth = usableWorth(maxPoints, balance);
+  const terms = outletBillTerms(settings, outlet);
   return {
     partner: scannedPartner(partner),
     balancePoints: balance.toNumber(),
     rupeeValue: rupeeValueOf(balance, settings.pointsToRupees).toNumber(),
+    maxPoints: worth.toNumber(),
+    maxRupees: rupeeValueOf(worth, settings.pointsToRupees).toNumber(),
     pointsRatio: { ...settings.pointsToRupees },
+    gstPercentage: terms.gstPercentage,
     expiresAt: expiresAt.toISOString(),
+    settingsVersion: pricingVersion(settings.updatedAt, terms.version),
   };
 }
 
-type RedemptionRow = Prisma.PointsRedemptionGetPayload<{ include: { partner: true; outlet: { select: { id: true; name: true } } } }>;
-
-async function receipt(
-  db: Prisma.TransactionClient | typeof prisma,
-  redemption: RedemptionRow,
-  replayed: boolean
-): Promise<RedemptionReceipt> {
-  const [settings, balance] = await Promise.all([getProgramSettings(db), availablePoints(db, redemption.partnerId)]);
-  return {
-    id: redemption.id,
-    points: redemption.points.toNumber(),
-    rupeeValue: redemption.rupeeValue.toNumber(),
-    billAmount: redemption.billAmount?.toNumber() ?? null,
-    payableAmount: redemption.billAmount ? redemption.billAmount.minus(redemption.rupeeValue).toNumber() : null,
-    partner: scannedPartner(redemption.partner),
-    outlet: redemption.outlet,
-    balancePoints: balance.toNumber(),
-    balanceRupeeValue: rupeeValueOf(balance, settings.pointsToRupees).toNumber(),
-    createdAt: redemption.createdAt.toISOString(),
-    replayed,
-  };
+/** Bill preview for a redeem QR: what the wallet pays and what the customer pays. */
+export async function previewRedeemBill(
+  outlet: OutletRow,
+  input: { qrCode: string; billAmount: number; customer?: unknown }
+): Promise<BillCalculation> {
+  assertOutletCanTransact(outlet);
+  if (input.customer) {
+    throw new HttpError(400, 'Customer details apply only to referral QR codes', 'CUSTOMER_NOT_ALLOWED');
+  }
+  const { partnerId, tokenId, maxPoints } = parseRedeemQr(input.qrCode);
+  await assertQrUnused(prisma, tokenId);
+  const [partner, settings, balance] = await Promise.all([
+    activePartner(prisma, partnerId),
+    requireConfiguredSettings(),
+    availablePoints(prisma, partnerId),
+  ]);
+  assertRedeemEnabled(settings);
+  return calculateRedeemBill(
+    settings,
+    { qrMaxPoints: usableWorth(maxPoints, balance), balancePoints: balance, partnerCategory: partner.category },
+    input.billAmount,
+    outletBillTerms(settings, outlet)
+  );
 }
 
-const redemptionInclude = { partner: true, outlet: { select: { id: true, name: true } } } as const;
+function generateBillNumber() {
+  const d = new Date();
+  const ymd = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
+  return `LMW-B-${ymd}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+}
 
-export async function redeemPoints(
+/**
+ * Completes a redeem bill: spends the wallet part (at most half the bill) and records the bill and
+ * the redemption in one transaction. Idempotent per (outlet, idempotencyKey); each redeem QR works
+ * once.
+ */
+export async function createRedeemBill(
   outlet: OutletRow,
   adminId: string,
-  input: { qrCode: string; rupees: number; billAmount?: number }
-): Promise<{ receipt: RedemptionReceipt; notification: Notification | null }> {
-  const { partnerId, tokenId } = parseRedeemQr(input.qrCode);
+  input: { qrCode: string; billAmount: number; customer?: unknown; idempotencyKey: string; settingsVersion?: string }
+): Promise<{ bill: BillRecord; replayed: boolean }> {
+  if (input.customer) {
+    throw new HttpError(400, 'Customer details apply only to referral QR codes', 'CUSTOMER_NOT_ALLOWED');
+  }
+  const { partnerId, tokenId, maxPoints } = parseRedeemQr(input.qrCode);
 
-  return prisma.$transaction(
-    async (tx) => {
-      // Re-read the outlet inside the transaction so a just-deactivated outlet cannot redeem.
-      const currentOutlet = await tx.outlet.findUniqueOrThrow({ where: { id: outlet.id } });
-      assertOutletCanTransact(currentOutlet);
+  try {
+    return await prisma.$transaction(
+      async (tx) => {
+        // Re-read the outlet inside the transaction so a just-deactivated outlet cannot bill.
+        const currentOutlet = await tx.outlet.findUniqueOrThrow({ where: { id: outlet.id } });
+        assertOutletCanTransact(currentOutlet);
 
-      // Serialize redemptions of the same wallet so the balance cannot be spent twice.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${partnerId}`}))`;
+        // Serialize spends of the same wallet so the balance cannot be spent twice.
+        await lockWallet(tx, partnerId);
 
-      // Each redeem QR works once; the same outlet retrying gets the original result back.
-      const used = await tx.pointsRedemption.findUnique({ where: { tokenId }, include: redemptionInclude });
-      if (used) {
-        if (used.outletId !== outlet.id) {
-          throw new HttpError(409, 'This redeem QR has already been used', 'REDEEM_QR_USED');
+        const replay = await tx.bill.findUnique({
+          where: { outletId_idempotencyKey: { outletId: outlet.id, idempotencyKey: input.idempotencyKey } },
+          include: { ...billInclude, redemption: { select: { tokenId: true } } },
+        });
+        if (replay) {
+          const sameRequest =
+            replay.redemption?.tokenId === tokenId && replay.billAmount.equals(new Decimal(input.billAmount).toDecimalPlaces(2));
+          if (!sameRequest) {
+            throw new HttpError(409, 'This request key was already used for a different bill', 'IDEMPOTENCY_CONFLICT');
+          }
+          return { bill: serializeBill(replay), replayed: true };
         }
-        return { receipt: await receipt(tx, used, true), notification: null };
-      }
+        await assertQrUnused(tx, tokenId);
 
-      await activePartner(tx, partnerId);
-      const settings = await requireConfiguredSettings(tx);
-      const ratio = settings.pointsToRupees;
-
-      const rupees = new Decimal(input.rupees).toDecimalPlaces(2);
-      const billAmount = input.billAmount === undefined ? null : new Decimal(input.billAmount).toDecimalPlaces(2);
-      if (billAmount && rupees.gt(billAmount)) {
-        throw new HttpError(422, 'The amount to redeem cannot be more than the bill', 'REDEEM_EXCEEDS_BILL');
-      }
-      const points = rupees.mul(ratio.points).div(ratio.rupees).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
-
-      // Soonest-expiring points are spent first; points that never expire last.
-      const entries = await tx.pointsEntry.findMany({
-        where: { partnerId, ...unexpiredPoints() },
-        orderBy: [{ expiresAt: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
-        select: { id: true, points: true, redeemedPoints: true },
-      });
-      const balance = entries.reduce((sum, e) => sum.plus(e.points).minus(e.redeemedPoints), new Decimal(0));
-      if (points.lte(0) || points.gt(balance)) {
-        throw new HttpError(
-          422,
-          points.lte(0) ? 'The amount is too small to redeem' : 'The partner does not have enough points for this amount',
-          'INSUFFICIENT_POINTS',
-          { balancePoints: balance.toNumber(), rupeeValue: rupeeValueOf(balance, ratio).toNumber() }
+        const partner = await activePartner(tx, partnerId);
+        const settings = await requireConfiguredSettings(tx);
+        assertRedeemEnabled(settings);
+        const balance = await availablePoints(tx, partnerId);
+        const calc = calculateRedeemBill(
+          settings,
+          { qrMaxPoints: usableWorth(maxPoints, balance), balancePoints: balance, partnerCategory: partner.category },
+          input.billAmount,
+          outletBillTerms(settings, currentOutlet)
         );
-      }
+        if (input.settingsVersion && input.settingsVersion !== calc.settingsVersion) {
+          throw new HttpError(
+            409,
+            "Programme settings or this outlet's offers were updated. Please review the updated amounts and confirm again.",
+            'SETTINGS_CHANGED',
+            { calculation: calc }
+          );
+        }
+        if (calc.walletRedeemPoints <= 0) {
+          throw new HttpError(422, 'The partner has nothing in the wallet to redeem', 'INSUFFICIENT_POINTS');
+        }
 
-      let remaining = points;
-      for (const entry of entries) {
-        if (remaining.lte(0)) break;
-        const spend = Decimal.min(remaining, entry.points.minus(entry.redeemedPoints));
-        if (spend.lte(0)) continue;
-        await tx.pointsEntry.update({ where: { id: entry.id }, data: { redeemedPoints: { increment: spend } } });
-        remaining = remaining.minus(spend);
-      }
+        const points = new Decimal(calc.walletRedeemPoints);
+        await spendWalletPoints(tx, partnerId, points, 'The partner does not have enough in the wallet for this amount');
 
-      const redemption = await tx.pointsRedemption.create({
-        data: {
-          partnerId,
-          outletId: outlet.id,
-          createdByAdminId: adminId,
-          points,
-          rupeeValue: rupees,
-          billAmount,
-          pointsRatioPoints: ratio.points,
-          pointsRatioRupees: ratio.rupees,
-          tokenId,
-        },
-        include: redemptionInclude,
+        const created = await tx.bill.create({
+          data: {
+            billNumber: generateBillNumber(),
+            outletId: outlet.id,
+            qrCodeId: null,
+            transactionType: 'WALLET_REDEEM',
+            partnerId,
+            isFirstTime: false,
+            billAmount: calc.billAmount,
+            discountPercentage: 0,
+            discountAmount: 0,
+            taxableAmount: calc.taxableAmount,
+            gstPercentage: calc.gstPercentage,
+            gstAmount: calc.gstAmount,
+            walletRedeemPoints: calc.walletRedeemPoints,
+            walletRedeemAmount: calc.walletRedeemAmount,
+            finalAmount: calc.finalAmount,
+            settingsVersion: new Date(settings.updatedAt),
+            outletSettingsVersion: new Date(calc.outletSettingsVersion),
+            partnerCategory: calc.partnerCategory,
+            pointsRatioPoints: calc.pointsRatio.points,
+            pointsRatioRupees: calc.pointsRatio.rupees,
+            pointsBasis: calc.pointsBasis,
+            notificationStatus: 'PENDING',
+            idempotencyKey: input.idempotencyKey,
+            createdByAdminId: adminId,
+          },
+        });
+        await tx.pointsRedemption.create({
+          data: {
+            partnerId,
+            outletId: outlet.id,
+            createdByAdminId: adminId,
+            points,
+            rupeeValue: calc.walletRedeemAmount,
+            billAmount: calc.billAmount,
+            pointsRatioPoints: calc.pointsRatio.points,
+            pointsRatioRupees: calc.pointsRatio.rupees,
+            tokenId,
+            billId: created.id,
+          },
+        });
+        await tx.notification.create({
+          data: {
+            ...redeemedNotificationRow({
+              partnerId,
+              points,
+              rupeeValue: new Decimal(calc.walletRedeemAmount),
+              outletName: currentOutlet.name,
+              billAmount: new Decimal(calc.billAmount),
+            }),
+            billId: created.id,
+          },
+        });
+
+        const bill = await tx.bill.findUniqueOrThrow({ where: { id: created.id }, include: billInclude });
+        return { bill: serializeBill(bill), replayed: false };
+      },
+      { maxWait: 10_000, timeout: 20_000 }
+    );
+  } catch (error) {
+    // A concurrent request with the same idempotency key won the insert: replay it.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      const existing = await prisma.bill.findUnique({
+        where: { outletId_idempotencyKey: { outletId: outlet.id, idempotencyKey: input.idempotencyKey } },
+        include: billInclude,
       });
-      const notification = await tx.notification.create({
-        data: redeemedNotificationRow({ partnerId, points, rupeeValue: rupees, outletName: currentOutlet.name }),
-      });
-
-      return { receipt: await receipt(tx, redemption, false), notification };
-    },
-    { maxWait: 10_000, timeout: 20_000 }
-  );
+      if (existing) return { bill: serializeBill(existing), replayed: true };
+      throw new HttpError(409, 'This redeem QR has already been used. Ask the partner to generate a new one.', 'REDEEM_QR_USED');
+    }
+    throw error;
+  }
 }

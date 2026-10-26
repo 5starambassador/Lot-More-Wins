@@ -74,9 +74,12 @@ function totals(points: AdminTrendPoint[], scale = 1): BillTotals {
     billCount: Math.round(sum(points, 'billCount') * scale),
     billAmount,
     discountAmount,
+    gstAmount: 0,
     finalAmount: billAmount - discountAmount,
     purchasePoints: credited - referralPoints,
     referralPoints,
+    cashReward: 0,
+    walletRedeemAmount: 0,
   };
 }
 
@@ -84,8 +87,18 @@ const OUTLETS = ['Sample Café, White Town', 'Sample Bistro, Auroville', 'Sample
 const OUTLET_SHARE = [0.31, 0.24, 0.19, 0.15, 0.11];
 
 /** The sample outlets, for the dashboard's channel filter while test data is shown. */
-export const SAMPLE_OUTLETS: AdminOutletOption[] = OUTLETS.map((name, i) => ({ id: `sample-outlet-${i + 1}`, name }));
-const PEOPLE = ['Sample Partner One', 'Sample Partner Two', 'Sample Partner Three', 'Sample Partner Four', 'Sample Partner Five', 'Sample Partner Six'];
+export const SAMPLE_OUTLETS: AdminOutletOption[] = OUTLETS.map((name, i) => ({
+  id: `sample-outlet-${i + 1}`,
+  name,
+}));
+const PEOPLE = [
+  'Sample Partner One',
+  'Sample Partner Two',
+  'Sample Partner Three',
+  'Sample Partner Four',
+  'Sample Partner Five',
+  'Sample Partner Six',
+];
 const CITIES = ['Puducherry', 'Chennai', 'Cuddalore', 'Villupuram', 'Karaikal', 'Puducherry'];
 
 const samplePartner = (i: number) => ({
@@ -117,7 +130,14 @@ function sampleBill(i: number, now: number, at: AdminOutletOption | null): BillR
     birthdayBonusPercentage: 0,
     referralRewardPercentage: 0,
     discountAmount,
+    taxableAmount: finalAmount,
+    gstPercentage: 0,
+    gstAmount: 0,
+    walletRedeemPoints: 0,
+    walletRedeemAmount: 0,
+    roundOffAmount: 0,
     finalAmount,
+    partnerCategory: 'NON_ACHARIYA',
     pointsBasis: 'PAYABLE_AMOUNT',
     pointsBaseAmount: finalAmount,
     pointsRatio: POINTS_RATIO,
@@ -126,11 +146,23 @@ function sampleBill(i: number, now: number, at: AdminOutletOption | null): BillR
     purchasePointsRecipient: referral ? 'CUSTOMER_PENDING' : 'PARTNER',
     referralPointsPercentage: referral ? REFERRAL_POINTS_PERCENT : 0,
     referralPoints: referral ? Math.round((finalAmount * REFERRAL_POINTS_PERCENT * POINTS_RATIO.points) / 100) : 0,
+    cashRewardPurchasePercentage: 0,
+    cashRewardPurchaseAmount: 0,
+    cashRewardReferralPercentage: 0,
+    cashRewardReferralAmount: 0,
     settingsVersion: null,
+    outletSettingsVersion: null,
     outlet: at ?? SAMPLE_OUTLETS[i % SAMPLE_OUTLETS.length]!,
     partner: referral ? null : partner,
     referrerPartner: referral ? partner : null,
-    customer: referral ? { id: `sample-customer-${i + 1}`, name: `Sample Customer ${i + 1}`, mobile: `910000000${i + 1}`, email: null } : null,
+    customer: referral
+      ? {
+          id: `sample-customer-${i + 1}`,
+          name: `Sample Customer ${i + 1}`,
+          mobile: `910000000${i + 1}`,
+          email: null,
+        }
+      : null,
     notification: {
       status: failed ? 'FAILED' : 'SENT',
       channel: 'email',
@@ -165,7 +197,17 @@ export function sampleDashboard(range: AdminDashboard['range'], buckets: AdminTr
   const period = totals(days);
   const last30 = daysBetween(dateOf(dayTime(today) - 29 * DAY_MS), today, today, share);
   const last30Days = totals(last30);
-  const allTimeBase: BillTotals = { billCount: 18420, billAmount: 14_652_300, discountAmount: 1_815_900, finalAmount: 12_836_400, purchasePoints: 5_263_000, referralPoints: 1_155_300 };
+  const allTimeBase: BillTotals = {
+    billCount: 18420,
+    billAmount: 14_652_300,
+    discountAmount: 1_815_900,
+    gstAmount: 0,
+    finalAmount: 12_836_400,
+    purchasePoints: 5_263_000,
+    referralPoints: 1_155_300,
+    cashReward: 0,
+    walletRedeemAmount: 0,
+  };
   const allTime = Object.fromEntries(
     Object.entries(allTimeBase).map(([k, v]) => [k, Math.round(v * share) + period[k as keyof BillTotals]])
   ) as unknown as BillTotals;
@@ -183,6 +225,9 @@ export function sampleDashboard(range: AdminDashboard['range'], buckets: AdminTr
     email: `sample${i + 1}@example.com`,
     city: CITIES[i]!,
     status: i === 3 ? 'PENDING' : 'ACTIVE',
+    category: 'NON_ACHARIYA',
+    upiId: null,
+    cashBalance: 0,
     pointsBalance: 420 - i * 60,
     directBillCount: 4 - Math.min(i, 3),
     referredBillCount: i % 2,
@@ -210,8 +255,12 @@ export function sampleDashboard(range: AdminDashboard['range'], buckets: AdminTr
     previousPeriod: totals(days, 0.87),
     trend,
     periodByType: {
-      DIRECT_PARTNER: { billCount: period.billCount - referralBills, billAmount: period.billAmount - referralAmount },
+      DIRECT_PARTNER: {
+        billCount: period.billCount - referralBills,
+        billAmount: period.billAmount - referralAmount,
+      },
       REFERRAL: { billCount: referralBills, billAmount: referralAmount },
+      WALLET_REDEEM: { billCount: 0, billAmount: 0 },
     },
     topReferrers: referralBills
       ? OUTLET_SHARE.map((share, i) => {
@@ -248,10 +297,22 @@ export function sampleDashboard(range: AdminDashboard['range'], buckets: AdminTr
       today: totals([dayPoint(today, today, share)]),
       last30Days,
       previous30Days: totals(last30, 0.87),
-      byType: { DIRECT_PARTNER: Math.round(allTime.billCount * 0.72), REFERRAL: Math.round(allTime.billCount * 0.28) },
-      daily: last30.map((d) => ({ date: d.date, billCount: d.billCount, billAmount: d.billAmount })),
+      byType: {
+        DIRECT_PARTNER: Math.round(allTime.billCount * 0.72),
+        REFERRAL: Math.round(allTime.billCount * 0.28),
+        WALLET_REDEEM: 0,
+      },
+      daily: last30.map((d) => ({
+        date: d.date,
+        billCount: d.billCount,
+        billAmount: d.billAmount,
+      })),
     },
-    points: { creditedPoints: 486_250, pendingPoints: 38_400, pointsRatio: POINTS_RATIO },
+    points: {
+      creditedPoints: 486_250,
+      pendingPoints: 38_400,
+      pointsRatio: POINTS_RATIO,
+    },
     notifications: {
       PENDING: pendingMessages,
       SENT: period.billCount - failedMessages - skippedMessages - pendingMessages,
@@ -261,7 +322,14 @@ export function sampleDashboard(range: AdminDashboard['range'], buckets: AdminTr
     topOutlets: !period.billCount
       ? []
       : outlet
-        ? [{ ...outlet, status: 'ACTIVE' as const, billCount: period.billCount, billAmount: period.billAmount }]
+        ? [
+            {
+              ...outlet,
+              status: 'ACTIVE' as const,
+              billCount: period.billCount,
+              billAmount: period.billAmount,
+            },
+          ]
         : SAMPLE_OUTLETS.map((o, i) => ({
             ...o,
             status: 'ACTIVE' as const,

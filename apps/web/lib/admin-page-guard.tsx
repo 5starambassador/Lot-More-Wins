@@ -14,6 +14,7 @@ export const ADMIN_PAGE_PATHS: Record<AdminPage, string> = {
   outlets: '/outlets',
   transactions: '/transactions',
   settings: '/settings',
+  finance: '/finance',
 };
 
 export async function currentAdmin(): Promise<SuperAdminProfile> {

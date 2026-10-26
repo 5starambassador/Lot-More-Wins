@@ -8,7 +8,9 @@ import prisma from './prisma';
 /**
  * Central token handling for every caller type (partner, super admin, outlet admin).
  * HS256 JWTs signed with JWT_SECRET. Every protected route verifies the signature
- * and expiry here — payloads are never trusted without verification.
+ * (and, for Super Admin and redeem tokens, the expiry) here — payloads are never trusted
+ * without verification. Partner and Outlet Admin sessions never expire: they last until the
+ * user signs out on that device.
  */
 
 /** 'redeem' tokens are the payload of a partner's redeem QR; they never authenticate a request. */
@@ -18,7 +20,8 @@ export interface TokenPayload {
   typ?: TokenType;
   sub?: string;
   partnerId?: string;
-  exp: number;
+  /** Absent on session tokens that never expire. */
+  exp?: number;
   iat: number;
   [key: string]: unknown;
 }
@@ -37,14 +40,21 @@ function sign(input: string, secret: string): string {
   return crypto.createHmac('sha256', secret).update(input).digest('base64url');
 }
 
-export function signToken(payload: Record<string, unknown>, expiresInSec: number): string {
+/** Without `expiresInSec` the token never expires (Partner and Outlet Admin sessions). */
+export function signToken(payload: Record<string, unknown>, expiresInSec?: number): string {
   const now = Math.floor(Date.now() / 1000);
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-  const body = Buffer.from(JSON.stringify({ ...payload, iat: now, exp: now + expiresInSec })).toString('base64url');
+  const claims = expiresInSec === undefined ? { ...payload, iat: now } : { ...payload, iat: now, exp: now + expiresInSec };
+  const body = Buffer.from(JSON.stringify(claims)).toString('base64url');
   return `${header}.${body}.${sign(`${header}.${body}`, getJwtSecret())}`;
 }
 
-export function verifyToken(token: string): TokenPayload | null {
+/**
+ * Checks the signature, and the expiry unless `ignoreExpiry`. Partner and Outlet Admin
+ * sessions pass `ignoreExpiry` so tokens issued before sessions became permanent (which
+ * carry a 30-day or 7-day `exp`) keep working too. Every other caller requires an `exp`.
+ */
+export function verifyToken(token: string, { ignoreExpiry = false }: { ignoreExpiry?: boolean } = {}): TokenPayload | null {
   const parts = token.split('.');
   if (parts.length !== 3) return null;
   const [header, body, signature] = parts;
@@ -59,7 +69,7 @@ export function verifyToken(token: string): TokenPayload | null {
     const decodedHeader = JSON.parse(Buffer.from(header, 'base64url').toString('utf8'));
     if (decodedHeader.alg !== 'HS256') return null;
     const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as TokenPayload;
-    if (typeof payload.exp !== 'number' || payload.exp <= Math.floor(Date.now() / 1000)) {
+    if (!ignoreExpiry && (typeof payload.exp !== 'number' || payload.exp <= Math.floor(Date.now() / 1000))) {
       return null;
     }
     return payload;
@@ -93,12 +103,10 @@ export class HttpError extends Error {
 // Partner
 // ============================================================================
 
-export const PARTNER_TOKEN_TTL_SEC = 60 * 60 * 24 * 30;
-
 /** Returns the verified partner id. Phase 2 partner tokens carry `partnerId` without `typ`. */
 export function requirePartnerId(req: NextRequest): string {
   const token = getBearerToken(req);
-  const payload = token ? verifyToken(token) : null;
+  const payload = token ? verifyToken(token, { ignoreExpiry: true }) : null;
   if (!payload || (payload.typ && payload.typ !== 'partner') || typeof payload.partnerId !== 'string') {
     throw new HttpError(401, 'Authentication required', 'UNAUTHENTICATED');
   }
@@ -152,6 +160,7 @@ const PAGE_NAMES: Record<AdminPage, string> = {
   outlets: 'Outlets',
   transactions: 'Transactions',
   settings: 'Programme settings',
+  finance: 'Finance',
 };
 
 /**
@@ -190,11 +199,9 @@ export async function requireSuperAdmin(req: NextRequest): Promise<SuperAdminPro
 // never from a client-supplied outlet id.
 // ============================================================================
 
-export const OUTLET_ADMIN_TOKEN_TTL_SEC = 60 * 60 * 24 * 7;
-
 export async function requireOutletAdmin(req: NextRequest) {
   const token = getBearerToken(req);
-  const payload = token ? verifyToken(token) : null;
+  const payload = token ? verifyToken(token, { ignoreExpiry: true }) : null;
   if (!payload || payload.typ !== 'outlet_admin' || typeof payload.sub !== 'string') {
     throw new HttpError(401, 'Outlet Admin authentication required', 'UNAUTHENTICATED');
   }

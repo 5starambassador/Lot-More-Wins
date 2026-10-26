@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import type { Prisma } from '@prisma/client';
 import { partnerProfileUpdateSchema } from '@lotmorewins/validation';
 import prisma from '@/lib/prisma';
+import { moveRequestedPayoutsToUpi } from '@/lib/cash-wallet';
 import { requirePartnerId } from '@/lib/auth';
 import { activeQrInclude, duplicatePartnerField, parseDateOnly, partnerSession, toDateOnly } from '@/lib/partners';
 import { fail, handleRouteError, ok, readJson, validationError } from '@/lib/api-response';
@@ -13,7 +14,10 @@ export async function GET(req: NextRequest) {
   try {
     // Identity comes only from a verified partner token.
     const partnerId = requirePartnerId(req);
-    const partner = await prisma.partner.findUnique({ where: { id: partnerId }, include: activeQrInclude });
+    const partner = await prisma.partner.findUnique({
+      where: { id: partnerId },
+      include: activeQrInclude,
+    });
     if (!partner) return fail(404, 'Partner account not found', 'PARTNER_NOT_FOUND');
     return ok(partnerSession(partner));
   } catch (error) {
@@ -35,7 +39,9 @@ export async function PATCH(req: NextRequest) {
     if (!parsed.success) return validationError(parsed.error);
     const input = parsed.data;
 
-    const partner = await prisma.partner.findUnique({ where: { id: partnerId } });
+    const partner = await prisma.partner.findUnique({
+      where: { id: partnerId },
+    });
     if (!partner) return fail(404, 'Partner account not found', 'PARTNER_NOT_FOUND');
 
     const data: Prisma.PartnerUpdateInput = {};
@@ -44,6 +50,7 @@ export async function PATCH(req: NextRequest) {
     if (input.state !== undefined) data.state = input.state;
     if (input.pincode !== undefined) data.pincode = input.pincode;
     if (input.photoUrl !== undefined) data.photoUrl = input.photoUrl;
+    if (input.upiId !== undefined) data.upiId = input.upiId;
 
     if (input.dateOfBirth !== undefined && input.dateOfBirth !== toDateOnly(partner.dateOfBirth)) {
       data.dateOfBirth = input.dateOfBirth ? parseDateOnly(input.dateOfBirth) : null;
@@ -90,10 +97,18 @@ export async function PATCH(req: NextRequest) {
       // Consume the OTP so the verification cannot be replayed.
       if (changedIdentifiers.length > 0) {
         await tx.otpVerification.deleteMany({
-          where: { identifier: { in: [partner.mobile, ...changedIdentifiers] } },
+          where: {
+            identifier: { in: [partner.mobile, ...changedIdentifiers] },
+          },
         });
       }
-      return tx.partner.update({ where: { id: partnerId }, data, include: activeQrInclude });
+      // Payouts not yet paid follow the new UPI ID (a sheet exported before the change is then rejected for them).
+      if (input.upiId !== undefined) await moveRequestedPayoutsToUpi(tx, partnerId, input.upiId);
+      return tx.partner.update({
+        where: { id: partnerId },
+        data,
+        include: activeQrInclude,
+      });
     });
     return ok(partnerSession(updated), 200, 'Profile updated');
   } catch (error) {

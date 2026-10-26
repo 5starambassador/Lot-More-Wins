@@ -24,6 +24,60 @@ export interface OutletFormValues {
   images: string[];
   adminEmail: string;
   adminPassword: string;
+  /** Offer fields as typed: '' = use the programme setting (discounts, rates) or 0 (GST). */
+  firstTimeDiscount: string;
+  achariyaFirstTimeDiscount: string;
+  repeatDiscount: string;
+  referralDiscount: string;
+  gstPercentage: string;
+  purchasePointsPercentage: string;
+  referralPointsPercentage: string;
+  achariyaReferralPointsPercentage: string;
+  cashRewardPurchasePercentage: string;
+  cashRewardReferralPercentage: string;
+  givesCashReward: boolean;
+  canEditOffers: boolean;
+}
+
+export const DISCOUNT_FIELDS = [
+  { key: 'firstTimeDiscount', label: 'First purchase (Non-Achariya)' },
+  { key: 'achariyaFirstTimeDiscount', label: 'First purchase (Achariya)' },
+  { key: 'repeatDiscount', label: 'Repeat purchase' },
+  { key: 'referralDiscount', label: 'Referred friend (referral QR)' },
+] as const;
+
+type DiscountKey = (typeof DISCOUNT_FIELDS)[number]['key'];
+
+/** Points and cashback rates (credited into the partner's wallet). Cashback rates apply only while cashback is on. */
+export const REWARD_FIELDS = [
+  { key: 'purchasePointsPercentage', label: 'Purchase points', cashback: false },
+  { key: 'referralPointsPercentage', label: 'Referral points (Non-Achariya)', cashback: false },
+  { key: 'achariyaReferralPointsPercentage', label: 'Referral points (Achariya)', cashback: false },
+  { key: 'cashRewardPurchasePercentage', label: 'Purchase cashback', cashback: true },
+  { key: 'cashRewardReferralPercentage', label: 'Referral cashback', cashback: true },
+] as const;
+
+type RewardKey = (typeof REWARD_FIELDS)[number]['key'];
+
+const pct = (v: number | null | undefined) => (v === null || v === undefined ? '' : String(v));
+
+/** The offer fields of the form as the API payload: a blank discount is null (programme setting). */
+export function offerPayload(values: OutletFormValues) {
+  const discount = (v: string) => (v.trim() === '' ? null : Number(v));
+  return {
+    firstTimeDiscount: discount(values.firstTimeDiscount),
+    achariyaFirstTimeDiscount: discount(values.achariyaFirstTimeDiscount),
+    repeatDiscount: discount(values.repeatDiscount),
+    referralDiscount: discount(values.referralDiscount),
+    gstPercentage: values.gstPercentage.trim() === '' ? 0 : Number(values.gstPercentage),
+    purchasePointsPercentage: discount(values.purchasePointsPercentage),
+    referralPointsPercentage: discount(values.referralPointsPercentage),
+    achariyaReferralPointsPercentage: discount(values.achariyaReferralPointsPercentage),
+    cashRewardPurchasePercentage: discount(values.cashRewardPurchasePercentage),
+    cashRewardReferralPercentage: discount(values.cashRewardReferralPercentage),
+    givesCashReward: values.givesCashReward,
+    canEditOffers: values.canEditOffers,
+  };
 }
 
 export function emptyOutletForm(outlet?: AdminOutlet): OutletFormValues {
@@ -38,6 +92,18 @@ export function emptyOutletForm(outlet?: AdminOutlet): OutletFormValues {
     images: outlet?.images ?? [],
     adminEmail: outlet?.adminEmail ?? '',
     adminPassword: '',
+    firstTimeDiscount: pct(outlet?.offers.firstTimeDiscount),
+    achariyaFirstTimeDiscount: pct(outlet?.offers.achariyaFirstTimeDiscount),
+    repeatDiscount: pct(outlet?.offers.repeatDiscount),
+    referralDiscount: pct(outlet?.offers.referralDiscount),
+    gstPercentage: outlet ? String(outlet.offers.gstPercentage) : '0',
+    purchasePointsPercentage: pct(outlet?.offers.purchasePointsPercentage),
+    referralPointsPercentage: pct(outlet?.offers.referralPointsPercentage),
+    achariyaReferralPointsPercentage: pct(outlet?.offers.achariyaReferralPointsPercentage),
+    cashRewardPurchasePercentage: pct(outlet?.offers.cashRewardPurchasePercentage),
+    cashRewardReferralPercentage: pct(outlet?.offers.cashRewardReferralPercentage),
+    givesCashReward: outlet?.offers.givesCashReward ?? false,
+    canEditOffers: outlet?.offers.canEditOffers ?? false,
   };
 }
 
@@ -69,6 +135,39 @@ function FormSection({ title, description, children }: { title: string; descript
 
 const MOBILE = /^[6-9]\d{9}$/;
 
+/** A percentage as typed: 0 to max with up to 2 decimals. */
+const validPercent = (v: string, max = 100) => /^\d{1,3}(\.\d{1,2})?$/.test(v.trim()) && Number(v) <= max;
+
+export function Toggle({
+  id,
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  checked: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <label htmlFor={id} className="flex cursor-pointer items-start gap-3 rounded-md border border-stone-150 px-3 py-2.5 hover:bg-stone-50">
+      <input
+        id={id}
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 h-4 w-4 accent-maroon-700"
+      />
+      <span>
+        <span className="block text-[13px] font-medium text-stone-900">{label}</span>
+        <span className="block text-xs text-stone-500">{hint}</span>
+      </span>
+    </label>
+  );
+}
+
 /**
  * Create mode collects the Outlet Admin login; edit mode only offers an optional password reset.
  */
@@ -79,6 +178,7 @@ export function OutletForm({
   error,
   onSubmit,
   cancelHref = '/outlets',
+  programme,
 }: {
   mode: 'create' | 'edit';
   initial: OutletFormValues;
@@ -86,6 +186,8 @@ export function OutletForm({
   error: string | null;
   onSubmit: (values: OutletFormValues) => void;
   cancelHref?: string;
+  /** Programme discounts and rates a blank override falls back to, shown as hints (edit mode). */
+  programme?: Partial<Record<DiscountKey | RewardKey, number>>;
 }) {
   const [values, setValues] = useState(initial);
   const [showPassword, setShowPassword] = useState(false);
@@ -111,6 +213,14 @@ export function OutletForm({
       e.adminPassword = 'Use at least 8 characters.';
     }
     if (mode === 'edit' && resetting && !values.adminPassword) e.adminPassword = 'Enter the new password or cancel the reset.';
+    // A bill is never reduced by more than half: no discount rate above 50%.
+    for (const { key } of DISCOUNT_FIELDS) {
+      if (values[key].trim() && !validPercent(values[key], 50)) e[key] = 'Enter 0–50 with up to 2 decimals, or leave blank.';
+    }
+    for (const { key } of REWARD_FIELDS) {
+      if (values[key].trim() && !validPercent(values[key])) e[key] = 'Enter 0–100 with up to 2 decimals, or leave blank.';
+    }
+    if (values.gstPercentage.trim() && !validPercent(values.gstPercentage, 50)) e.gstPercentage = 'Enter 0–50 with up to 2 decimals.';
     return e;
   }, [values, mode, resetting]);
 
@@ -130,7 +240,10 @@ export function OutletForm({
         e.preventDefault();
         setTouched(true);
         if (Object.keys(errors).length) return;
-        onSubmit({ ...values, adminPassword: resetting ? values.adminPassword : '' });
+        onSubmit({
+          ...values,
+          adminPassword: resetting ? values.adminPassword : '',
+        });
       }}
     >
       <Panel className="divide-y divide-stone-150">
@@ -174,6 +287,75 @@ export function OutletForm({
             <Field label="Photos" hint={`${values.images.length} of ${MAX_OUTLET_IMAGES} added`}>
               <GalleryUpload value={values.images} onChange={(urls) => set('images', urls)} />
             </Field>
+          </div>
+        </FormSection>
+
+        <FormSection
+          title="Offers & GST"
+          description="Leave a discount or rate blank to use the programme setting. A discount is at most 50% (a bill is never reduced by more than half). The first-time discount applies to a partner's first bill at this outlet. GST is charged on the discounted amount. Points and cashback go into the partner's wallet. Every change is logged."
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            {DISCOUNT_FIELDS.map(({ key, label }) => (
+              <Field
+                key={key}
+                label={`${label} %`}
+                htmlFor={key}
+                error={show(key)}
+                hint={programme?.[key] !== undefined ? `Blank = programme setting (${programme[key]}%)` : 'Blank = programme setting'}
+              >
+                <Input
+                  id={key}
+                  name={key}
+                  inputMode="decimal"
+                  value={values[key]}
+                  onChange={(e) => set(key, e.target.value)}
+                  placeholder={programme?.[key] !== undefined ? String(programme[key]) : 'Programme setting'}
+                  aria-invalid={!!show(key)}
+                />
+              </Field>
+            ))}
+            <Field label="GST %" htmlFor="gstPercentage" error={show('gstPercentage')} hint="0 = no GST on the bill.">
+              <Input
+                id="gstPercentage"
+                name="gstPercentage"
+                inputMode="decimal"
+                value={values.gstPercentage}
+                onChange={(e) => set('gstPercentage', e.target.value)}
+                placeholder="0"
+                aria-invalid={!!show('gstPercentage')}
+              />
+            </Field>
+            {REWARD_FIELDS.filter((f) => !f.cashback || values.givesCashReward).map(({ key, label }) => (
+              <Field
+                key={key}
+                label={`${label} %`}
+                htmlFor={key}
+                error={show(key)}
+                hint={programme?.[key] !== undefined ? `Blank = programme setting (${programme[key]}%)` : 'Blank = programme setting'}
+              >
+                <Input
+                  id={key}
+                  name={key}
+                  inputMode="decimal"
+                  value={values[key]}
+                  onChange={(e) => set(key, e.target.value)}
+                  placeholder={programme?.[key] !== undefined ? String(programme[key]) : 'Programme setting'}
+                  aria-invalid={!!show(key)}
+                />
+              </Field>
+            ))}
+            <div className="space-y-2 sm:col-span-2">
+              <Toggle
+                id="givesCashReward"
+                label="Gives cashback"
+                hint="Bills here also credit cashback (purchase and referral %) into the partner's wallet on top of points."
+                checked={values.givesCashReward}
+                onChange={(on) => set('givesCashReward', on)}
+              />
+              <p className="text-xs leading-relaxed text-stone-500">
+                The Outlet Admin can also change these discounts, rates and GST from the Outlet Admin app. Every change is in the outlet&apos;s change log.
+              </p>
+            </div>
           </div>
         </FormSection>
 

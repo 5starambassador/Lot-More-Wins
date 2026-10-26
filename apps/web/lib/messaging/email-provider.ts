@@ -24,13 +24,23 @@ const IPV6_LOOKUP_TIMEOUT_MS = 2_000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** What the OTP email says the code is for. */
+const OTP_WORDING: Record<NonNullable<SendOtpOptions['purpose']>, { heading: string; action: string; label: string }> = {
+  registration: { heading: 'Partner Onboarding', action: 'complete your partner registration', label: 'registration' },
+  login: { heading: 'Partner Sign-in', action: 'sign in to your partner account', label: 'sign-in' },
+  transfer: { heading: 'Wallet Transfer', action: 'confirm sending points from your wallet', label: 'wallet transfer' },
+};
+
 /**
  * - permanent: the server refused the message or the credentials (5xx); retrying cannot help.
  * - throttled: a temporary SMTP refusal (4xx), e.g. Gmail's "too many login attempts".
  * - network: the connection failed or dropped; worth trying again, on the other route if any.
  */
 function classifySmtpError(err: unknown): 'permanent' | 'throttled' | 'network' {
-  const { code, responseCode } = err as { code?: string; responseCode?: number };
+  const { code, responseCode } = err as {
+    code?: string;
+    responseCode?: number;
+  };
   if (responseCode && responseCode >= 400 && responseCode < 500) return 'throttled';
   if ((responseCode && responseCode >= 500) || code === 'EAUTH' || code === 'EENVELOPE') return 'permanent';
   return 'network';
@@ -149,6 +159,7 @@ export class EmailProvider {
   public async sendOtp(options: SendOtpOptions): Promise<MessagingResult> {
     const { to, otp } = options;
     const name = escapeHtml(options.name || 'Partner');
+    const wording = OTP_WORDING[options.purpose ?? 'registration'];
     const smtp = this.smtpConfig();
     const from = this.getFromAddress();
 
@@ -172,7 +183,7 @@ export class EmailProvider {
                       LOT MORE <span style="color: #4ade80;">WINS</span>
                     </h1>
                     <p style="margin: 6px 0 0; color: #94a3b8; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 1px;">
-                      Partner Onboarding
+                      ${wording.heading}
                     </p>
                   </td>
                 </tr>
@@ -184,7 +195,7 @@ export class EmailProvider {
                       Hello <strong>${name}</strong>,
                     </p>
                     <p style="margin: 0 0 24px; color: #94a3b8; font-size: 14px; line-height: 22px;">
-                      Use the following one-time verification code to complete your partner registration.
+                      Use the following one-time verification code to ${wording.action}.
                     </p>
 
                     <!-- OTP Code Card -->
@@ -226,7 +237,7 @@ export class EmailProvider {
           from,
           to,
           subject: `${otp} is your Lot More Wins Partner verification code`,
-          text: `Hello ${options.name || 'Partner'},\n\nYour Lot More Wins registration verification code is: ${otp}\n\nThis code expires in 10 minutes.`,
+          text: `Hello ${options.name || 'Partner'},\n\nYour Lot More Wins ${wording.label} verification code is: ${otp}\n\nThis code expires in 10 minutes.`,
           html,
         });
 
@@ -252,7 +263,12 @@ export class EmailProvider {
           };
         }
 
-        return { success: false, channel: 'email', recipient: to, error: errorMsg };
+        return {
+          success: false,
+          channel: 'email',
+          recipient: to,
+          error: errorMsg,
+        };
       }
     }
 
@@ -277,6 +293,7 @@ export class EmailProvider {
     const smtp = this.smtpConfig();
     const from = this.getFromAddress();
     const inr = (v: number) => `₹${v.toFixed(2)}`;
+    const pct = (v: number) => `${Number(v.toFixed(2))}%`;
     const pointsNote = pointsPending
       ? 'Register in the Lot More Wins partner app with this mobile number to claim your points.'
       : 'Your points have been added to your Lot More Wins wallet.';
@@ -336,8 +353,13 @@ export class EmailProvider {
                     </p>
                     <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #0f172a; border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 28px;">
                       ${row('Bill Amount', inr(subtotal), '#ffffff')}
-                      ${row('Discount Saved', `- ${inr(discountAmount)}`, '#4ade80')}
-                      ${row('Amount Paid', inr(totalAmount), '#ffffff')}
+                      ${discountAmount > 0 || !options.walletRedeemAmount ? row(`Discount (${pct(options.discountPercentage)})`, `- ${inr(discountAmount)}`, '#4ade80') : ''}
+                      ${options.gstAmount > 0 ? row('Amount after Discount', inr(options.taxableAmount), '#ffffff') : ''}
+                      ${options.gstAmount > 0 ? row(`GST (${pct(options.gstPercentage)})`, `+ ${inr(options.gstAmount)}`, '#ffffff') : ''}
+                      ${options.walletRedeemAmount ? row('Paid from Wallet', `- ${inr(options.walletRedeemAmount)}`, '#4ade80') : ''}
+                      ${options.roundOffAmount ? row('Round Off', `${options.roundOffAmount > 0 ? '+' : '-'} ${inr(Math.abs(options.roundOffAmount))}`, '#ffffff') : ''}
+                      ${row('Final Amount Paid', inr(totalAmount), '#ffffff')}
+                      ${options.cashReward > 0 ? row('Cash Reward Earned', `+${inr(options.cashReward)}`, '#fbbf24') : ''}
                       ${row('Purchase Points Earned', `+${pointsEarned} pts`, '#fbbf24', true)}
                     </table>
                     ${cta}
@@ -360,7 +382,9 @@ export class EmailProvider {
 
     const text =
       `Hello ${options.name},\n\nYour bill summary at ${options.outletName} (#${billNumber}):\n` +
-      `Bill Amount: ${inr(subtotal)}\nDiscount Saved: ${inr(discountAmount)}\nAmount Paid: ${inr(totalAmount)}\n` +
+      `Bill Amount: ${inr(subtotal)}\nDiscount Saved: ${inr(discountAmount)}\n` +
+      (options.walletRedeemAmount ? `Paid from Wallet: ${inr(options.walletRedeemAmount)}\n` : '') +
+      `Amount Paid: ${inr(totalAmount)}\n` +
       `Purchase Points Earned: ${pointsEarned}\n${pointsNote}\n` +
       (downloadLink ? `\nDownload the Lot More Wins Partner App: ${downloadLink}\n` : '');
 
@@ -375,11 +399,21 @@ export class EmailProvider {
         });
 
         console.log(`[EmailProvider:Success] Live Invoice email sent to ${to} | MessageId: ${info.messageId}`);
-        return { success: true, channel: 'email', messageId: info.messageId, recipient: to };
+        return {
+          success: true,
+          channel: 'email',
+          messageId: info.messageId,
+          recipient: to,
+        };
       } catch (err: unknown) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         console.error(`[EmailProvider:Error] Failed to send invoice email to ${to}:`, errorMsg);
-        return { success: false, channel: 'email', recipient: to, error: errorMsg };
+        return {
+          success: false,
+          channel: 'email',
+          recipient: to,
+          error: errorMsg,
+        };
       }
     }
 

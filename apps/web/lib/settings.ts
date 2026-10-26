@@ -41,6 +41,14 @@ function toDto(row: ProgramSetting | null): ProgramSettings {
       androidAppLinkType: 'DIRECT',
       iosAppUrl: null,
       iosAppLinkType: 'DIRECT',
+      achariyaFirstTimeDiscount: 20,
+      achariyaReferralPointsPercentage: 0,
+      cashRewardPurchasePercentage: 0,
+      cashRewardReferralPercentage: 0,
+      weeklyPayoutEnabled: true,
+      payoutMinimumAmount: 100,
+      payoutWeekday: 1,
+      redeemQrEnabled: false,
       isPersisted: false,
       updatedAt: null,
     };
@@ -54,7 +62,10 @@ function toDto(row: ProgramSetting | null): ProgramSettings {
     referralDiscount: row.referralDiscount.toNumber(),
     referralRewardGoal: row.referralRewardGoal,
     referralRewardDiscount: row.referralRewardDiscount.toNumber(),
-    pointsToRupees: { points: row.pointsRatioPoints.toNumber(), rupees: row.pointsRatioRupees.toNumber() },
+    pointsToRupees: {
+      points: row.pointsRatioPoints.toNumber(),
+      rupees: row.pointsRatioRupees.toNumber(),
+    },
     referralPointsPercentage: row.referralPointsPercentage.toNumber(),
     purchasePointsPercentage: row.purchasePointsPercentage.toNumber(),
     purchasePointsValidityDays: row.purchasePointsValidityDays,
@@ -69,6 +80,14 @@ function toDto(row: ProgramSetting | null): ProgramSettings {
     androidAppLinkType: row.androidAppLinkType,
     iosAppUrl: row.iosAppUrl,
     iosAppLinkType: row.iosAppLinkType,
+    achariyaFirstTimeDiscount: row.achariyaFirstTimeDiscount.toNumber(),
+    achariyaReferralPointsPercentage: row.achariyaReferralPointsPercentage.toNumber(),
+    cashRewardPurchasePercentage: row.cashRewardPurchasePercentage.toNumber(),
+    cashRewardReferralPercentage: row.cashRewardReferralPercentage.toNumber(),
+    weeklyPayoutEnabled: row.weeklyPayoutEnabled,
+    payoutMinimumAmount: row.payoutMinimumAmount.toNumber(),
+    payoutWeekday: row.payoutWeekday,
+    redeemQrEnabled: row.redeemQrEnabled,
     isPersisted: true,
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -126,7 +145,10 @@ export async function getProgramSettings(db: Db = prisma): Promise<ProgramSettin
   return toDto(await db.programSetting.findUnique({ where: { id: SETTINGS_ID } }));
 }
 
-export type ConfiguredProgramSettings = ProgramSettings & { isPersisted: true; updatedAt: string };
+export type ConfiguredProgramSettings = ProgramSettings & {
+  isPersisted: true;
+  updatedAt: string;
+};
 
 /**
  * Settings for anything that moves money or points. The saved Super Admin row is the only
@@ -176,20 +198,64 @@ export async function updateProgramSettings(
     pointsBasis: input.pointsBasis,
     appDownloadUrl: input.appDownloadUrl,
     // Settings added after the first release: omitted keeps the stored value.
-    ...(input.inviteImageUrl !== undefined && { inviteImageUrl: input.inviteImageUrl }),
-    ...(input.homePopupEnabled !== undefined && { homePopupEnabled: input.homePopupEnabled }),
-    ...(input.latestAppVersion !== undefined && { latestAppVersion: input.latestAppVersion }),
-    ...(input.walletDisplay !== undefined && { walletDisplay: input.walletDisplay }),
-    ...(input.androidAppUrl !== undefined && { androidAppUrl: input.androidAppUrl }),
-    ...(input.androidAppLinkType !== undefined && { androidAppLinkType: input.androidAppLinkType }),
+    ...(input.inviteImageUrl !== undefined && {
+      inviteImageUrl: input.inviteImageUrl,
+    }),
+    ...(input.homePopupEnabled !== undefined && {
+      homePopupEnabled: input.homePopupEnabled,
+    }),
+    ...(input.latestAppVersion !== undefined && {
+      latestAppVersion: input.latestAppVersion,
+    }),
+    ...(input.walletDisplay !== undefined && {
+      walletDisplay: input.walletDisplay,
+    }),
+    ...(input.androidAppUrl !== undefined && {
+      androidAppUrl: input.androidAppUrl,
+    }),
+    ...(input.androidAppLinkType !== undefined && {
+      androidAppLinkType: input.androidAppLinkType,
+    }),
     ...(input.iosAppUrl !== undefined && { iosAppUrl: input.iosAppUrl }),
-    ...(input.iosAppLinkType !== undefined && { iosAppLinkType: input.iosAppLinkType }),
+    ...(input.iosAppLinkType !== undefined && {
+      iosAppLinkType: input.iosAppLinkType,
+    }),
+    ...(input.achariyaFirstTimeDiscount !== undefined && {
+      achariyaFirstTimeDiscount: input.achariyaFirstTimeDiscount,
+    }),
+    ...(input.achariyaReferralPointsPercentage !== undefined && {
+      achariyaReferralPointsPercentage: input.achariyaReferralPointsPercentage,
+    }),
+    ...(input.cashRewardPurchasePercentage !== undefined && {
+      cashRewardPurchasePercentage: input.cashRewardPurchasePercentage,
+    }),
+    ...(input.cashRewardReferralPercentage !== undefined && {
+      cashRewardReferralPercentage: input.cashRewardReferralPercentage,
+    }),
+    ...(input.weeklyPayoutEnabled !== undefined && {
+      weeklyPayoutEnabled: input.weeklyPayoutEnabled,
+    }),
+    ...(input.payoutMinimumAmount !== undefined && {
+      payoutMinimumAmount: input.payoutMinimumAmount,
+    }),
+    ...(input.payoutWeekday !== undefined && {
+      payoutWeekday: input.payoutWeekday,
+    }),
+    ...(input.redeemQrEnabled !== undefined && {
+      redeemQrEnabled: input.redeemQrEnabled,
+    }),
     updatedBy,
   } as const;
 
   const row = await prisma.programSetting.upsert({
     where: { id: SETTINGS_ID },
-    create: { id: SETTINGS_ID, ...data },
+    // A first save without the Achariya values starts them equal to the Non-Achariya ones.
+    create: {
+      id: SETTINGS_ID,
+      achariyaFirstTimeDiscount: input.firstTimeDiscount,
+      achariyaReferralPointsPercentage: input.referralPointsPercentage,
+      ...data,
+    },
     update: data,
   });
   return toDto(row);

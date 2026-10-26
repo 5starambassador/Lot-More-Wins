@@ -1,9 +1,9 @@
 import { NextRequest } from 'next/server';
-import bcrypt from 'bcryptjs';
 import { partnerLoginSchema } from '@lotmorewins/validation';
 import prisma from '@/lib/prisma';
 import { HttpError } from '@/lib/auth';
 import { activeQrInclude, partnerSession } from '@/lib/partners';
+import { consumePartnerOtp } from '@/lib/partner-otp';
 import { fail, handleRouteError, ok, readJson, validationError } from '@/lib/api-response';
 import {
   RATE_LIMIT_RETRY_AFTER_SEC,
@@ -15,32 +15,45 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-// Compared against when the account is unknown so response time does not reveal registered partners.
-const DUMMY_HASH = bcrypt.hashSync('lmw-timing-equalizer', 10);
-
 /**
- * POST /api/partner/auth/login — partner sign-in with the registered mobile number or email
- * and password. Returns the same session payload as onboarding (profile, permanent QR codes, token).
+ * POST /api/partner/auth/login — partner sign-in, step 2: the registered mobile number or email
+ * and the one-time code from POST /api/partner/auth/otp. There is no password sign-in. Returns
+ * the same session payload as onboarding (profile, permanent QR codes, a token that never expires).
  */
 export async function POST(req: NextRequest) {
   try {
-    const parsed = partnerLoginSchema.safeParse(await readJson(req));
+    const body = await readJson(req);
+    // App versions from before code sign-in send a password and no code.
+    if (body && typeof body === 'object' && 'password' in body && !('otp' in body)) {
+      return fail(
+        426,
+        'Password sign-in has been replaced by a one-time code. Please update the Lot More Wins app to sign in.',
+        'APP_UPDATE_REQUIRED'
+      );
+    }
+    const parsed = partnerLoginSchema.safeParse(body);
     if (!parsed.success) return validationError(parsed.error);
-    const { kind, value, password } = parsed.data;
+    const { identifier, otp } = parsed.data;
 
     const ip = clientIp(req);
-    await assertLoginAllowed('partner', value, ip);
+    await assertLoginAllowed('partner', identifier.value, ip);
 
     const partner = await prisma.partner.findUnique({
-      where: kind === 'email' ? { email: value } : { mobile: value },
+      where: identifier.kind === 'email' ? { email: identifier.value } : { mobile: identifier.value },
       include: activeQrInclude,
     });
-    const valid = bcrypt.compareSync(password, partner?.passwordHash ?? DUMMY_HASH);
-    if (!partner || !valid) {
-      await recordLoginFailure('partner', value, ip);
-      return fail(401, 'Incorrect mobile number, email or password', 'INVALID_CREDENTIALS');
+    if (!partner) {
+      await recordLoginFailure('partner', identifier.value, ip);
+      return fail(400, 'This code is not valid. Please request a new one.', 'OTP_INVALID');
     }
-    await clearLoginFailures('partner', value, ip);
+
+    try {
+      await consumePartnerOtp(partner.id, 'login', otp);
+    } catch (error) {
+      if (error instanceof HttpError && error.code === 'OTP_INVALID') await recordLoginFailure('partner', identifier.value, ip);
+      throw error;
+    }
+    await clearLoginFailures('partner', identifier.value, ip);
 
     if (partner.status !== 'ACTIVE') {
       return fail(403, 'This partner account is not active. Please contact support.', 'PARTNER_INACTIVE');

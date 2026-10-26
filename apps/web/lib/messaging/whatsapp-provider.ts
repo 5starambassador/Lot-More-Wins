@@ -5,12 +5,19 @@ export class WhatsAppProvider {
   private integratedNumber?: string;
   private otpTemplate: string;
   private invoiceTemplate: string;
+  /**
+   * Invoice template with the discount and GST breakdown (12 body parameters, see sendInvoice). Until
+   * it is approved and set, the original 9-parameter template is used: its amount paid is the final
+   * payable (GST included) but it has no GST line.
+   */
+  private invoiceGstTemplate: string | null;
 
   constructor() {
     this.authKey = process.env.MSG91_AUTH_KEY;
     this.integratedNumber = process.env.MSG91_INTEGRATED_NUMBER;
     this.otpTemplate = process.env.MSG91_OTP_TEMPLATE_NAME || 'lotmorewins_otp';
     this.invoiceTemplate = process.env.MSG91_INVOICE_TEMPLATE_NAME || 'lotmorewins_invoice';
+    this.invoiceGstTemplate = process.env.MSG91_INVOICE_GST_TEMPLATE_NAME || null;
   }
 
   private formatMobileNumber(raw: string): string {
@@ -97,7 +104,12 @@ export class WhatsAppProvider {
             devNotice: `Live MSG91 failed (${errorMsg}), OTP logged: ${otp}`,
           };
         }
-        return { success: false, channel: 'whatsapp', recipient: mobile, error: errorMsg };
+        return {
+          success: false,
+          channel: 'whatsapp',
+          recipient: mobile,
+          error: errorMsg,
+        };
       }
     }
 
@@ -125,6 +137,7 @@ export class WhatsAppProvider {
       ? 'Register in the Lot More Wins partner app with this mobile number to claim them.'
       : 'They have been added to your Lot More Wins wallet.';
     const inr = (v: number) => `₹${v.toFixed(2)}`;
+    const pct = (v: number) => `${Number(v.toFixed(2))}%`;
     const mobile = this.formatMobileNumber(to);
 
     if (this.authKey && this.integratedNumber) {
@@ -136,22 +149,41 @@ export class WhatsAppProvider {
             to: mobile,
             type: 'template',
             template: {
-              name: this.invoiceTemplate,
+              name: this.invoiceGstTemplate ?? this.invoiceTemplate,
               language: { code: 'en', policy: 'deterministic' },
               components: [
                 {
                   type: 'body',
-                  parameters: [
-                    { type: 'text', text: name },
-                    { type: 'text', text: outletName },
-                    { type: 'text', text: billNumber },
-                    { type: 'text', text: inr(subtotal) },
-                    { type: 'text', text: inr(discountAmount) },
-                    { type: 'text', text: inr(totalAmount) },
-                    { type: 'text', text: String(pointsEarned) },
-                    { type: 'text', text: pointsNote },
-                    { type: 'text', text: downloadLink },
-                  ],
+                  parameters: (this.invoiceGstTemplate
+                    ? [
+                        name,
+                        outletName,
+                        billNumber,
+                        inr(subtotal),
+                        // A redeem bill has no discount: the template's discount line carries the wallet part.
+                        options.walletRedeemAmount
+                          ? `${inr(options.walletRedeemAmount)} paid from wallet`
+                          : `${inr(discountAmount)} (${pct(options.discountPercentage)})`,
+                        inr(options.taxableAmount),
+                        `${inr(options.gstAmount)} (${pct(options.gstPercentage)})`,
+                        inr(totalAmount),
+                        String(pointsEarned),
+                        options.cashReward > 0 ? inr(options.cashReward) : '₹0.00',
+                        pointsNote,
+                        downloadLink,
+                      ]
+                    : [
+                        name,
+                        outletName,
+                        billNumber,
+                        inr(subtotal),
+                        options.walletRedeemAmount ? `${inr(options.walletRedeemAmount)} paid from wallet` : inr(discountAmount),
+                        inr(totalAmount),
+                        String(pointsEarned),
+                        pointsNote,
+                        downloadLink,
+                      ]
+                  ).map((text) => ({ type: 'text', text })),
                 },
               ],
             },
@@ -184,13 +216,18 @@ export class WhatsAppProvider {
         };
       } catch (err: unknown) {
         const errorMsg = err instanceof Error ? err.message : String(err);
-        return { success: false, channel: 'whatsapp', recipient: mobile, error: errorMsg };
+        return {
+          success: false,
+          channel: 'whatsapp',
+          recipient: mobile,
+          error: errorMsg,
+        };
       }
     }
 
     console.log(
       `[MessagingService:MSG91-WhatsApp (Dev Mode)] Invoice to: ${mobile} for Bill #${billNumber} at ${outletName}, ` +
-        `Paid: ${inr(totalAmount)}, Points: ${pointsEarned}${pointsPending ? ' (pending)' : ''}, Download: ${downloadLink}`
+        `Bill: ${inr(subtotal)}, Discount: ${inr(discountAmount)}, GST: ${inr(options.gstAmount)}, Paid: ${inr(totalAmount)}, Points: ${pointsEarned}${pointsPending ? ' (pending)' : ''}, Download: ${downloadLink}`
     );
     return {
       success: true,

@@ -13,17 +13,19 @@ export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/partner/onboarding — register a partner. Every partner registers the same way
- * (contact, optional "Referred by", address, optional date of birth, verified OTP, password)
- * and receives the two permanent QR codes.
+ * (contact, optional "Referred by", address, optional date of birth, verified OTP) and receives
+ * the two permanent QR codes. There is no password: partners always sign in with a one-time code.
  */
 export async function POST(req: NextRequest) {
   try {
     const parsed = partnerOnboardingSchema.safeParse(await readJson(req));
     if (!parsed.success) return validationError(parsed.error);
-    const { name, mobile, email, city, state, pincode, dateOfBirth, referredBy, password, otp } = parsed.data;
+    const { name, mobile, email, city, state, pincode, dateOfBirth, referredBy, upiId, otp } = parsed.data;
 
     // 1. Check for duplicate account
-    const existingPartner = await prisma.partner.findFirst({ where: { OR: [{ mobile }, { email }] } });
+    const existingPartner = await prisma.partner.findFirst({
+      where: { OR: [{ mobile }, { email }] },
+    });
     if (existingPartner) {
       const field = existingPartner.mobile === mobile ? 'mobile number' : 'email address';
       return fail(409, `An account with this ${field} already exists. Please sign in instead.`, 'ACCOUNT_EXISTS');
@@ -34,12 +36,19 @@ export async function POST(req: NextRequest) {
     // when it was requested, so this window leaves at least 20 minutes to finish registering.
     const verifiedSince = new Date(Date.now() - 30 * 60 * 1000);
     const verifiedOtpRecord = await prisma.otpVerification.findFirst({
-      where: { identifier: { in: [mobile, email] }, verified: true, createdAt: { gte: verifiedSince } },
+      where: {
+        identifier: { in: [mobile, email] },
+        verified: true,
+        createdAt: { gte: verifiedSince },
+      },
       orderBy: { createdAt: 'desc' },
     });
     if (!verifiedOtpRecord) {
       const pendingRecords = await prisma.otpVerification.findMany({
-        where: { identifier: { in: [mobile, email] }, expiresAt: { gt: new Date() } },
+        where: {
+          identifier: { in: [mobile, email] },
+          expiresAt: { gt: new Date() },
+        },
         orderBy: { createdAt: 'desc' },
         take: 5,
       });
@@ -53,11 +62,15 @@ export async function POST(req: NextRequest) {
       if (!pendingRecord) {
         return fail(400, 'OTP verification failed or expired. Please verify your OTP before proceeding.', 'OTP_INVALID');
       }
-      await prisma.otpVerification.update({ where: { id: pendingRecord.id }, data: { verified: true } });
+      await prisma.otpVerification.update({
+        where: { id: pendingRecord.id },
+        data: { verified: true },
+      });
     }
 
-    // 3. Password hash, partner code and EXACTLY TWO permanent unique QR tokens
-    const passwordHash = await bcrypt.hash(password, 10);
+    // 3. Partner code and EXACTLY TWO permanent unique QR tokens. The password column is still
+    // required by the schema, so it holds the hash of a random secret nobody knows: unusable.
+    const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
     const partnerCode = `LMW-P-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
     const defaultDiscountQrToken = `LMW-DISC-${crypto.randomBytes(8).toString('hex').toUpperCase()}`;
     const referralQrToken = `LMW-REF-${crypto.randomBytes(8).toString('hex').toUpperCase()}`;
@@ -77,11 +90,17 @@ export async function POST(req: NextRequest) {
             state,
             pincode,
             dateOfBirth: dateOfBirth ? parseDateOnly(dateOfBirth) : null,
+            // Not asked at registration any more (added in Profile); older app versions still send it.
+            upiId: upiId ?? null,
             ...referredByFields,
             status: 'ACTIVE',
             qrCodes: {
               create: [
-                { code: defaultDiscountQrToken, type: 'DEFAULT_DISCOUNT', status: 'ACTIVE' },
+                {
+                  code: defaultDiscountQrToken,
+                  type: 'DEFAULT_DISCOUNT',
+                  status: 'ACTIVE',
+                },
                 { code: referralQrToken, type: 'REFERRAL', status: 'ACTIVE' },
               ],
             },
@@ -90,14 +109,18 @@ export async function POST(req: NextRequest) {
         });
 
         // Consume the OTP so the verification cannot be replayed for another registration.
-        await tx.otpVerification.deleteMany({ where: { identifier: { in: [mobile, email] } } });
+        await tx.otpVerification.deleteMany({
+          where: { identifier: { in: [mobile, email] } },
+        });
 
         // A referred customer registering with the same mobile: their purchase points move
         // into this wallet. Their first direct bill then gets the first-time (register bonus)
         // discount from the Super Admin settings, since they have no direct bill yet.
         const pendingClaim = await claimPendingPoints(tx, created.id, mobile);
         if (pendingClaim.claimedPoints > 0) {
-          await tx.notification.create({ data: claimedNotificationRow(created.id, pendingClaim.claimedPoints) });
+          await tx.notification.create({
+            data: claimedNotificationRow(created.id, pendingClaim.claimedPoints),
+          });
         }
 
         return { partner: created, claimedPoints: pendingClaim.claimedPoints };
@@ -105,7 +128,10 @@ export async function POST(req: NextRequest) {
       { maxWait: 10_000, timeout: 20_000 }
     );
 
-    const session: PartnerOnboardingResponse = { ...partnerSession(partner), claimedPoints };
+    const session: PartnerOnboardingResponse = {
+      ...partnerSession(partner),
+      claimedPoints,
+    };
     return ok(session, 201, 'Partner registered successfully. Permanent QR codes generated.');
   } catch (error) {
     const field = duplicatePartnerField(error);

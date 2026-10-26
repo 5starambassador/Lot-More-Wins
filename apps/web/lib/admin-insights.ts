@@ -32,6 +32,7 @@ import { referralProgress } from './referral-rewards';
 import { adminOutletInclude, serializeAdminOutlet } from './outlets';
 import { CSV_MAX_ROWS, csvDateTime, toCsv, type CsvColumn } from './admin-csv';
 import { sampleDashboard } from './dashboard-sample';
+import { BILL_TYPE_LABEL } from './admin-labels';
 
 /**
  * Read-only aggregates for the Super Admin panel. Nothing here writes; every figure is
@@ -48,7 +49,7 @@ function istDayStart(date: string): Date {
 }
 
 /** createdAt filter for an inclusive from–to range of IST days; undefined when neither end is set. */
-function createdAtRange(range: AdminDateRangeQuery): Prisma.DateTimeFilter | undefined {
+export function createdAtRange(range: AdminDateRangeQuery): Prisma.DateTimeFilter | undefined {
   if (!range.from && !range.to) return undefined;
   return {
     ...(range.from ? { gte: istDayStart(range.from) } : {}),
@@ -63,7 +64,17 @@ const n = (d: Prisma.Decimal | null | undefined) => d?.toNumber() ?? 0;
 
 const totalsSelect = {
   _count: { _all: true },
-  _sum: { billAmount: true, discountAmount: true, finalAmount: true, purchasePoints: true, referralPoints: true },
+  _sum: {
+    billAmount: true,
+    discountAmount: true,
+    gstAmount: true,
+    finalAmount: true,
+    purchasePoints: true,
+    referralPoints: true,
+    cashRewardPurchaseAmount: true,
+    cashRewardReferralAmount: true,
+    walletRedeemAmount: true,
+  },
 } as const;
 
 async function billTotals(where: Prisma.BillWhereInput): Promise<BillTotals> {
@@ -72,9 +83,12 @@ async function billTotals(where: Prisma.BillWhereInput): Promise<BillTotals> {
     billCount: agg._count._all,
     billAmount: n(agg._sum.billAmount),
     discountAmount: n(agg._sum.discountAmount),
+    gstAmount: n(agg._sum.gstAmount),
     finalAmount: n(agg._sum.finalAmount),
     purchasePoints: n(agg._sum.purchasePoints),
     referralPoints: n(agg._sum.referralPoints),
+    cashReward: new Prisma.Decimal(agg._sum.cashRewardPurchaseAmount ?? 0).plus(agg._sum.cashRewardReferralAmount ?? 0).toNumber(),
+    walletRedeemAmount: n(agg._sum.walletRedeemAmount),
   };
 }
 
@@ -96,7 +110,11 @@ async function dailySales(days: number, outlet: Prisma.Sql): Promise<DailySalesP
   return Array.from({ length: days }, (_, i) => {
     const date = istDate(new Date(since.getTime() + i * DAY_MS));
     const row = byDay.get(date);
-    return { date, billCount: row ? Number(row.bill_count) : 0, billAmount: n(row?.bill_amount) };
+    return {
+      date,
+      billCount: row ? Number(row.bill_count) : 0,
+      billAmount: n(row?.bill_amount),
+    };
   });
 }
 
@@ -120,12 +138,16 @@ const partnerListSelect = {
   email: true,
   city: true,
   status: true,
+  category: true,
+  upiId: true,
   createdAt: true,
   ...referredBySelect,
   _count: { select: { directBills: true, referredBills: true } },
 } satisfies Prisma.PartnerSelect;
 
-type PartnerListRow = Prisma.PartnerGetPayload<{ select: typeof partnerListSelect }>;
+type PartnerListRow = Prisma.PartnerGetPayload<{
+  select: typeof partnerListSelect;
+}>;
 
 /** Available points per partner: unexpired and not yet redeemed. */
 async function pointBalances(partnerIds: string[]): Promise<Map<string, number>> {
@@ -143,13 +165,34 @@ async function pointBalances(partnerIds: string[]): Promise<Map<string, number>>
   );
 }
 
+/** Cash reward balance per partner: credits minus amounts paid out. */
+async function cashBalances(partnerIds: string[]): Promise<Map<string, number>> {
+  if (partnerIds.length === 0) return new Map();
+  const sums = await prisma.cashRewardEntry.groupBy({
+    by: ['partnerId', 'type'],
+    where: { partnerId: { in: partnerIds } },
+    _sum: { amount: true },
+  });
+  const out = new Map<string, Prisma.Decimal>();
+  for (const s of sums) {
+    const amount = new Prisma.Decimal(s._sum.amount ?? 0);
+    const prev = out.get(s.partnerId as string) ?? new Prisma.Decimal(0);
+    out.set(s.partnerId as string, s.type === 'PAYOUT' ? prev.minus(amount) : prev.plus(amount));
+  }
+  return new Map([...out].map(([id, d]) => [id, d.toNumber()]));
+}
+
 async function shareCounts(partnerIds: string[]): Promise<Map<string, number>> {
   if (partnerIds.length === 0) return new Map();
-  const rows = await prisma.referralShare.groupBy({ by: ['partnerId'], where: { partnerId: { in: partnerIds } }, _count: { _all: true } });
+  const rows = await prisma.referralShare.groupBy({
+    by: ['partnerId'],
+    where: { partnerId: { in: partnerIds } },
+    _count: { _all: true },
+  });
   return new Map(rows.map((r) => [r.partnerId, r._count._all]));
 }
 
-function toListItem(p: PartnerListRow, balance: number, shares: number): AdminPartnerListItem {
+function toListItem(p: PartnerListRow, balance: number, shares: number, cash: number): AdminPartnerListItem {
   return {
     id: p.id,
     partnerCode: p.partnerCode,
@@ -163,6 +206,9 @@ function toListItem(p: PartnerListRow, balance: number, shares: number): AdminPa
     referredBillCount: p._count.referredBills,
     referralShareCount: shares,
     referredBy: serializeReferredBy(p),
+    category: p.category,
+    upiId: p.upiId,
+    cashBalance: cash,
     createdAt: p.createdAt.toISOString(),
   };
 }
@@ -223,8 +269,11 @@ export async function listPartners(
     }),
   ]);
   const ids = rows.map((r) => r.id);
-  const [balances, shares] = await Promise.all([pointBalances(ids), shareCounts(ids)]);
-  return { total, partners: rows.map((r) => toListItem(r, balances.get(r.id) ?? 0, shares.get(r.id) ?? 0)) };
+  const [balances, shares, cash] = await Promise.all([pointBalances(ids), shareCounts(ids), cashBalances(ids)]);
+  return {
+    total,
+    partners: rows.map((r) => toListItem(r, balances.get(r.id) ?? 0, shares.get(r.id) ?? 0, cash.get(r.id) ?? 0)),
+  };
 }
 
 const PARTNER_CSV: CsvColumn<AdminPartnerListItem>[] = [
@@ -236,7 +285,13 @@ const PARTNER_CSV: CsvColumn<AdminPartnerListItem>[] = [
   { header: 'Status', value: (p) => p.status },
   { header: 'Referred by', value: (p) => referredByText(p) },
   { header: 'Joined (IST)', value: (p) => csvDateTime(p.createdAt) },
+  {
+    header: 'Category',
+    value: (p) => (p.category === 'ACHARIYA' ? 'Achariya' : 'Non-Achariya'),
+  },
+  { header: 'UPI ID', value: (p) => p.upiId },
   { header: 'Points balance', value: (p) => p.pointsBalance },
+  { header: 'Cash reward balance', value: (p) => p.cashBalance },
   { header: 'Own bills', value: (p) => p.directBillCount },
   { header: 'Successful referrals', value: (p) => p.referredBillCount },
   { header: 'Referral QR shares', value: (p) => p.referralShareCount },
@@ -256,7 +311,16 @@ export async function getPartnerDetail(id: string): Promise<AdminPartnerDetail> 
       dateOfBirth: true,
       photoUrl: true,
       updatedAt: true,
-      qrCodes: { select: { id: true, code: true, type: true, status: true, createdAt: true }, orderBy: { type: 'asc' } },
+      qrCodes: {
+        select: {
+          id: true,
+          code: true,
+          type: true,
+          status: true,
+          createdAt: true,
+        },
+        orderBy: { type: 'asc' },
+      },
     },
   });
   if (!partner) throw new HttpError(404, 'Partner not found', 'PARTNER_NOT_FOUND');
@@ -267,8 +331,13 @@ export async function getPartnerDetail(id: string): Promise<AdminPartnerDetail> 
     billTotals({ referrerPartnerId: id }),
     getProgramSettings(),
     prisma.referralShare.count({ where: { partnerId: id } }),
-    prisma.bill.count({ where: { partnerId: id, referralRewardReferrals: { gt: 0 } } }),
-    prisma.bill.groupBy({ by: ['customerId'], where: { referrerPartnerId: id, transactionType: 'REFERRAL' } }),
+    prisma.bill.count({
+      where: { partnerId: id, referralRewardReferrals: { gt: 0 } },
+    }),
+    prisma.bill.groupBy({
+      by: ['customerId'],
+      where: { referrerPartnerId: id, transactionType: 'REFERRAL' },
+    }),
     prisma.bill.findMany({
       where: { OR: [{ partnerId: id }, { referrerPartnerId: id }] },
       include: billInclude,
@@ -280,12 +349,15 @@ export async function getPartnerDetail(id: string): Promise<AdminPartnerDetail> 
   const progress = await referralProgress(prisma, id, settings.referralRewardGoal);
 
   return {
-    ...toListItem(partner, wallet.balancePoints, shares),
+    ...toListItem(partner, wallet.balancePoints, shares, wallet.cash.balance),
     state: partner.state,
     pincode: partner.pincode,
     dateOfBirth: toDateOnly(partner.dateOfBirth),
     photoUrl: partner.photoUrl,
-    qrCodes: partner.qrCodes.map((q) => ({ ...q, createdAt: q.createdAt.toISOString() })),
+    qrCodes: partner.qrCodes.map((q) => ({
+      ...q,
+      createdAt: q.createdAt.toISOString(),
+    })),
     wallet,
     directTotals,
     referredTotals,
@@ -342,7 +414,10 @@ export async function listTransactions(
   const dates = createdAtRange(query);
   if (dates) and.push({ createdAt: dates });
   if (query.outletId) and.push({ outletId: query.outletId });
-  if (query.partnerId) and.push({ OR: [{ partnerId: query.partnerId }, { referrerPartnerId: query.partnerId }] });
+  if (query.partnerId)
+    and.push({
+      OR: [{ partnerId: query.partnerId }, { referrerPartnerId: query.partnerId }],
+    });
   if (query.type) and.push({ transactionType: query.type });
   if (query.notification) and.push({ notificationStatus: query.notification });
   if (search) {
@@ -381,10 +456,19 @@ const BILL_CSV: CsvColumn<BillRecord>[] = [
   { header: 'Bill number', value: (b) => b.billNumber },
   { header: 'Date (IST)', value: (b) => csvDateTime(b.createdAt) },
   { header: 'Outlet', value: (b) => b.outlet.name },
-  { header: 'Type', value: (b) => (b.transactionType === 'REFERRAL' ? 'Referral' : 'Direct partner') },
+  {
+    header: 'Type',
+    value: (b) => BILL_TYPE_LABEL[b.transactionType],
+  },
   { header: 'Partner', value: (b) => (b.partner ?? b.referrerPartner)?.name },
-  { header: 'Partner code', value: (b) => (b.partner ?? b.referrerPartner)?.partnerCode },
-  { header: 'Partner mobile', value: (b) => (b.partner ?? b.referrerPartner)?.mobile },
+  {
+    header: 'Partner code',
+    value: (b) => (b.partner ?? b.referrerPartner)?.partnerCode,
+  },
+  {
+    header: 'Partner mobile',
+    value: (b) => (b.partner ?? b.referrerPartner)?.mobile,
+  },
   { header: 'Customer', value: (b) => b.customer?.name },
   { header: 'Customer mobile', value: (b) => b.customer?.mobile },
   { header: 'First bill', value: (b) => (b.isFirstTime ? 'Yes' : 'No') },
@@ -393,9 +477,18 @@ const BILL_CSV: CsvColumn<BillRecord>[] = [
   { header: 'Birthday bonus %', value: (b) => b.birthdayBonusPercentage },
   { header: 'Referral reward %', value: (b) => b.referralRewardPercentage },
   { header: 'Discount amount', value: (b) => b.discountAmount },
-  { header: 'Amount paid', value: (b) => b.finalAmount },
+  { header: 'Amount after discount', value: (b) => b.taxableAmount },
+  { header: 'GST %', value: (b) => b.gstPercentage },
+  { header: 'GST amount', value: (b) => b.gstAmount },
+  { header: 'Final payable', value: (b) => b.finalAmount },
+  {
+    header: 'Partner category',
+    value: (b) => (b.partnerCategory === 'ACHARIYA' ? 'Achariya' : b.partnerCategory ? 'Non-Achariya' : ''),
+  },
   { header: 'Purchase points', value: (b) => b.purchasePoints },
   { header: 'Referral points', value: (b) => b.referralPoints },
+  { header: 'Purchase cash reward', value: (b) => b.cashRewardPurchaseAmount },
+  { header: 'Referral cash reward', value: (b) => b.cashRewardReferralAmount },
   { header: 'Message status', value: (b) => b.notification.status },
   { header: 'Message channel', value: (b) => b.notification.channel },
 ];
@@ -419,15 +512,31 @@ type ActivityQuery = Paging & AdminDateRangeQuery & { outletId?: string; kind?: 
  * above the table stay put while the table is narrowed.
  */
 export async function partnerActivity(id: string, query: ActivityQuery, all = false) {
-  const partner = await prisma.partner.findUnique({ where: { id }, select: { id: true, name: true, partnerCode: true } });
+  const partner = await prisma.partner.findUnique({
+    where: { id },
+    select: { id: true, name: true, partnerCode: true },
+  });
   if (!partner) throw new HttpError(404, 'Partner not found', 'PARTNER_NOT_FOUND');
 
   const createdAt = createdAtRange(query);
-  const scope = { ...(createdAt ? { createdAt } : {}), ...(query.outletId ? { outletId: query.outletId } : {}) };
+  const scope = {
+    ...(createdAt ? { createdAt } : {}),
+    ...(query.outletId ? { outletId: query.outletId } : {}),
+  };
   const purchaseWhere: Prisma.BillWhereInput = { partnerId: id, ...scope };
-  const referralWhere: Prisma.BillWhereInput = { referrerPartnerId: id, transactionType: 'REFERRAL', ...scope };
-  const redemptionWhere: Prisma.PointsRedemptionWhereInput = { partnerId: id, ...scope };
-  const shareWhere: Prisma.ReferralShareWhereInput = { partnerId: id, ...(createdAt ? { createdAt } : {}) };
+  const referralWhere: Prisma.BillWhereInput = {
+    referrerPartnerId: id,
+    transactionType: 'REFERRAL',
+    ...scope,
+  };
+  const redemptionWhere: Prisma.PointsRedemptionWhereInput = {
+    partnerId: id,
+    ...scope,
+  };
+  const shareWhere: Prisma.ReferralShareWhereInput = {
+    partnerId: id,
+    ...(createdAt ? { createdAt } : {}),
+  };
 
   const take = all ? CSV_MAX_ROWS : ACTIVITY_SOURCE_CAP;
   const wants = (kind: AdminPartnerActivityKind) => !query.kind || query.kind === kind;
@@ -450,10 +559,26 @@ export async function partnerActivity(id: string, query: ActivityQuery, all = fa
   const newestFirst = { orderBy: { createdAt: 'desc' as const }, take };
 
   const [purchases, referrals, redemptions, shares] = await Promise.all([
-    wants('PURCHASE') ? prisma.bill.findMany({ where: purchaseWhere, select: billSelect, ...newestFirst }) : [],
-    wants('REFERRAL') ? prisma.bill.findMany({ where: referralWhere, select: billSelect, ...newestFirst }) : [],
+    wants('PURCHASE')
+      ? prisma.bill.findMany({
+          where: purchaseWhere,
+          select: billSelect,
+          ...newestFirst,
+        })
+      : [],
+    wants('REFERRAL')
+      ? prisma.bill.findMany({
+          where: referralWhere,
+          select: billSelect,
+          ...newestFirst,
+        })
+      : [],
     wants('REDEMPTION')
-      ? prisma.pointsRedemption.findMany({ where: redemptionWhere, include: { outlet: { select: { name: true } } }, ...newestFirst })
+      ? prisma.pointsRedemption.findMany({
+          where: redemptionWhere,
+          include: { outlet: { select: { name: true } } },
+          ...newestFirst,
+        })
       : [],
     wants('SHARE') && !query.outletId ? prisma.referralShare.findMany({ where: shareWhere, ...newestFirst }) : [],
   ]);
@@ -461,7 +586,11 @@ export async function partnerActivity(id: string, query: ActivityQuery, all = fa
     billTotals(purchaseWhere),
     billTotals(referralWhere),
     prisma.bill.groupBy({ by: ['customerId'], where: referralWhere }),
-    prisma.pointsRedemption.aggregate({ where: redemptionWhere, _count: { _all: true }, _sum: { points: true, rupeeValue: true } }),
+    prisma.pointsRedemption.aggregate({
+      where: redemptionWhere,
+      _count: { _all: true },
+      _sum: { points: true, rupeeValue: true },
+    }),
     query.outletId ? 0 : prisma.referralShare.count({ where: shareWhere }),
   ]);
 
@@ -571,7 +700,10 @@ const ACTIVITY_CSV: CsvColumn<AdminPartnerActivityRow>[] = [
 
 export async function partnerActivityCsv(id: string, query: ActivityQuery) {
   const { partner, rows } = await partnerActivity(id, query, true);
-  return { name: `partner-${partner.partnerCode}-activity`, csv: toCsv(ACTIVITY_CSV, rows) };
+  return {
+    name: `partner-${partner.partnerCode}-activity`,
+    csv: toCsv(ACTIVITY_CSV, rows),
+  };
 }
 
 // ============================================================================
@@ -592,7 +724,11 @@ export async function listOutlets(query: AdminDateRangeQuery & { search?: string
               { email: { contains: search, mode: 'insensitive' } },
               { mobile: { contains: search } },
               { address: { contains: search, mode: 'insensitive' } },
-              { admins: { some: { email: { contains: search, mode: 'insensitive' } } } },
+              {
+                admins: {
+                  some: { email: { contains: search, mode: 'insensitive' } },
+                },
+              },
             ],
           }
         : {}),
@@ -600,7 +736,8 @@ export async function listOutlets(query: AdminDateRangeQuery & { search?: string
     include: adminOutletInclude,
     orderBy: { createdAt: 'desc' },
   });
-  return outlets.map(serializeAdminOutlet);
+  const settings = await getProgramSettings();
+  return outlets.map((o) => serializeAdminOutlet(o, settings));
 }
 
 const OUTLET_CSV: CsvColumn<AdminOutlet>[] = [
@@ -614,6 +751,16 @@ const OUTLET_CSV: CsvColumn<AdminOutlet>[] = [
   { header: 'Admin login', value: (o) => o.adminEmail },
   { header: 'Photos', value: (o) => o.images.length },
   { header: 'Bills', value: (o) => o.billCount },
+  { header: 'Offer', value: (o) => o.offer?.label },
+  { header: 'GST %', value: (o) => o.offers.gstPercentage },
+  {
+    header: 'Cash reward',
+    value: (o) => (o.offers.givesCashReward ? 'Yes' : 'No'),
+  },
+  {
+    header: 'Outlet can edit offers',
+    value: (o) => (o.offers.canEditOffers ? 'Yes' : 'No'),
+  },
   { header: 'Created (IST)', value: (o) => csvDateTime(o.createdAt) },
 ];
 
@@ -623,19 +770,33 @@ export async function outletsCsv(query: Parameters<typeof listOutlets>[0]): Prom
 
 /** Wallet redemptions made at one outlet, with totals for the date filter. */
 export async function outletRedemptions(outletId: string, query: Paging & AdminDateRangeQuery, all = false) {
-  const outlet = await prisma.outlet.findUnique({ where: { id: outletId }, select: { name: true } });
+  const outlet = await prisma.outlet.findUnique({
+    where: { id: outletId },
+    select: { name: true },
+  });
   if (!outlet) throw new HttpError(404, 'Outlet not found', 'NOT_FOUND');
 
   const createdAt = createdAtRange(query);
-  const where: Prisma.PointsRedemptionWhereInput = { outletId, ...(createdAt ? { createdAt } : {}) };
+  const where: Prisma.PointsRedemptionWhereInput = {
+    outletId,
+    ...(createdAt ? { createdAt } : {}),
+  };
   const [rows, totals] = await Promise.all([
     prisma.pointsRedemption.findMany({
       where,
-      include: { partner: { select: { id: true, name: true, partnerCode: true, mobile: true } } },
+      include: {
+        partner: {
+          select: { id: true, name: true, partnerCode: true, mobile: true },
+        },
+      },
       orderBy: { createdAt: 'desc' },
       ...pageOf(query, all),
     }),
-    prisma.pointsRedemption.aggregate({ where, _count: { _all: true }, _sum: { points: true, rupeeValue: true } }),
+    prisma.pointsRedemption.aggregate({
+      where,
+      _count: { _all: true },
+      _sum: { points: true, rupeeValue: true },
+    }),
   ]);
   const redemptions: AdminOutletRedemption[] = rows.map((r) => ({
     id: r.id,
@@ -648,7 +809,11 @@ export async function outletRedemptions(outletId: string, query: Paging & AdminD
     outletName: outlet.name,
     total: totals._count._all,
     redemptions,
-    summary: { count: totals._count._all, points: n(totals._sum.points), rupeeValue: n(totals._sum.rupeeValue) },
+    summary: {
+      count: totals._count._all,
+      points: n(totals._sum.points),
+      rupeeValue: n(totals._sum.rupeeValue),
+    },
   };
 }
 
@@ -663,7 +828,10 @@ const REDEMPTION_CSV: CsvColumn<AdminOutletRedemption>[] = [
 
 export async function outletRedemptionsCsv(outletId: string, query: Paging & AdminDateRangeQuery) {
   const { outletName, redemptions } = await outletRedemptions(outletId, query, true);
-  return { name: `outlet-${outletName}-redemptions`, csv: toCsv(REDEMPTION_CSV, redemptions) };
+  return {
+    name: `outlet-${outletName}-redemptions`,
+    csv: toCsv(REDEMPTION_CSV, redemptions),
+  };
 }
 
 
@@ -691,6 +859,9 @@ async function billSummary(today: Date, last30: Date, prev30: Date, outlet: Pris
       SUM(bill_amount) FILTER (WHERE ${cond}) AS ${Prisma.raw(`${p}_bill`)},
       SUM(discount_amount) FILTER (WHERE ${cond}) AS ${Prisma.raw(`${p}_discount`)},
       SUM(final_amount) FILTER (WHERE ${cond}) AS ${Prisma.raw(`${p}_final`)},
+      SUM(gst_amount) FILTER (WHERE ${cond}) AS ${Prisma.raw(`${p}_gst`)},
+      SUM(cash_reward_purchase_amount + cash_reward_referral_amount) FILTER (WHERE ${cond}) AS ${Prisma.raw(`${p}_cash`)},
+      SUM(wallet_redeem_amount) FILTER (WHERE ${cond}) AS ${Prisma.raw(`${p}_wallet`)},
       SUM(purchase_points) FILTER (WHERE ${cond}) AS ${Prisma.raw(`${p}_purchase`)},
       SUM(referral_points) FILTER (WHERE ${cond}) AS ${Prisma.raw(`${p}_referral`)}`
   );
@@ -698,6 +869,7 @@ async function billSummary(today: Date, last30: Date, prev30: Date, outlet: Pris
     SELECT ${Prisma.join(cols)},
       COUNT(*) FILTER (WHERE transaction_type = 'DIRECT_PARTNER') AS type_direct,
       COUNT(*) FILTER (WHERE transaction_type = 'REFERRAL') AS type_referral,
+      COUNT(*) FILTER (WHERE transaction_type = 'WALLET_REDEEM') AS type_redeem,
       COUNT(*) FILTER (WHERE notification_status = 'PENDING') AS notif_pending,
       COUNT(*) FILTER (WHERE notification_status = 'SENT') AS notif_sent,
       COUNT(*) FILTER (WHERE notification_status = 'FAILED') AS notif_failed,
@@ -709,6 +881,9 @@ async function billSummary(today: Date, last30: Date, prev30: Date, outlet: Pris
     billAmount: num(r[`${p}_bill`] ?? null),
     discountAmount: num(r[`${p}_discount`] ?? null),
     finalAmount: num(r[`${p}_final`] ?? null),
+    gstAmount: num(r[`${p}_gst`] ?? null),
+    cashReward: num(r[`${p}_cash`] ?? null),
+    walletRedeemAmount: num(r[`${p}_wallet`] ?? null),
     purchasePoints: num(r[`${p}_purchase`] ?? null),
     referralPoints: num(r[`${p}_referral`] ?? null),
   });
@@ -717,7 +892,11 @@ async function billSummary(today: Date, last30: Date, prev30: Date, outlet: Pris
     today: totals('today'),
     last30Days: totals('last30'),
     previous30Days: totals('prev30'),
-    byType: { DIRECT_PARTNER: num(r.type_direct ?? 0), REFERRAL: num(r.type_referral ?? 0) } as Record<BillTransactionType, number>,
+    byType: {
+      DIRECT_PARTNER: num(r.type_direct ?? 0),
+      REFERRAL: num(r.type_referral ?? 0),
+      WALLET_REDEEM: num(r.type_redeem ?? 0),
+    } as Record<BillTransactionType, number>,
     notifications: {
       PENDING: num(r.notif_pending ?? 0),
       SENT: num(r.notif_sent ?? 0),
@@ -821,11 +1000,19 @@ export async function getDashboard(query: AdminDashboardQuery = {}): Promise<Adm
   const days = Math.round((end.getTime() - start.getTime()) / DAY_MS);
   const previousStart = new Date(start.getTime() - days * DAY_MS);
   const monthly = days > DAILY_TREND_MAX_DAYS;
-  const range: AdminDashboard['range'] = { from, to, days, granularity: monthly ? 'month' : 'day' };
+  const range: AdminDashboard['range'] = {
+    from,
+    to,
+    days,
+    granularity: monthly ? 'month' : 'day',
+  };
   if (query.source === 'test') return sampleDashboard(range, trendBuckets(from, to, monthly), query.outletId);
 
   const outlet = query.outletId
-    ? await prisma.outlet.findUnique({ where: { id: query.outletId }, select: { id: true, name: true } })
+    ? await prisma.outlet.findUnique({
+        where: { id: query.outletId },
+        select: { id: true, name: true },
+      })
     : null;
   if (query.outletId && !outlet) throw new HttpError(404, 'Outlet not found', 'NOT_FOUND');
   const atOutlet = outlet ? { outletId: outlet.id } : {};
@@ -837,7 +1024,14 @@ export async function getDashboard(query: AdminDashboardQuery = {}): Promise<Adm
   // Stages rather than one wide Promise.all: each parallel query can open its own pool
   // connection, and a burst of new TLS connections to a remote database can time out.
   const [partnerRows, outletsByStatus, settings, points, bills] = await Promise.all([
-    prisma.$queryRaw<{ status: PartnerStatus; total: bigint; recent: bigint; in_period: bigint }[]>`
+    prisma.$queryRaw<
+      {
+        status: PartnerStatus;
+        total: bigint;
+        recent: bigint;
+        in_period: bigint;
+      }[]
+    >`
       SELECT status, COUNT(*) AS total, COUNT(*) FILTER (WHERE created_at >= ${last30}) AS recent,
              COUNT(*) FILTER (WHERE created_at >= ${start} AND created_at < ${end}) AS in_period
       FROM partners GROUP BY status`,
@@ -859,6 +1053,8 @@ export async function getDashboard(query: AdminDashboardQuery = {}): Promise<Adm
         SUM(bill_amount) FILTER (WHERE transaction_type = 'DIRECT_PARTNER') AS direct_amount,
         COUNT(*) FILTER (WHERE transaction_type = 'REFERRAL') AS referral_count,
         SUM(bill_amount) FILTER (WHERE transaction_type = 'REFERRAL') AS referral_amount,
+        COUNT(*) FILTER (WHERE transaction_type = 'WALLET_REDEEM') AS redeem_count,
+        SUM(bill_amount) FILTER (WHERE transaction_type = 'WALLET_REDEEM') AS redeem_amount,
         COUNT(DISTINCT customer_id) FILTER (WHERE transaction_type = 'REFERRAL') AS referral_customers,
         COUNT(*) FILTER (WHERE referral_reward_referrals > 0) AS rewards_used,
         COUNT(*) FILTER (WHERE (transaction_type = 'DIRECT_PARTNER' AND is_first_time)
@@ -876,14 +1072,31 @@ export async function getDashboard(query: AdminDashboardQuery = {}): Promise<Adm
     dailySales(30, outletSql),
   ]);
   const [topOutlets, topReferrers, redeemed, shares, recentBills, recentPartners] = await Promise.all([
-    prisma.$queryRaw<{ id: string; name: string; status: 'ACTIVE' | 'INACTIVE'; bill_count: bigint; bill_amount: Num }[]>`
+    prisma.$queryRaw<
+      {
+        id: string;
+        name: string;
+        status: 'ACTIVE' | 'INACTIVE';
+        bill_count: bigint;
+        bill_amount: Num;
+      }[]
+    >`
       SELECT o.id, o.name, o.status, COUNT(b.id) AS bill_count, SUM(b.bill_amount) AS bill_amount
       FROM bills b JOIN outlets o ON o.id = b.outlet_id
       WHERE b.created_at >= ${start} AND b.created_at < ${end} ${billOutletSql}
       GROUP BY o.id, o.name, o.status
       ORDER BY SUM(b.bill_amount) DESC
       LIMIT 5`,
-    prisma.$queryRaw<{ id: string; name: string; partner_code: string; referral_count: bigint; bill_amount: Num; referral_points: Num }[]>`
+    prisma.$queryRaw<
+      {
+        id: string;
+        name: string;
+        partner_code: string;
+        referral_count: bigint;
+        bill_amount: Num;
+        referral_points: Num;
+      }[]
+    >`
       SELECT p.id, p.name, p.partner_code, COUNT(b.id) AS referral_count, SUM(b.bill_amount) AS bill_amount,
              SUM(b.referral_points) AS referral_points
       FROM bills b JOIN partners p ON p.id = b.referrer_partner_id
@@ -891,9 +1104,18 @@ export async function getDashboard(query: AdminDashboardQuery = {}): Promise<Adm
       GROUP BY p.id, p.name, p.partner_code
       ORDER BY COUNT(b.id) DESC, SUM(b.bill_amount) DESC
       LIMIT 5`,
-    prisma.pointsRedemption.aggregate({ where: inPeriod, _count: { _all: true }, _sum: { points: true, rupeeValue: true } }),
+    prisma.pointsRedemption.aggregate({
+      where: inPeriod,
+      _count: { _all: true },
+      _sum: { points: true, rupeeValue: true },
+    }),
     prisma.referralShare.count({ where: createdInPeriod }),
-    prisma.bill.findMany({ where: inPeriod, include: billInclude, orderBy: { createdAt: 'desc' }, take: 6 }),
+    prisma.bill.findMany({
+      where: inPeriod,
+      include: billInclude,
+      orderBy: { createdAt: 'desc' },
+      take: 6,
+    }),
     listPartners({ page: 1, limit: 5, sort: 'newest' }),
   ]);
 
@@ -927,8 +1149,18 @@ export async function getDashboard(query: AdminDashboardQuery = {}): Promise<Adm
     previousPeriod,
     trend,
     periodByType: {
-      DIRECT_PARTNER: { billCount: num(pr.direct_count ?? 0), billAmount: num(pr.direct_amount ?? null) },
-      REFERRAL: { billCount: num(pr.referral_count ?? 0), billAmount: num(pr.referral_amount ?? null) },
+      DIRECT_PARTNER: {
+        billCount: num(pr.direct_count ?? 0),
+        billAmount: num(pr.direct_amount ?? null),
+      },
+      REFERRAL: {
+        billCount: num(pr.referral_count ?? 0),
+        billAmount: num(pr.referral_amount ?? null),
+      },
+      WALLET_REDEEM: {
+        billCount: num(pr.redeem_count ?? 0),
+        billAmount: num(pr.redeem_amount ?? null),
+      },
     },
     topReferrers: topReferrers.map((r) => ({
       id: r.id,
@@ -956,7 +1188,11 @@ export async function getDashboard(query: AdminDashboardQuery = {}): Promise<Adm
       newLast30Days: partnerRows.reduce((sum, r) => sum + Number(r.recent), 0),
       newInPeriod: partnerRows.reduce((sum, r) => sum + Number(r.in_period), 0),
     },
-    outlets: { total: activeOutlets + inactiveOutlets, active: activeOutlets, inactive: inactiveOutlets },
+    outlets: {
+      total: activeOutlets + inactiveOutlets,
+      active: activeOutlets,
+      inactive: inactiveOutlets,
+    },
     transactions: {
       allTime: bills.allTime,
       today: bills.today,
@@ -1001,16 +1237,29 @@ export async function dashboardCsv(query: AdminDashboardQuery = {}): Promise<str
   const d = await getDashboard(query);
   const m = d.programMetrics;
   const summary: { metric: string; value: string | number }[] = [
-    ...(d.source === 'test' ? [{ metric: 'Data', value: 'Test data (sample figures, not from the database)' }] : []),
+    ...(d.source === 'test'
+      ? [
+          {
+            metric: 'Data',
+            value: 'Test data (sample figures, not from the database)',
+          },
+        ]
+      : []),
     { metric: 'Channel', value: d.outlet ? d.outlet.name : 'All channels' },
     { metric: 'Period from', value: d.range.from },
     { metric: 'Period to', value: d.range.to },
     { metric: 'App registrations', value: m.appRegistrations },
     { metric: 'Offer redemptions', value: m.offerRedemptions },
-    { metric: 'Offer redemption rate (% of registered partners)', value: m.offerRedemptionRate },
+    {
+      metric: 'Offer redemption rate (% of registered partners)',
+      value: m.offerRedemptionRate,
+    },
     { metric: 'Successful referrals', value: m.successfulReferrals },
     { metric: 'Referral bonus (INR)', value: m.referralBonus },
-    { metric: 'Social followers added', value: m.socialFollowersAdded ?? 'Not tracked' },
+    {
+      metric: 'Social followers added',
+      value: m.socialFollowersAdded ?? 'Not tracked',
+    },
     { metric: 'Billing count', value: m.billingCount },
     { metric: 'Attributed sales (INR)', value: m.attributedSales },
     { metric: 'Gross sales (INR)', value: d.period.billAmount },
@@ -1031,7 +1280,10 @@ export async function dashboardCsv(query: AdminDashboardQuery = {}): Promise<str
   );
   const trend = toCsv<AdminTrendPoint>(
     [
-      { header: d.range.granularity === 'month' ? 'Month' : 'Date', value: (p) => p.date },
+      {
+        header: d.range.granularity === 'month' ? 'Month' : 'Date',
+        value: (p) => p.date,
+      },
       { header: 'Bills', value: (p) => p.billCount },
       { header: 'Gross sales (INR)', value: (p) => p.billAmount },
       { header: 'Discounts (INR)', value: (p) => p.discountAmount },
@@ -1055,7 +1307,14 @@ const SEARCH_RESULTS_PER_KIND = 6;
  */
 export async function adminSearch(q: string, allowed: { partners: boolean; outlets: boolean }): Promise<AdminSearchResult> {
   const [partners, outlets] = await Promise.all([
-    allowed.partners ? listPartners({ page: 1, limit: SEARCH_RESULTS_PER_KIND, search: q, sort: 'newest' }).then((r) => r.partners) : [],
+    allowed.partners
+      ? listPartners({
+          page: 1,
+          limit: SEARCH_RESULTS_PER_KIND,
+          search: q,
+          sort: 'newest',
+        }).then((r) => r.partners)
+      : [],
     allowed.outlets ? listOutlets({ search: q }) : [],
   ]);
   return { partners, outlets: outlets.slice(0, SEARCH_RESULTS_PER_KIND) };

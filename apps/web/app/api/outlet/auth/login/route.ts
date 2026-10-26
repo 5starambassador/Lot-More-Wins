@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { loginSchema } from '@lotmorewins/validation';
 import type { OutletAdminSession } from '@lotmorewins/types';
 import prisma from '@/lib/prisma';
-import { HttpError, OUTLET_ADMIN_TOKEN_TTL_SEC, signToken } from '@/lib/auth';
+import { HttpError, signToken } from '@/lib/auth';
 import { serializeOutlet } from '@/lib/outlets';
 import { fail, handleRouteError, ok, readJson, validationError } from '@/lib/api-response';
 import {
@@ -40,7 +40,8 @@ export async function POST(req: NextRequest) {
     await clearLoginFailures('outlet_admin', email, ip);
 
     const session: OutletAdminSession = {
-      token: signToken({ typ: 'outlet_admin', sub: admin.id }, OUTLET_ADMIN_TOKEN_TTL_SEC),
+      // No expiry: the admin stays signed in on the device until they sign out.
+      token: signToken({ typ: 'outlet_admin', sub: admin.id }),
       admin: { id: admin.id, email: admin.email },
       outlet: serializeOutlet(admin.outlet),
     };

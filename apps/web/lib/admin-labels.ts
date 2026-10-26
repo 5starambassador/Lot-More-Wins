@@ -5,6 +5,7 @@ import type {
   PartnerStatus,
   QRCodeType,
   ReferredByType,
+  WalletEntryType,
 } from '@lotmorewins/types';
 import type { Tone } from '@/components/ui/badge';
 
@@ -32,6 +33,17 @@ export const OUTLET_STATUS: Record<OutletStatus, { label: string; tone: Tone }> 
 export const BILL_TYPE_LABEL: Record<BillTransactionType, string> = {
   DIRECT_PARTNER: 'Direct partner',
   REFERRAL: 'Referral',
+  WALLET_REDEEM: 'Wallet redeem',
+};
+
+/** Lines of the partner's one wallet. */
+export const WALLET_ENTRY_LABEL: Record<WalletEntryType, string> = {
+  PURCHASE: 'Purchase',
+  REFERRAL: 'Referral',
+  CASHBACK_PURCHASE: 'Purchase cashback',
+  CASHBACK_REFERRAL: 'Referral cashback',
+  TRANSFER_IN: 'Received',
+  CASH_WALLET_MERGE: 'Cash reward moved in',
 };
 
 export const QR_TYPE_LABEL: Record<QRCodeType, string> = {

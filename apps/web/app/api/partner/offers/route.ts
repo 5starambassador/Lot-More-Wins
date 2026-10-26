@@ -1,5 +1,6 @@
 import type { PartnerOffers } from '@lotmorewins/types';
 import { getProgramSettings } from '@/lib/settings';
+import { maxActiveOutletDiscount } from '@/lib/outlet-offers';
 import { handleRouteError, ok } from '@/lib/api-response';
 
 export const dynamic = 'force-dynamic';
@@ -14,6 +15,7 @@ export async function GET() {
     const offers: PartnerOffers = {
       firstTimeDiscount: settings.firstTimeDiscount,
       birthdayBonusDiscount: settings.birthdayBonusDiscount,
+      maxOutletDiscount: await maxActiveOutletDiscount(settings),
     };
     return ok(offers);
   } catch (error) {

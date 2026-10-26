@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { OutletForm, emptyOutletForm, type OutletFormValues } from '@/components/admin/outlet-form';
+import { OutletForm, emptyOutletForm, offerPayload, type OutletFormValues } from '@/components/admin/outlet-form';
 import { PageHeader } from '@/components/ui/page-header';
 import { useToast } from '@/components/ui/toast';
 import { adminApi, errorMessage, isUnauthenticated } from '@/lib/admin-client';
@@ -28,6 +28,7 @@ export default function NewOutletPage() {
         images: values.images,
         adminEmail: values.adminEmail,
         adminPassword: values.adminPassword,
+        ...offerPayload(values),
       });
       toast('success', `${res.data.name} created`, 'The outlet is active and can sign in to the Outlet Admin app.');
       router.replace(`/outlets/${res.data.id}`);

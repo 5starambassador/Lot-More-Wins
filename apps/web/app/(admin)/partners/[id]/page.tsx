@@ -15,8 +15,10 @@ import { DetailList, Panel, PanelBody, PanelHeader } from '@/components/ui/panel
 import { Pagination, SkeletonRows, TBody, TD, TH, THead, TR, Table, TableScroll } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { DeleteRecordButton } from '@/components/admin/delete-record';
+import { PartnerAccessPanel } from '@/components/admin/partner-cash';
+import { PARTNER_CATEGORY } from '@/components/admin/revised-labels';
 import { adminApi, errorMessage, useAdminQuery } from '@/lib/admin-client';
-import { PARTNER_STATUS, QR_TYPE_LABEL, REFERRED_BY_LABEL } from '@/lib/admin-labels';
+import { PARTNER_STATUS, QR_TYPE_LABEL, REFERRED_BY_LABEL, WALLET_ENTRY_LABEL } from '@/lib/admin-labels';
 import { formatDate, formatDateTime, formatINR, formatNumber, formatRelative } from '@/lib/format';
 
 const PAGE_SIZE = 25;
@@ -161,9 +163,13 @@ function PartnerDetailView({ id }: { id: string }) {
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }, [dates, kind, outletId, pathname, router]);
 
-  const { data: p, error, reload } = useAdminQuery(() => adminApi.getAdminPartner(id).then((r) => r.data), [id]);
+  const { data: p, error, reload, setData } = useAdminQuery(() => adminApi.getAdminPartner(id).then((r) => r.data), [id]);
   const outlets = useAdminQuery(() => adminApi.listAdminOutletOptions().then((r) => r.data), []);
-  const filters = { ...dateQuery(dates), outletId: outletId || undefined, kind };
+  const filters = {
+    ...dateQuery(dates),
+    outletId: outletId || undefined,
+    kind,
+  };
   const activity = useAdminQuery(
     () => adminApi.getAdminPartnerActivity(id, { page, limit: PAGE_SIZE, ...filters }).then((r) => r.data),
     [id, page, dates.from, dates.to, outletId, kind]
@@ -237,7 +243,10 @@ function PartnerDetailView({ id }: { id: string }) {
 
       <FilterBar
         onClear={filtered && clearAll}
-        exportCsv={{ path: `/admin/partners/${p.id}/activity`, params: filters }}
+        exportCsv={{
+          path: `/admin/partners/${p.id}/activity`,
+          params: filters,
+        }}
       >
         <DateRangeFilter value={dates} onChange={reset(setDates)} />
         <Segmented<'ALL' | AdminPartnerActivityKind>
@@ -405,12 +414,12 @@ function PartnerDetailView({ id }: { id: string }) {
                           {formatRelative(e.createdAt)}
                         </TD>
                         <TD className="h-12">
-                          <Tag gold={e.type === 'REFERRAL'}>{e.type === 'REFERRAL' ? 'Referral' : 'Purchase'}</Tag>
+                          <Tag gold={e.type !== 'PURCHASE'}>{WALLET_ENTRY_LABEL[e.type] ?? e.type}</Tag>
                           {e.claimedAt && <span className="ml-2 text-[11px] text-stone-400">claimed on registration</span>}
                         </TD>
                         <TD className="h-12">
-                          <p className="font-mono text-[12px] text-stone-700">{e.billNumber}</p>
-                          <p className="text-[11px] text-stone-500">{e.outletName}</p>
+                          <p className="font-mono text-[12px] text-stone-700">{e.billNumber ?? '—'}</p>
+                          <p className="text-[11px] text-stone-500">{e.outletName ?? (e.fromPartnerName ? `From ${e.fromPartnerName}` : '')}</p>
                         </TD>
                         <TD className="h-12 whitespace-nowrap">
                           {!e.expiresAt ? (
@@ -431,9 +440,13 @@ function PartnerDetailView({ id }: { id: string }) {
               </TableScroll>
             )}
           </Panel>
+
+          {/* Cash wallet and UPI payout history are hidden: the cash reward merged into the one wallet. */}
         </div>
 
         <div className="space-y-6">
+          <PartnerAccessPanel key={`${p.status}-${p.category}`} partner={p} onSaved={(updated) => setData(() => updated)} />
+
           <Panel>
             <PanelHeader
               title="Referral tracking"
@@ -455,7 +468,12 @@ function PartnerDetailView({ id }: { id: string }) {
                 aria-valuenow={t.progress}
                 aria-label="Successful referrals towards the next reward"
               >
-                <div className="h-full rounded-full bg-maroon-700 transition-[width] duration-500" style={{ width: `${t.goal ? (t.progress / t.goal) * 100 : 0}%` }} />
+                <div
+                  className="h-full rounded-full bg-maroon-700 transition-[width] duration-500"
+                  style={{
+                    width: `${t.goal ? (t.progress / t.goal) * 100 : 0}%`,
+                  }}
+                />
               </div>
               <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-stone-500">
                 <Gift className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gold-600" />
@@ -466,25 +484,52 @@ function PartnerDetailView({ id }: { id: string }) {
               <DetailList
                 className="mt-4 border-t border-stone-100"
                 items={[
-                  { label: 'Total referrals', value: <span className="tabular">{formatNumber(t.total)}</span> },
-                  { label: 'Customers referred', value: <span className="tabular">{formatNumber(t.uniqueCustomers)}</span> },
-                  { label: 'Share QR taps', value: <span className="tabular">{formatNumber(t.shares)}</span> },
-                  { label: 'Rewards used', value: <span className="tabular">{formatNumber(t.rewardsUsed)}</span> },
-                  { label: 'Referral sales', value: <span className="tabular">{formatINR(p.referredTotals.billAmount)}</span> },
+                  {
+                    label: 'Total referrals',
+                    value: <span className="tabular">{formatNumber(t.total)}</span>,
+                  },
+                  {
+                    label: 'Customers referred',
+                    value: <span className="tabular">{formatNumber(t.uniqueCustomers)}</span>,
+                  },
+                  {
+                    label: 'Share QR taps',
+                    value: <span className="tabular">{formatNumber(t.shares)}</span>,
+                  },
+                  {
+                    label: 'Rewards used',
+                    value: <span className="tabular">{formatNumber(t.rewardsUsed)}</span>,
+                  },
+                  {
+                    label: 'Referral sales',
+                    value: <span className="tabular">{formatINR(p.referredTotals.billAmount)}</span>,
+                  },
                 ]}
               />
             </PanelBody>
           </Panel>
 
           <Panel>
-            <PanelHeader title="Wallet" />
+            <PanelHeader title="Points wallet" />
             <div className="px-5 py-2">
               <DetailList
                 items={[
-                  { label: 'Points balance', value: <span className="tabular">{formatNumber(p.wallet.balancePoints)}</span> },
-                  { label: 'Worth', value: <span className="tabular">{formatINR(p.wallet.rupeeValue)}</span> },
-                  { label: 'Own purchases', value: `${formatINR(p.directTotals.billAmount)} · ${formatNumber(p.directTotals.billCount)} bills` },
-                  { label: 'Saved in discounts', value: <span className="tabular">{formatINR(p.directTotals.discountAmount)}</span> },
+                  {
+                    label: 'Points balance',
+                    value: <span className="tabular">{formatNumber(p.wallet.balancePoints)}</span>,
+                  },
+                  {
+                    label: 'Worth',
+                    value: <span className="tabular">{formatINR(p.wallet.rupeeValue)}</span>,
+                  },
+                  {
+                    label: 'Own purchases',
+                    value: `${formatINR(p.directTotals.billAmount)} · ${formatNumber(p.directTotals.billCount)} bills`,
+                  },
+                  {
+                    label: 'Saved in discounts',
+                    value: <span className="tabular">{formatINR(p.directTotals.discountAmount)}</span>,
+                  },
                 ]}
               />
             </div>
@@ -495,12 +540,28 @@ function PartnerDetailView({ id }: { id: string }) {
             <div className="px-5 py-2">
               <DetailList
                 items={[
-                  { label: 'Mobile', value: <span className="tabular">{p.mobile}</span> },
+                  {
+                    label: 'Mobile',
+                    value: <span className="tabular">{p.mobile}</span>,
+                  },
                   { label: 'Email', value: p.email },
                   { label: 'City / State', value: location || '—' },
-                  { label: 'Pincode', value: p.pincode ? <span className="tabular">{p.pincode}</span> : '—' },
-                  { label: 'Date of birth', value: p.dateOfBirth ? formatDate(p.dateOfBirth) : 'Not provided' },
-                  { label: 'Referred by', value: <ReferredBy value={p.referredBy} /> },
+                  {
+                    label: 'Pincode',
+                    value: p.pincode ? <span className="tabular">{p.pincode}</span> : '—',
+                  },
+                  {
+                    label: 'Date of birth',
+                    value: p.dateOfBirth ? formatDate(p.dateOfBirth) : 'Not provided',
+                  },
+                  {
+                    label: 'Referred by',
+                    value: <ReferredBy value={p.referredBy} />,
+                  },
+                  {
+                    label: 'Classification',
+                    value: PARTNER_CATEGORY[p.category],
+                  },
                   { label: 'Joined', value: formatDateTime(p.createdAt) },
                   { label: 'Last updated', value: formatRelative(p.updatedAt) },
                 ]}

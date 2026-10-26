@@ -10,6 +10,7 @@ import { EmptyState } from '@/components/ui/feedback';
 import { DetailList } from '@/components/ui/panel';
 import { SkeletonRows, TBody, TD, TH, THead, TR, Table, TableScroll } from '@/components/ui/table';
 import { BILL_TYPE_LABEL, NOTIFICATION_STATUS } from '@/lib/admin-labels';
+import { PARTNER_CATEGORY } from './revised-labels';
 import { formatDateTime, formatINR, formatNumber, formatRelative } from '@/lib/format';
 
 /** Who paid, and through whom — the one line that explains a bill. */
@@ -45,13 +46,13 @@ export function BillsTable({
   emptyTitle?: string;
   emptyDescription?: string;
 }) {
-  const cols = hideOutlet ? 6 : 7;
+  const cols = hideOutlet ? 8 : 9;
   if (!loading && bills && bills.length === 0) {
     return <EmptyState icon={Receipt} title={emptyTitle} description={emptyDescription} />;
   }
   return (
     <TableScroll>
-      <Table className="min-w-[760px]">
+      <Table className="min-w-[980px]">
         <THead>
           <tr>
             <TH>Bill</TH>
@@ -60,6 +61,9 @@ export function BillsTable({
             <TH>Type</TH>
             <TH align="right">Bill amount</TH>
             <TH align="right">Discount</TH>
+            <TH align="right">GST</TH>
+            <TH align="right">Payable</TH>
+            <TH align="right">Cash reward</TH>
             <TH>Message</TH>
           </tr>
         </THead>
@@ -99,8 +103,36 @@ export function BillsTable({
                     {formatINR(bill.billAmount)}
                   </TD>
                   <TD align="right">
-                    <span className="text-stone-700">{formatINR(bill.discountAmount)}</span>
-                    <span className="block text-[11px] text-stone-400">{formatNumber(bill.discountPercentage)}%</span>
+                    {bill.transactionType === 'WALLET_REDEEM' ? (
+                      <>
+                        <span className="text-stone-700">{formatINR(bill.walletRedeemAmount)}</span>
+                        <span className="block text-[11px] text-stone-400">from wallet</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-stone-700">{formatINR(bill.discountAmount)}</span>
+                        <span className="block text-[11px] text-stone-400">{formatNumber(bill.discountPercentage)}%</span>
+                      </>
+                    )}
+                  </TD>
+                  <TD align="right">
+                    <span className="text-stone-700">{bill.gstAmount > 0 ? formatINR(bill.gstAmount) : '—'}</span>
+                    {bill.gstAmount > 0 && <span className="block text-[11px] text-stone-400">{formatNumber(bill.gstPercentage)}%</span>}
+                  </TD>
+                  <TD align="right" className="font-medium text-stone-900">
+                    {formatINR(bill.finalAmount)}
+                  </TD>
+                  <TD align="right" className="text-stone-700">
+                    {bill.cashRewardPurchaseAmount > 0 || bill.cashRewardReferralAmount > 0 ? (
+                      <>
+                        {bill.cashRewardPurchaseAmount > 0 && <span className="block">{formatINR(bill.cashRewardPurchaseAmount)}</span>}
+                        {bill.cashRewardReferralAmount > 0 && (
+                          <span className="block text-[11px] text-gold-700">ref {formatINR(bill.cashRewardReferralAmount)}</span>
+                        )}
+                      </>
+                    ) : (
+                      '—'
+                    )}
                   </TD>
                   <TD>
                     <Badge tone={n.tone}>{n.label}</Badge>
@@ -161,17 +193,41 @@ export function BillDrawer({ bill, onClose, onDelete }: { bill: BillRecord | nul
           {bill.birthdayBonusPercentage > 0 && <Tag gold>Birthday bonus +{formatNumber(bill.birthdayBonusPercentage)}%</Tag>}
           {bill.referralRewardPercentage > 0 && <Tag gold>Referral reward {formatNumber(bill.referralRewardPercentage)}%</Tag>}
         </div>
-        <p className="mt-4 text-xs text-stone-500">Amount paid</p>
+        <p className="mt-4 text-xs text-stone-500">Final payable</p>
         <p className="tabular text-3xl font-semibold tracking-[-0.01em] text-stone-900">{formatINR(bill.finalAmount)}</p>
         <div className="mt-4 grid grid-cols-2 gap-4 border-t border-stone-150 pt-4 text-[13px]">
           <div>
             <p className="text-xs text-stone-500">Bill amount</p>
             <p className="tabular font-medium text-stone-900">{formatINR(bill.billAmount)}</p>
           </div>
+          {bill.transactionType === 'WALLET_REDEEM' ? (
+            <div>
+              <p className="text-xs text-stone-500">Paid from partner wallet</p>
+              <p className="tabular font-medium text-maroon-700">− {formatINR(bill.walletRedeemAmount)}</p>
+              <p className="text-[11px] text-stone-400">{formatNumber(bill.walletRedeemPoints)} points · at most half the bill</p>
+            </div>
+          ) : (
+            <div>
+              <p className="text-xs text-stone-500">Discount ({formatNumber(bill.discountPercentage)}%)</p>
+              <p className="tabular font-medium text-maroon-700">− {formatINR(bill.discountAmount)}</p>
+            </div>
+          )}
           <div>
-            <p className="text-xs text-stone-500">Discount ({formatNumber(bill.discountPercentage)}%)</p>
-            <p className="tabular font-medium text-maroon-700">− {formatINR(bill.discountAmount)}</p>
+            <p className="text-xs text-stone-500">After discount</p>
+            <p className="tabular font-medium text-stone-900">{formatINR(bill.taxableAmount)}</p>
           </div>
+          <div>
+            <p className="text-xs text-stone-500">GST ({formatNumber(bill.gstPercentage)}%)</p>
+            <p className="tabular font-medium text-stone-900">+ {formatINR(bill.gstAmount)}</p>
+          </div>
+          {bill.roundOffAmount !== 0 && (
+            <div>
+              <p className="text-xs text-stone-500">Round off</p>
+              <p className="tabular font-medium text-stone-900">
+                {bill.roundOffAmount > 0 ? '+' : '−'} {formatINR(Math.abs(bill.roundOffAmount))}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -181,10 +237,21 @@ export function BillDrawer({ bill, onClose, onDelete }: { bill: BillRecord | nul
             items={[
               ...(bill.transactionType === 'REFERRAL'
                 ? [
-                    { label: 'Customer', value: bill.customer ? `${bill.customer.name} · ${bill.customer.mobile}` : '—' },
-                    { label: 'Referred by', value: bill.referrerPartner?.name ?? '—' },
+                    {
+                      label: 'Customer',
+                      value: bill.customer ? `${bill.customer.name} · ${bill.customer.mobile}` : '—',
+                    },
+                    {
+                      label: 'Referred by',
+                      value: bill.referrerPartner?.name ?? '—',
+                    },
                   ]
-                : [{ label: 'Partner', value: bill.partner ? `${bill.partner.name} · ${bill.partner.mobile}` : '—' }]),
+                : [
+                    {
+                      label: 'Partner',
+                      value: bill.partner ? `${bill.partner.name} · ${bill.partner.mobile}` : '—',
+                    },
+                  ]),
               {
                 label: 'Partner code',
                 // Sample bills (dashboard test data) have no partner page to open.
@@ -208,16 +275,44 @@ export function BillDrawer({ bill, onClose, onDelete }: { bill: BillRecord | nul
             items={[
               {
                 label: 'Points calculated on',
-                value: `${formatINR(bill.pointsBaseAmount)} (${bill.pointsBasis === 'BILL_AMOUNT' ? 'bill amount' : 'payable amount'})`,
+                value: `${formatINR(bill.pointsBaseAmount)} (${bill.pointsBasis === 'BILL_AMOUNT' ? 'bill amount' : 'amount after discount, before GST'})`,
               },
-              { label: 'Purchase points', value: `${formatNumber(bill.purchasePoints)} pts · ${formatNumber(bill.purchasePointsPercentage)}%` },
-              { label: 'Credited to', value: RECIPIENT_LABEL[bill.purchasePointsRecipient] },
+              {
+                label: 'Purchase points',
+                value: `${formatNumber(bill.purchasePoints)} pts · ${formatNumber(bill.purchasePointsPercentage)}%`,
+              },
+              {
+                label: 'Credited to',
+                value: RECIPIENT_LABEL[bill.purchasePointsRecipient],
+              },
               ...(bill.transactionType === 'REFERRAL'
                 ? [{ label: 'Referral points', value: `${formatNumber(bill.referralPoints)} pts · ${formatNumber(bill.referralPointsPercentage)}%` }]
                 : []),
               { label: 'Ratio at billing', value: `${formatNumber(bill.pointsRatio.points)} pts = ₹${formatNumber(bill.pointsRatio.rupees)}` },
             ]}
           />
+        </Section>
+
+        <Section title="Cash reward">
+          <DetailList
+            items={[
+              {
+                label: 'Purchase',
+                value: `${formatINR(bill.cashRewardPurchaseAmount)} · ${formatNumber(bill.cashRewardPurchasePercentage)}%`,
+              },
+              ...(bill.transactionType === 'REFERRAL'
+                ? [
+                    {
+                      label: 'Referral (to the referring partner)',
+                      value: `${formatINR(bill.cashRewardReferralAmount)} · ${formatNumber(bill.cashRewardReferralPercentage)}%`,
+                    },
+                  ]
+                : []),
+            ]}
+          />
+          {bill.cashRewardPurchasePercentage === 0 && bill.cashRewardReferralPercentage === 0 && (
+            <p className="mt-2 text-xs text-stone-500">No cash reward: the outlet did not give cash reward for this bill.</p>
+          )}
         </Section>
 
         <Section title="Bill message">
@@ -232,7 +327,8 @@ export function BillDrawer({ bill, onClose, onDelete }: { bill: BillRecord | nul
             <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{bill.notification.error}</p>
           )}
           <p className="mt-2 text-xs text-stone-500">
-            {bill.notification.attempts} attempt{bill.notification.attempts === 1 ? '' : 's'}
+            {bill.notification.attempts} attempt
+            {bill.notification.attempts === 1 ? '' : 's'}
             {bill.notification.sentAt && ` · sent ${formatDateTime(bill.notification.sentAt)}`}
           </p>
         </Section>
@@ -240,8 +336,22 @@ export function BillDrawer({ bill, onClose, onDelete }: { bill: BillRecord | nul
         <Section title="Audit">
           <DetailList
             items={[
-              { label: 'Settings version', value: bill.settingsVersion ? formatDateTime(bill.settingsVersion) : 'Before snapshots' },
-              { label: 'QR scanned', value: bill.qrType === 'REFERRAL' ? 'Referral QR' : 'Discount QR' },
+              {
+                label: 'Settings version',
+                value: bill.settingsVersion ? formatDateTime(bill.settingsVersion) : 'Before snapshots',
+              },
+              {
+                label: 'Outlet offers version',
+                value: bill.outletSettingsVersion ? formatDateTime(bill.outletSettingsVersion) : 'Before outlet offers',
+              },
+              {
+                label: 'Partner classification',
+                value: bill.partnerCategory ? PARTNER_CATEGORY[bill.partnerCategory] : 'Before classification',
+              },
+              {
+                label: 'QR scanned',
+                value: bill.qrType === 'REFERRAL' ? 'Referral QR' : bill.qrType === null ? 'Redeem QR (wallet)' : 'Discount QR',
+              },
             ]}
           />
         </Section>

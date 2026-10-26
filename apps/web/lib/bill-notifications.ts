@@ -1,14 +1,14 @@
 import type { BillRecord } from '@lotmorewins/types';
 import prisma from './prisma';
 import { billInclude, serializeBill, type BillWithRelations } from './billing';
-import { getProgramSettings } from './settings';
+import { appDownloadLinks, getProgramSettings } from './settings';
 import { messagingService } from './messaging';
 
 /**
  * Bill message (invoice + purchase points + partner app download link), sent after the
  * bill is committed so a messaging failure can never undo or block a bill.
- * Channel: the Super Admin messaging mode. Recipient: the purchasing partner on a direct
- * bill, the referred customer on a referral bill. The outcome is stored on the bill.
+ * Channel: the Super Admin messaging mode. Recipient: the purchasing partner on a direct or
+ * redeem bill, the referred customer on a referral bill. The outcome is stored on the bill.
  */
 
 /** RFC 2606 / 6761 reserved domains can never receive mail (used by test fixtures). */
@@ -18,11 +18,19 @@ const UNDELIVERABLE_EMAIL = /@([a-z0-9-]+\.)*(test|example|invalid|localhost)$/i
 const SEND_TIMEOUT_MS = 15_000;
 
 function recipientOf(bill: BillWithRelations) {
-  if (bill.transactionType === 'DIRECT_PARTNER' && bill.partner) {
-    return { name: bill.partner.name, email: bill.partner.email, mobile: bill.partner.mobile };
+  if ((bill.transactionType === 'DIRECT_PARTNER' || bill.transactionType === 'WALLET_REDEEM') && bill.partner) {
+    return {
+      name: bill.partner.name,
+      email: bill.partner.email,
+      mobile: bill.partner.mobile,
+    };
   }
   if (bill.customer) {
-    return { name: bill.customer.name, email: bill.customer.email, mobile: bill.customer.mobile };
+    return {
+      name: bill.customer.name,
+      email: bill.customer.email,
+      mobile: bill.customer.mobile,
+    };
   }
   return null;
 }
@@ -42,7 +50,10 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 export async function sendBillNotification(billId: string): Promise<BillRecord> {
-  const bill = await prisma.bill.findUniqueOrThrow({ where: { id: billId }, include: billInclude });
+  const bill = await prisma.bill.findUniqueOrThrow({
+    where: { id: billId },
+    include: billInclude,
+  });
   const [settings, mode] = await Promise.all([getProgramSettings(), messagingService.getMode()]);
   const channel = mode === 'whatsapp' ? 'WHATSAPP' : 'EMAIL';
   const person = recipientOf(bill);
@@ -79,16 +90,33 @@ export async function sendBillNotification(billId: string): Promise<BillRecord> 
           billNumber: bill.billNumber,
           subtotal: record.billAmount,
           discountAmount: record.discountAmount,
+          discountPercentage: record.discountPercentage,
+          taxableAmount: record.taxableAmount,
+          gstPercentage: record.gstPercentage,
+          gstAmount: record.gstAmount,
+          walletRedeemAmount: record.walletRedeemAmount,
+          roundOffAmount: record.roundOffAmount,
           totalAmount: record.finalAmount,
+          cashReward: record.cashRewardPurchaseAmount,
           pointsEarned: record.purchasePoints,
           pointsPending: record.purchasePointsRecipient === 'CUSTOMER_PENDING',
-          downloadLink: settings.appDownloadUrl,
+          // The download page, else the platform links from the app download settings.
+          downloadLink: settings.appDownloadUrl ?? appDownloadLinks(settings).android.url ?? settings.iosAppUrl,
         }),
         SEND_TIMEOUT_MS
       );
       update = result.success
-        ? { notificationStatus: 'SENT', notificationRecipient: to, notificationError: null, notificationSentAt: new Date() }
-        : { notificationStatus: 'FAILED', notificationRecipient: to, notificationError: result.error ?? 'Delivery failed' };
+        ? {
+            notificationStatus: 'SENT',
+            notificationRecipient: to,
+            notificationError: null,
+            notificationSentAt: new Date(),
+          }
+        : {
+            notificationStatus: 'FAILED',
+            notificationRecipient: to,
+            notificationError: result.error ?? 'Delivery failed',
+          };
     } catch (error) {
       update = {
         notificationStatus: 'FAILED',

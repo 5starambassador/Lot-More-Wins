@@ -2,7 +2,23 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { BellOff, BellRing, Coins, Download, Gift, Globe, IndianRupee, Link2, Mail, MessageCircle, Percent, RotateCcw, Smartphone, Store } from 'lucide-react';
+import {
+  BellOff,
+  BellRing,
+  Coins,
+  Download,
+  Gift,
+  Globe,
+  IndianRupee,
+  Link2,
+  Mail,
+  MessageCircle,
+  Percent,
+  RotateCcw,
+  Smartphone,
+  Store,
+  Wallet,
+} from 'lucide-react';
 import type { AppLinkType, MessagingMode, PointsBasis, ProgramSettings, WalletDisplay } from '@lotmorewins/types';
 import { LogoUpload } from '@/components/admin/image-upload';
 import { Button } from '@/components/ui/button';
@@ -45,6 +61,15 @@ interface FormState {
   iosAppUrl: string;
   iosAppLinkType: AppLinkType;
   walletDisplay: WalletDisplay;
+  achFirstDiscount: string;
+  achReferralPoints: string;
+  cashPurchase: string;
+  cashReferral: string;
+  weeklyPayout: 'on' | 'off';
+  payoutMin: string;
+  /** 0 = Sunday … 6 = Saturday */
+  payoutWeekday: string;
+  redeemQr: 'on' | 'off';
 }
 
 function toForm(s: ProgramSettings): FormState {
@@ -73,47 +98,147 @@ function toForm(s: ProgramSettings): FormState {
     iosAppUrl: s.iosAppUrl ?? '',
     iosAppLinkType: s.iosAppLinkType,
     walletDisplay: s.walletDisplay,
+    achFirstDiscount: String(s.achariyaFirstTimeDiscount),
+    achReferralPoints: String(s.achariyaReferralPointsPercentage),
+    cashPurchase: String(s.cashRewardPurchasePercentage),
+    cashReferral: String(s.cashRewardReferralPercentage),
+    weeklyPayout: s.weeklyPayoutEnabled ? 'on' : 'off',
+    payoutMin: String(s.payoutMinimumAmount),
+    payoutWeekday: String(s.payoutWeekday),
+    redeemQr: s.redeemQrEnabled ? 'on' : 'off',
   };
 }
 
 const formatDays = (v: string) => (Number(v) > 0 ? `${formatNumber(Number(v))} day${Number(v) === 1 ? '' : 's'}` : 'No expiry');
 
-const BASIS_LABEL: Record<PointsBasis, string> = { PAYABLE_AMOUNT: 'Payable amount', BILL_AMOUNT: 'Bill amount' };
-const DISPLAY_LABEL: Record<WalletDisplay, string> = { RUPEES: 'Rupees (₹)', POINTS: 'Points' };
-const MODE_LABEL: Record<MessagingMode, string> = { email: 'Email', whatsapp: 'WhatsApp' };
+const BASIS_LABEL: Record<PointsBasis, string> = {
+  PAYABLE_AMOUNT: 'Payable amount',
+  BILL_AMOUNT: 'Bill amount',
+};
+const DISPLAY_LABEL: Record<WalletDisplay, string> = {
+  RUPEES: 'Rupees (₹)',
+  POINTS: 'Points',
+};
+const MODE_LABEL: Record<MessagingMode, string> = {
+  email: 'Email',
+  whatsapp: 'WhatsApp',
+};
 
 /** Labels used in the review dialog, in display order. */
-const FIELDS: { key: keyof FormState; label: string; unit?: string; format?: (v: string) => string }[] = [
-  { key: 'firstDiscount', label: 'First-time discount', unit: '%' },
-  { key: 'firstValidityDays', label: 'First-time discount · Validity', format: formatDays },
+const FIELDS: {
+  key: keyof FormState;
+  label: string;
+  unit?: string;
+  format?: (v: string) => string;
+}[] = [
+  {
+    key: 'firstDiscount',
+    label: 'First-time discount (Non-Achariya)',
+    unit: '%',
+  },
+  {
+    key: 'achFirstDiscount',
+    label: 'First-time discount (Achariya)',
+    unit: '%',
+  },
+  {
+    key: 'firstValidityDays',
+    label: 'First-time discount · Validity',
+    format: formatDays,
+  },
   { key: 'repeatDiscount', label: 'Repeat discount', unit: '%' },
   { key: 'birthdayBonus', label: 'Birthday bonus discount', unit: '%' },
   { key: 'referralDiscount', label: 'Referral discount', unit: '%' },
   { key: 'rewardGoal', label: 'Referral reward · Successful referrals needed' },
-  { key: 'rewardDiscount', label: 'Referral reward · Special discount', unit: '%' },
-  { key: 'referralPoints', label: 'Referral points', unit: '%' },
+  {
+    key: 'rewardDiscount',
+    label: 'Referral reward · Special discount',
+    unit: '%',
+  },
+  { key: 'referralPoints', label: 'Referral points (Non-Achariya)', unit: '%' },
+  { key: 'achReferralPoints', label: 'Referral points (Achariya)', unit: '%' },
+  { key: 'cashPurchase', label: 'Cashback · Purchase', unit: '%' },
+  { key: 'cashReferral', label: 'Cashback · Referral', unit: '%' },
+  {
+    key: 'redeemQr',
+    label: 'Redeem QR (pay part of a bill from the wallet)',
+    format: (v) => (v === 'on' ? 'On' : 'Off'),
+  },
   { key: 'purchasePoints', label: 'Purchase points', unit: '%' },
-  { key: 'purchaseValidityDays', label: 'Purchase points · Validity', format: formatDays },
-  { key: 'referralValidityDays', label: 'Referral points · Validity', format: formatDays },
-  { key: 'walletDisplay', label: 'Wallet display', format: (v) => DISPLAY_LABEL[v as WalletDisplay] },
+  {
+    key: 'purchaseValidityDays',
+    label: 'Purchase points · Validity',
+    format: formatDays,
+  },
+  {
+    key: 'referralValidityDays',
+    label: 'Referral points · Validity',
+    format: formatDays,
+  },
+  {
+    key: 'walletDisplay',
+    label: 'Wallet display',
+    format: (v) => DISPLAY_LABEL[v as WalletDisplay],
+  },
   { key: 'ratioPoints', label: 'Conversion · points' },
   { key: 'ratioRupees', label: 'Conversion · rupees', unit: '₹' },
-  { key: 'pointsBasis', label: 'Points calculated on', format: (v) => BASIS_LABEL[v as PointsBasis] },
-  { key: 'messagingMode', label: 'Messaging channel', format: (v) => MODE_LABEL[v as MessagingMode] },
-  { key: 'appDownloadUrl', label: 'Partner app link', format: (v) => v || 'Not set' },
-  { key: 'homePopup', label: 'Home popup (new version)', format: (v) => (v === 'on' ? 'Shown' : 'Hidden') },
-  { key: 'latestAppVersion', label: 'Home popup · Latest app version', format: (v) => v || 'Every version' },
-  { key: 'androidAppUrl', label: 'Android download link', format: (v) => v || 'Not set' },
-  { key: 'androidAppLinkType', label: 'Android link type', format: (v) => (v === 'STORE' ? 'Google Play Store' : 'Direct APK download') },
-  { key: 'iosAppUrl', label: 'iOS download link', format: (v) => v || 'Not set' },
-  { key: 'iosAppLinkType', label: 'iOS link type', format: (v) => (v === 'STORE' ? 'Apple App Store' : 'Web app / direct link') },
-  { key: 'inviteImageUrl', label: 'Invite image', format: (v) => (v ? v.split('/').pop()! : 'App logo') },
+  {
+    key: 'pointsBasis',
+    label: 'Points calculated on',
+    format: (v) => BASIS_LABEL[v as PointsBasis],
+  },
+  {
+    key: 'messagingMode',
+    label: 'Messaging channel',
+    format: (v) => MODE_LABEL[v as MessagingMode],
+  },
+  {
+    key: 'appDownloadUrl',
+    label: 'Partner app link',
+    format: (v) => v || 'Not set',
+  },
+  {
+    key: 'homePopup',
+    label: 'Home popup (new version)',
+    format: (v) => (v === 'on' ? 'Shown' : 'Hidden'),
+  },
+  {
+    key: 'latestAppVersion',
+    label: 'Home popup · Latest app version',
+    format: (v) => v || 'Every version',
+  },
+  {
+    key: 'androidAppUrl',
+    label: 'Android download link',
+    format: (v) => v || 'Not set',
+  },
+  {
+    key: 'androidAppLinkType',
+    label: 'Android link type',
+    format: (v) => (v === 'STORE' ? 'Google Play Store' : 'Direct APK download'),
+  },
+  {
+    key: 'iosAppUrl',
+    label: 'iOS download link',
+    format: (v) => v || 'Not set',
+  },
+  {
+    key: 'iosAppLinkType',
+    label: 'iOS link type',
+    format: (v) => (v === 'STORE' ? 'Apple App Store' : 'Web app / direct link'),
+  },
+  {
+    key: 'inviteImageUrl',
+    label: 'Invite image',
+    format: (v) => (v ? v.split('/').pop()! : 'App logo'),
+  },
 ];
 
 const SECTIONS = [
   { id: 'discounts', label: 'Discounts', icon: Percent },
   { id: 'referral-reward', label: 'Referral reward', icon: Gift },
   { id: 'rewards', label: 'Rewards & points', icon: Coins },
+  { id: 'cash', label: 'Cashback & redeem', icon: Wallet },
   { id: 'messaging', label: 'Messaging', icon: MessageCircle },
   { id: 'app', label: 'Partner app', icon: Link2 },
   { id: 'downloads', label: 'App downloads', icon: Download },
@@ -125,12 +250,15 @@ function PercentInput({
   onChange,
   changed,
   label,
+  max = 100,
 }: {
   id: string;
   value: string;
   onChange: (v: string) => void;
   changed: boolean;
   label: string;
+  /** Discounts stop at half the bill. */
+  max?: number;
 }) {
   return (
     <Input
@@ -140,7 +268,7 @@ function PercentInput({
       inputMode="decimal"
       step="0.01"
       min="0"
-      max="100"
+      max={max}
       required
       value={value}
       onChange={(e) => onChange(e.target.value)}
@@ -189,7 +317,12 @@ function ChoiceCards<T extends string>({
 }: {
   value: T;
   name: string;
-  options: readonly { value: T; label: string; hint: string; icon?: React.ComponentType<{ className?: string }> }[];
+  options: readonly {
+    value: T;
+    label: string;
+    hint: string;
+    icon?: React.ComponentType<{ className?: string }>;
+  }[];
   onChange: (v: T) => void;
 }) {
   return (
@@ -304,7 +437,10 @@ export default function SettingsPage() {
         referralDiscount: Number(values.referralDiscount),
         referralRewardGoal: Number(values.rewardGoal),
         referralRewardDiscount: Number(values.rewardDiscount),
-        pointsToRupees: { points: Number(values.ratioPoints), rupees: Number(values.ratioRupees) },
+        pointsToRupees: {
+          points: Number(values.ratioPoints),
+          rupees: Number(values.ratioRupees),
+        },
         referralPointsPercentage: Number(values.referralPoints),
         purchasePointsPercentage: Number(values.purchasePoints),
         purchasePointsValidityDays: Number(values.purchaseValidityDays),
@@ -319,6 +455,14 @@ export default function SettingsPage() {
         iosAppUrl: values.iosAppUrl.trim() || null,
         iosAppLinkType: values.iosAppLinkType,
         walletDisplay: values.walletDisplay,
+        achariyaFirstTimeDiscount: Number(values.achFirstDiscount),
+        achariyaReferralPointsPercentage: Number(values.achReferralPoints),
+        cashRewardPurchasePercentage: Number(values.cashPurchase),
+        cashRewardReferralPercentage: Number(values.cashReferral),
+        weeklyPayoutEnabled: values.weeklyPayout === 'on',
+        payoutMinimumAmount: Number(values.payoutMin),
+        payoutWeekday: Number(values.payoutWeekday),
+        redeemQrEnabled: values.redeemQr === 'on',
       });
       setData(() => res.data);
       setForm(null);
@@ -407,7 +551,7 @@ export default function SettingsPage() {
               <PanelHeader
                 eyebrow="High impact"
                 title="Discount rates"
-                description="Percentage taken off the bill. Every partner gets the same rates; the rule is picked by the QR that was scanned."
+                description="Percentage taken off the bill, picked by the QR that was scanned. Achariya partners get their own first-time rate. The first-time rate applies to the partner's first bill at each outlet. Outlets can override these on their page. A bill is never reduced by more than 50%, birthday bonus and referral reward included, so each rate is at most 50%."
               />
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[540px] text-[13px]">
@@ -421,8 +565,17 @@ export default function SettingsPage() {
                   <tbody className="divide-y divide-stone-100">
                     {(
                       [
-                        ['First-time sale', "Partner's first ever bill on their own discount QR, including customers who later register.", 'firstDiscount'],
-                        ['Repeat sale', 'Every later bill on the partner’s own discount QR.', 'repeatDiscount'],
+                        [
+                          'First-time sale · Non-Achariya',
+                          "Partner's first bill at each outlet on their own discount QR, including customers who later register.",
+                          'firstDiscount',
+                        ],
+                        [
+                          'First-time sale · Achariya',
+                          'The same first bill at each outlet for partners the Super Admin classified as Achariya. Uses the same validity.',
+                          'achFirstDiscount',
+                        ],
+                        ['Repeat sale', 'Every later bill at that outlet on the partner’s own discount QR.', 'repeatDiscount'],
                         ['Birthday bonus', 'Added on top of the partner’s own discount on their birthday only.', 'birthdayBonus'],
                         ['Referral customer', 'A customer bringing a partner’s referral QR.', 'referralDiscount'],
                       ] as const
@@ -433,7 +586,7 @@ export default function SettingsPage() {
                           <p className="mt-0.5 text-xs text-stone-500">{hint}</p>
                         </td>
                         <td className="px-3 py-3.5">
-                          <PercentInput id={a} label={`${title} discount`} value={values[a]} onChange={set(a)} changed={changed(a)} />
+                          <PercentInput id={a} label={`${title} discount`} value={values[a]} onChange={set(a)} changed={changed(a)} max={50} />
                         </td>
                         <td className="px-5 py-3.5">
                           {a === 'firstDiscount' ? (
@@ -487,6 +640,7 @@ export default function SettingsPage() {
                   hint="Replaces the usual discount on that bill when it is higher; the birthday bonus still adds on top"
                 >
                   <PercentInput
+                    max={50}
                     id="rewardDiscount"
                     label="Referral reward special discount"
                     value={values.rewardDiscount}
@@ -510,8 +664,23 @@ export default function SettingsPage() {
                     <Field label="Purchase points" htmlFor="purchasePoints" hint="Of the points base">
                       <PercentInput id="purchasePoints" label="Purchase points" value={values.purchasePoints} onChange={set('purchasePoints')} changed={changed('purchasePoints')} />
                     </Field>
-                    <Field label="Referral points" htmlFor="referralPoints" hint="To the referring partner">
-                      <PercentInput id="referralPoints" label="Referral points" value={values.referralPoints} onChange={set('referralPoints')} changed={changed('referralPoints')} />
+                    <Field label="Referral points · Non-Achariya" htmlFor="referralPoints" hint="To the referring partner">
+                      <PercentInput
+                        id="referralPoints"
+                        label="Referral points"
+                        value={values.referralPoints}
+                        onChange={set('referralPoints')}
+                        changed={changed('referralPoints')}
+                      />
+                    </Field>
+                    <Field label="Referral points · Achariya" htmlFor="achReferralPoints" hint="When the referring partner is Achariya">
+                      <PercentInput
+                        id="achReferralPoints"
+                        label="Achariya referral points"
+                        value={values.achReferralPoints}
+                        onChange={set('achReferralPoints')}
+                        changed={changed('achReferralPoints')}
+                      />
                     </Field>
                   </div>
 
@@ -542,8 +711,18 @@ export default function SettingsPage() {
                       value={values.walletDisplay}
                       onChange={set('walletDisplay') as (v: WalletDisplay) => void}
                       options={[
-                        { value: 'RUPEES', label: 'Rupees', hint: 'Earnings shown directly as ₹ value', icon: IndianRupee },
-                        { value: 'POINTS', label: 'Points', hint: 'Earnings shown as points, with their ₹ worth', icon: Coins },
+                        {
+                          value: 'RUPEES',
+                          label: 'Rupees',
+                          hint: 'Earnings shown directly as ₹ value',
+                          icon: IndianRupee,
+                        },
+                        {
+                          value: 'POINTS',
+                          label: 'Points',
+                          hint: 'Earnings shown as points, with their ₹ worth',
+                          icon: Coins,
+                        },
                       ]}
                     />
                   </Field>
@@ -590,8 +769,16 @@ export default function SettingsPage() {
                       value={values.pointsBasis}
                       onChange={set('pointsBasis') as (v: PointsBasis) => void}
                       options={[
-                        { value: 'PAYABLE_AMOUNT', label: 'Payable amount', hint: 'Bill amount after the discount' },
-                        { value: 'BILL_AMOUNT', label: 'Bill amount', hint: 'Full bill before the discount' },
+                        {
+                          value: 'PAYABLE_AMOUNT',
+                          label: 'Payable amount',
+                          hint: 'Bill amount after the discount',
+                        },
+                        {
+                          value: 'BILL_AMOUNT',
+                          label: 'Bill amount',
+                          hint: 'Full bill before the discount',
+                        },
                       ]}
                     />
                   </Field>
@@ -602,12 +789,69 @@ export default function SettingsPage() {
               </div>
             </Panel>
 
+            {/* Cash reward & payouts */}
+            <Panel id="cash" className="scroll-mt-24">
+              <PanelHeader
+                eyebrow="Money"
+                title="Cashback & wallet redeem"
+                description="Cashback is credited into the partner's one wallet (as points at the points-to-₹ ratio), only at outlets with “Gives cashback” on, on the same base as points (never GST). There are no UPI payouts: partners spend the wallet with the redeem QR. Outlets can override these rates on their page."
+              />
+              <div className="space-y-6 px-5 py-5">
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <Field label="Purchase cashback" htmlFor="cashPurchase" hint="To whoever buys (as purchase points)">
+                    <PercentInput
+                      id="cashPurchase"
+                      label="Purchase cashback"
+                      value={values.cashPurchase}
+                      onChange={set('cashPurchase')}
+                      changed={changed('cashPurchase')}
+                    />
+                  </Field>
+                  <Field label="Referral cashback" htmlFor="cashReferral" hint="To the partner whose referral QR was used">
+                    <PercentInput
+                      id="cashReferral"
+                      label="Referral cashback"
+                      value={values.cashReferral}
+                      onChange={set('cashReferral')}
+                      changed={changed('cashReferral')}
+                    />
+                  </Field>
+                </div>
+
+                {/* Weekly UPI payouts (and their minimum balance and day) are hidden: payouts ended
+                    when the cash reward wallet merged into the one wallet. */}
+
+                <Field
+                  label="Redeem QR"
+                  hint="Lets partners pay part of a bill from their wallet with a short-lived QR worth up to half the wallet. It is scanned in place of a discount QR; the wallet pays at most half the bill and the rest stays in the wallet."
+                >
+                  <ChoiceCards<'on' | 'off'>
+                    name="Redeem QR"
+                    value={values.redeemQr}
+                    onChange={set('redeemQr') as (v: 'on' | 'off') => void}
+                    options={[
+                      {
+                        value: 'off',
+                        label: 'Off',
+                        hint: 'Hidden in the apps and refused by the server',
+                      },
+                      {
+                        value: 'on',
+                        label: 'On',
+                        hint: 'Partners can pay up to half a bill from their wallet',
+                      },
+                    ]}
+                  />
+                </Field>
+              </div>
+            </Panel>
+
             {/* Messaging */}
             <Panel id="messaging" className="scroll-mt-24">
               <PanelHeader
                 eyebrow="System"
                 title="Messaging channel"
-                description="Used for every OTP and bill message. Switching channel affects all partners and outlets immediately."
+                description="Used for every OTP (partner registration and partner sign-in) and bill message. Partners cannot choose; switching channel affects all partners and outlets immediately."
               />
               <div className="px-5 py-5">
                 <ChoiceCards<MessagingMode>
@@ -615,8 +859,18 @@ export default function SettingsPage() {
                   value={values.messagingMode}
                   onChange={set('messagingMode') as (v: MessagingMode) => void}
                   options={[
-                    { value: 'email', label: 'Email', hint: 'Delivered through Gmail SMTP', icon: Mail },
-                    { value: 'whatsapp', label: 'WhatsApp', hint: 'Delivered through MSG91', icon: MessageCircle },
+                    {
+                      value: 'email',
+                      label: 'Email',
+                      hint: 'Delivered through Gmail SMTP',
+                      icon: Mail,
+                    },
+                    {
+                      value: 'whatsapp',
+                      label: 'WhatsApp',
+                      hint: 'Delivered through MSG91',
+                      icon: MessageCircle,
+                    },
                   ]}
                 />
                 {changed('messagingMode') && (
@@ -653,8 +907,18 @@ export default function SettingsPage() {
                     value={values.homePopup}
                     onChange={set('homePopup') as (v: 'on' | 'off') => void}
                     options={[
-                      { value: 'on', label: 'Show popup', hint: 'Shown once each time a partner opens the app', icon: BellRing },
-                      { value: 'off', label: 'Hide popup', hint: 'Partners do not see it', icon: BellOff },
+                      {
+                        value: 'on',
+                        label: 'Show popup',
+                        hint: 'Shown once each time a partner opens the app',
+                        icon: BellRing,
+                      },
+                      {
+                        value: 'off',
+                        label: 'Hide popup',
+                        hint: 'Partners do not see it',
+                        icon: BellOff,
+                      },
                     ]}
                   />
                   {values.homePopup === 'on' && !values.appDownloadUrl.trim() && (
@@ -709,8 +973,16 @@ export default function SettingsPage() {
                       type: 'androidAppLinkType',
                       placeholder: 'https://play.google.com/store/apps/details?id=com.lotmorewins.partner',
                       hint: 'Leave empty if not available yet. Google Drive and Dropbox share links are turned into a direct APK download automatically.',
-                      direct: { label: 'Direct APK download', hint: 'A link to the .apk file', icon: Download },
-                      store: { label: 'Google Play Store', hint: 'The app listing on Google Play', icon: Store },
+                      direct: {
+                        label: 'Direct APK download',
+                        hint: 'A link to the .apk file',
+                        icon: Download,
+                      },
+                      store: {
+                        label: 'Google Play Store',
+                        hint: 'The app listing on Google Play',
+                        icon: Store,
+                      },
                     },
                     {
                       platform: 'iPhone (iOS)',
@@ -719,8 +991,16 @@ export default function SettingsPage() {
                       type: 'iosAppLinkType',
                       placeholder: 'https://apps.apple.com/… or the Partner App web address',
                       hint: 'Leave empty if not available yet.',
-                      direct: { label: 'Web app / direct link', hint: 'iPhones cannot install APKs: e.g. the web version to add to the Home Screen', icon: Globe },
-                      store: { label: 'Apple App Store', hint: 'The app listing on the App Store', icon: Store },
+                      direct: {
+                        label: 'Web app / direct link',
+                        hint: 'iPhones cannot install APKs: e.g. the web version to add to the Home Screen',
+                        icon: Globe,
+                      },
+                      store: {
+                        label: 'Apple App Store',
+                        hint: 'The app listing on the App Store',
+                        icon: Store,
+                      },
                     },
                   ] as const
                 ).map((p) => (

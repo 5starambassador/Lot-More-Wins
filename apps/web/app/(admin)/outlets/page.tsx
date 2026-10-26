@@ -49,11 +49,16 @@ function OutletsView() {
   // Search and the "added" date are filtered by the server; status is narrowed here so the
   // Active / Inactive counts always describe the same result.
   const serverFilters = { search: q || undefined, ...dateQuery(dates) };
-  const { data: outlets, error, reload, setData } = useAdminQuery(
-    () => adminApi.listAdminOutlets(serverFilters).then((r) => r.data),
-    [q, dates.from, dates.to]
-  );
-  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'createdAt', dir: 'desc' });
+  const {
+    data: outlets,
+    error,
+    reload,
+    setData,
+  } = useAdminQuery(() => adminApi.listAdminOutlets(serverFilters).then((r) => r.data), [q, dates.from, dates.to]);
+  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({
+    key: 'createdAt',
+    dir: 'desc',
+  });
   const [page, setPage] = useState(1);
   const [confirming, setConfirming] = useState<AdminOutlet | null>(null);
   const [toggling, setToggling] = useState(false);
@@ -91,7 +96,9 @@ function OutletsView() {
     const next = confirming.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
     setToggling(true);
     try {
-      const res = await adminApi.updateAdminOutlet(confirming.id, { status: next });
+      const res = await adminApi.updateAdminOutlet(confirming.id, {
+        status: next,
+      });
       setData((list) => list?.map((o) => (o.id === res.data.id ? res.data : o)) ?? null);
       toast('success', next === 'ACTIVE' ? `${res.data.name} activated` : `${res.data.name} deactivated`);
       setConfirming(null);
@@ -131,7 +138,13 @@ function OutletsView() {
 
       <FilterBar
         onClear={filtered && clearAll}
-        exportCsv={{ path: '/admin/outlets', params: { ...serverFilters, status: status === 'ALL' ? undefined : status } }}
+        exportCsv={{
+          path: '/admin/outlets',
+          params: {
+            ...serverFilters,
+            status: status === 'ALL' ? undefined : status,
+          },
+        }}
       >
           <div className="w-full sm:w-64">
             <Input
@@ -192,7 +205,7 @@ function OutletsView() {
           )
         ) : (
           <TableScroll>
-            <Table className="min-w-[820px]">
+            <Table className="min-w-[960px]">
               <THead>
                 <tr>
                   <SortTH column="name" sort={sort} onSort={onSort}>
@@ -200,6 +213,7 @@ function OutletsView() {
                   </SortTH>
                   <TH>Contact</TH>
                   <TH>Admin login</TH>
+                  <TH>Offer</TH>
                   <SortTH column="billCount" sort={sort} onSort={onSort} align="right">
                     Bills
                   </SortTH>
@@ -214,7 +228,7 @@ function OutletsView() {
               </THead>
               <TBody>
                 {!pageRows ? (
-                  <SkeletonRows cols={7} rows={6} />
+                  <SkeletonRows cols={8} rows={6} />
                 ) : (
                   pageRows.map((o) => (
                     <TR key={o.id} interactive tabIndex={0} onClick={() => router.push(`/outlets/${o.id}`)} onKeyDown={(e) => e.key === 'Enter' && router.push(`/outlets/${o.id}`)}>
@@ -232,6 +246,17 @@ function OutletsView() {
                         <p className="tabular text-xs text-stone-500">{o.mobile}</p>
                       </TD>
                       <TD className="max-w-[200px] truncate text-stone-600">{o.adminEmail ?? <Tag>None</Tag>}</TD>
+                      <TD className="whitespace-nowrap">
+                        <p className="text-stone-800">{o.offer?.label ?? '—'}</p>
+                        <p className="text-[11px] text-stone-500">
+                          {[
+                            o.offers.gstPercentage > 0 ? `GST ${o.offers.gstPercentage}%` : 'No GST',
+                            o.offers.givesCashReward ? 'Cash reward' : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </p>
+                      </TD>
                       <TD align="right" className="font-medium text-stone-900">
                         {formatNumber(o.billCount)}
                       </TD>

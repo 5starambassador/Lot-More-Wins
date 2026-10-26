@@ -34,7 +34,17 @@ type NavItem = {
 };
 
 const NAV: { section: string; items: NavItem[] }[] = [
-  { section: 'Overview', items: [{ href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, page: 'dashboard' }] },
+  {
+    section: 'Overview',
+    items: [
+      {
+        href: '/dashboard',
+        label: 'Dashboard',
+        icon: LayoutDashboard,
+        page: 'dashboard',
+      },
+    ],
+  },
   {
     section: 'Network',
     items: [
@@ -42,11 +52,27 @@ const NAV: { section: string; items: NavItem[] }[] = [
       { href: '/outlets', label: 'Outlets', icon: Store, page: 'outlets' },
     ],
   },
-  { section: 'Activity', items: [{ href: '/transactions', label: 'Transactions', icon: Receipt, page: 'transactions' }] },
+  {
+    section: 'Activity',
+    items: [
+      {
+        href: '/transactions',
+        label: 'Transactions',
+        icon: Receipt,
+        page: 'transactions',
+      },
+      // Finance (UPI payouts) is hidden: payouts ended when the cash reward merged into the one wallet.
+    ],
+  },
   {
     section: 'Configuration',
     items: [
-      { href: '/settings', label: 'Programme settings', icon: SlidersHorizontal, page: 'settings' },
+      {
+        href: '/settings',
+        label: 'Programme settings',
+        icon: SlidersHorizontal,
+        page: 'settings',
+      },
       { href: '/admins', label: 'Admins', icon: ShieldCheck, page: 'admins' },
     ],
   },
@@ -79,7 +105,10 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { isSuperAdmin, canOpen } = useAdminAccess();
   const visible = (item: NavItem) => !item.page || (item.page === 'admins' ? isSuperAdmin : canOpen(item.page));
-  const nav = NAV.map(({ section, items }) => ({ section, items: items.filter(visible) })).filter((s) => s.items.length > 0);
+  const nav = NAV.map(({ section, items }) => ({
+    section,
+    items: items.filter(visible),
+  })).filter((s) => s.items.length > 0);
 
   return (
     <nav className="scroll-thin flex-1 space-y-6 overflow-y-auto px-3 py-5" aria-label="Main">

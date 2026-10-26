@@ -20,7 +20,7 @@ import { BILL_TYPE_LABEL, NOTIFICATION_STATUS } from '@/lib/admin-labels';
 import { formatINR, formatNumber } from '@/lib/format';
 
 const PAGE_SIZE = 25;
-const TYPES = ['DIRECT_PARTNER', 'REFERRAL'] as const;
+const TYPES = ['DIRECT_PARTNER', 'REFERRAL', 'WALLET_REDEEM'] as const;
 const NOTIFICATIONS = ['SENT', 'PENDING', 'FAILED', 'SKIPPED'] as const;
 const UUID = /^[0-9a-f-]{36}$/i;
 
@@ -169,13 +169,22 @@ function TransactionsView() {
       </FilterBar>
 
       {/* Totals for the current filter */}
-      <Panel className="mb-6 grid grid-cols-2 gap-px overflow-hidden bg-stone-150 animate-rise-in md:grid-cols-5">
+      <Panel className="mb-6 grid grid-cols-2 gap-px overflow-hidden bg-stone-150 animate-rise-in md:grid-cols-7">
         {[
           { label: 'Bills', value: s ? formatNumber(s.billCount) : '—' },
-          { label: 'Gross sales', value: s ? formatINR(s.billAmount) : '—', strong: true },
+          {
+            label: 'Gross sales',
+            value: s ? formatINR(s.billAmount) : '—',
+            strong: true,
+          },
           { label: 'Discounts', value: s ? formatINR(s.discountAmount) : '—' },
+          { label: 'GST', value: s ? formatINR(s.gstAmount) : '—' },
           { label: 'Collected', value: s ? formatINR(s.finalAmount) : '—' },
-          { label: 'Points issued', value: s ? formatNumber(s.purchasePoints + s.referralPoints) : '—' },
+          { label: 'Cash reward', value: s ? formatINR(s.cashReward) : '—' },
+          {
+            label: 'Points issued',
+            value: s ? formatNumber(s.purchasePoints + s.referralPoints) : '—',
+          },
         ].map((m) => (
           <div key={m.label} className="bg-white px-5 py-4 last:col-span-2 md:last:col-span-1">
             <p className="text-xs text-stone-500">{m.label}</p>
