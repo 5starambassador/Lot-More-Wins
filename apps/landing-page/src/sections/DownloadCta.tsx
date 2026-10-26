@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, MapPin } from 'lucide-react';
 import { Logo } from '../components/Brand';
 import { QrCode } from '../components/QrCode';
 import { Reveal } from '../components/Reveal';
@@ -67,23 +67,51 @@ export function DownloadCta() {
   );
 }
 
+const ADDRESS_LINES = ['88, Candappa Mudaliyar Street', 'Pondicherry, Puducherry 605001'];
+const MAP_URL = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ADDRESS_LINES.join(', '))}`;
+
+/** Brand and tagline, the office address, and links; copyright underneath. */
 export function Footer() {
   return (
-    <footer className="border-t border-white/10 bg-canvas-night py-10">
-      <div className="mx-auto flex max-w-stage flex-col items-center justify-between gap-5 px-5 text-sm font-light text-ivory-muted sm:flex-row sm:px-8">
-        <div className="flex items-center gap-3">
-          <Logo className="h-9 w-9" />
-          <span>Lot More Wins Partner App</span>
+    <footer className="border-t border-white/10 bg-canvas-night">
+      <div className="mx-auto grid max-w-stage gap-10 px-5 py-12 text-sm font-light text-ivory-muted sm:grid-cols-2 sm:px-8 lg:grid-cols-[1.4fr_1fr_auto] lg:gap-16">
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <Logo className="h-10 w-10" />
+            <span className="font-medium text-ivory">Lot More Wins Partner App</span>
+          </div>
+          <p className="max-w-sm leading-relaxed">More connections. More discounts. More prizes.</p>
         </div>
-        <p>More connections. More discounts. More prizes.</p>
-        <div className="flex items-center gap-6">
-          <Link to="/privacy-policy" className="transition-colors hover:text-gilt-bright">
+
+        <div className="space-y-3">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-gilt">Address</h2>
+          <address className="flex gap-3 not-italic leading-relaxed">
+            <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-gilt" aria-hidden="true" />
+            <a href={MAP_URL} target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-gilt-bright">
+              {ADDRESS_LINES.map((line) => (
+                <span key={line} className="block">
+                  {line}
+                </span>
+              ))}
+            </a>
+          </address>
+        </div>
+
+        <div className="space-y-3">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-gilt">Legal</h2>
+          <Link to="/privacy-policy" className="block transition-colors hover:text-gilt-bright">
             Privacy Policy
           </Link>
           {/* <Link to="/download" className="font-medium text-gilt transition-colors hover:text-gilt-bright">
             Download
           </Link> */}
         </div>
+      </div>
+
+      <div className="border-t border-white/10">
+        <p className="mx-auto max-w-stage px-5 py-5 text-center text-xs font-light text-ivory-muted/80 sm:px-8 sm:text-left">
+          © {new Date().getFullYear()} Lot More Wins. All rights reserved.
+        </p>
       </div>
     </footer>
   );
