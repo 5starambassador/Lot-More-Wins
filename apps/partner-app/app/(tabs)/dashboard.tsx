@@ -10,6 +10,7 @@ import { OutletLogo } from '../../components/outlets/OutletLogo';
 import { BrandLogo, Wordmark } from '../../components/brand/Brand';
 import { WelcomeGift } from '../../components/home/WelcomeGift';
 import { UpdatePopup } from '../../components/home/UpdatePopup';
+import { InstallPopup } from '../../components/install/InstallPopup';
 import { ReferralProgress } from '../../components/home/ReferralProgress';
 import { HomeStats, InviteCard } from '../../components/home/HomeExtras';
 import { useAuthStore } from '../../store/auth-store';
@@ -245,6 +246,9 @@ export default function HomeScreen() {
           <InviteCard partnerName={partner?.name} downloadUrl={home.data?.appDownloadUrl} imageUrl={home.data?.inviteImageUrl} />
         </Animated.View>
       </Screen>
+
+      {/* Web version only; waits until the welcome gift is closed. */}
+      <InstallPopup hidden={!!welcome} />
 
       {welcome ? (
         <WelcomeGift

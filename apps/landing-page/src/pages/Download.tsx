@@ -1,16 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  AlertTriangle,
   Apple,
   ArrowLeft,
   Check,
+  Chrome,
   Copy,
   Download as DownloadIcon,
+  EllipsisVertical,
   ExternalLink,
-  Loader2,
-  Play,
-  RotateCw,
   Share,
   Smartphone,
   SquarePlus,
@@ -18,30 +16,58 @@ import {
 } from 'lucide-react';
 import { Logo, Wordmark } from '../components/Brand';
 import { PARTNER_WEB_URL, detectDevice, type Device } from '../lib/config';
-import { useAppLinks, type AppLink } from '../lib/app-links';
 import { ScreenShowcase } from '../sections/Screens';
 
-interface IosStep {
+/**
+ * The Partner App is installed from its web version (partner.lotmorewins.com) on both platforms:
+ * each button opens a step-by-step guide for adding it to the home screen.
+ */
+
+type Platform = 'android' | 'ios';
+
+interface Step {
   icon: LucideIcon;
   title: string;
   note: string;
+  /** Shows the "Open the Partner App" button under this step. */
+  openApp?: boolean;
 }
 
-const IOS_STEPS: IosStep[] = [
-  { icon: ExternalLink, title: 'Open the Partner App in Safari', note: 'Use the button below. It has to be Safari, not another browser.' },
-  { icon: Share, title: 'Tap the Share button', note: 'The square with an arrow pointing up, in the Safari toolbar.' },
-  { icon: SquarePlus, title: 'Choose "Add to Home Screen"', note: 'Scroll down the share menu to find it, then tap Add.' },
-  { icon: Smartphone, title: 'Open it from your home screen', note: 'The Lot More Wins icon now opens the app full screen.' },
-];
+const GUIDES: Record<Platform, { eyebrow: string; title: string; intro: string; steps: Step[] }> = {
+  android: {
+    eyebrow: 'Install on Android',
+    title: 'Add the Partner App to your home screen',
+    intro: 'On Android the Partner App installs straight from Chrome. It takes a few taps and works like any other app.',
+    steps: [
+      { icon: Chrome, title: 'Open the Partner App in Chrome', note: 'Use the button below to open it in Chrome.', openApp: true },
+      { icon: EllipsisVertical, title: 'Tap Install, or open the ⋮ menu', note: 'Tap Install in the Partner App popup, or the three dots at the top right of Chrome.' },
+      { icon: DownloadIcon, title: 'Choose "Install app"', note: 'Some phones call it "Add to Home screen". Confirm with Install.' },
+      { icon: Smartphone, title: 'Open it from your home screen', note: 'The Lot More Wins icon now opens the app full screen.' },
+    ],
+  },
+  ios: {
+    eyebrow: 'Install on iPhone',
+    title: 'Add the Partner App to your home screen',
+    intro: 'On iPhone the Partner App installs straight from Safari. It takes four taps and works like any other app.',
+    steps: [
+      { icon: ExternalLink, title: 'Open the Partner App in Safari', note: 'Use the button below. It has to be Safari, not another browser.', openApp: true },
+      { icon: Share, title: 'Tap the Share button', note: 'The square with an arrow pointing up, in the Safari toolbar.' },
+      { icon: SquarePlus, title: 'Choose "Add to Home Screen"', note: 'Scroll down the share menu to find it, then tap Add.' },
+      { icon: Smartphone, title: 'Open it from your home screen', note: 'The Lot More Wins icon now opens the app full screen.' },
+    ],
+  },
+};
 
-/** The guided "Add to Home Screen" install for iPhone, shown under the iOS button. */
-function IosGuide({ webAppUrl }: { webAppUrl: string | null }) {
+const GUIDE_ID = 'install-guide';
+
+/** The guided "Add to Home Screen" install for the chosen platform. */
+function InstallGuide({ platform }: { platform: Platform }) {
+  const guide = GUIDES[platform];
   const [copied, setCopied] = useState(false);
 
   const copyLink = async () => {
-    if (!webAppUrl) return;
     try {
-      await navigator.clipboard.writeText(webAppUrl);
+      await navigator.clipboard.writeText(PARTNER_WEB_URL);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2200);
     } catch (error) {
@@ -50,15 +76,13 @@ function IosGuide({ webAppUrl }: { webAppUrl: string | null }) {
   };
 
   return (
-    <div id="ios-guide" className="panel mt-5 rounded-3xl p-6 text-left sm:p-8">
-      <p className="eyebrow">Install on iPhone</p>
-      <h2 className="mt-2 text-xl font-semibold">Add the Partner App to your home screen</h2>
-      <p className="mt-2 text-sm font-light leading-relaxed text-ivory-soft/90">
-        On iPhone the Partner App installs straight from Safari. It takes four taps and works like any other app.
-      </p>
+    <div id={GUIDE_ID} className="panel mt-5 scroll-mt-6 rounded-3xl p-6 text-left sm:p-8">
+      <p className="eyebrow">{guide.eyebrow}</p>
+      <h2 className="mt-2 text-xl font-semibold">{guide.title}</h2>
+      <p className="mt-2 text-sm font-light leading-relaxed text-ivory-soft/90">{guide.intro}</p>
 
       <ol className="mt-6 space-y-4">
-        {IOS_STEPS.map((step, index) => (
+        {guide.steps.map((step, index) => (
           <li key={step.title} className="flex items-start gap-4">
             <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-gilt/40 bg-gilt/15">
               <step.icon className="h-5 w-5 text-gilt-bright" strokeWidth={1.7} />
@@ -66,92 +90,67 @@ function IosGuide({ webAppUrl }: { webAppUrl: string | null }) {
                 {index + 1}
               </span>
             </span>
-            <span>
+            <span className="min-w-0 flex-1">
               <span className="block font-medium">{step.title}</span>
               <span className="block text-sm font-light text-ivory-muted">{step.note}</span>
+              {step.openApp && (
+                <a href={PARTNER_WEB_URL} className="btn-gold mt-3 !py-2.5 text-sm">
+                  Open the Partner App
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
             </span>
           </li>
         ))}
       </ol>
 
-      {webAppUrl ? (
-        <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-          <a href={webAppUrl} className="btn-gold flex-1">
-            Open the Partner App
-            <ExternalLink className="h-4 w-4" />
-          </a>
-          <button type="button" onClick={copyLink} className="btn-ghost">
-            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-            {copied ? 'Link copied' : 'Copy link'}
-          </button>
-        </div>
-      ) : (
-        <p className="mt-7 rounded-2xl border border-gilt/40 bg-black/25 p-4 text-sm font-light text-ivory-soft">
-          The iPhone link is not set up yet. Add it in the Super Admin panel under Settings → App downloads.
-        </p>
-      )}
+      <div className="mt-7 flex flex-col items-start gap-2 border-t border-gilt/20 pt-5 sm:flex-row sm:items-center sm:justify-between">
+        <span className="break-all text-sm font-light text-ivory-muted">{PARTNER_WEB_URL.replace(/^https?:\/\//, '')}</span>
+        <button type="button" onClick={copyLink} className="btn-ghost !py-2 text-sm">
+          {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+          {copied ? 'Link copied' : 'Copy link'}
+        </button>
+      </div>
     </div>
   );
 }
 
 const btnClass = (dimmed: boolean) => `btn-gold relative !rounded-2xl !py-5 ${dimmed ? 'opacity-70' : ''}`;
 
-/** Shown in place of a download when the Android link cannot be used. */
-function DownloadError({ title, message, onRetry }: { title: string; message: string; onRetry?: () => void }) {
-  return (
-    <div role="alert" className="mt-5 rounded-2xl border border-gilt/40 bg-black/30 p-4 text-left">
-      <p className="flex items-center gap-2 font-medium text-gilt-bright">
-        <AlertTriangle className="h-4 w-4 shrink-0" />
-        {title}
-      </p>
-      <p className="mt-1 text-sm font-light text-ivory-soft/90">{message}</p>
-      {onRetry && (
-        <button type="button" onClick={onRetry} className="btn-ghost mt-3 !py-2 text-sm">
-          <RotateCw className="h-4 w-4" />
-          Try again
-        </button>
-      )}
-    </div>
-  );
-}
+const PLATFORM_BUTTONS: { platform: Platform; icon: LucideIcon; label: string }[] = [
+  { platform: 'android', icon: Smartphone, label: 'Android' },
+  { platform: 'ios', icon: Apple, label: 'iOS' },
+];
+
+const scrollToGuide = (delay: number) =>
+  window.setTimeout(() => document.getElementById(GUIDE_ID)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), delay);
 
 export default function Download() {
-  const appLinks = useAppLinks();
-  // Android: exactly the link set in the Super Admin panel, once it has loaded.
-  const android: AppLink | null = appLinks.status === 'ready' ? appLinks.links.android : null;
-  const androidReady = !!android?.url;
-  const androidStore = android?.type === 'STORE';
-  // iOS: the panel's link, or the web app address from this site's settings meanwhile.
-  const ios: AppLink = appLinks.status === 'ready' ? appLinks.links.ios : { url: PARTNER_WEB_URL, type: 'DIRECT' };
-  const iosStore = ios.type === 'STORE' && !!ios.url;
-
   const [device, setDevice] = useState<Device>('other');
-  const [showIos, setShowIos] = useState(false);
+  const [guide, setGuide] = useState<Platform | null>(null);
 
   useEffect(() => {
     const detected = detectDevice();
     setDevice(detected);
-    if (detected === 'ios') setShowIos(true);
+    // ?platform=android|ios: sent here by the Partner App's install popup, so open on that guide.
+    const asked = new URLSearchParams(window.location.search).get('platform');
+    if (asked === 'android' || asked === 'ios') {
+      setGuide(asked);
+      scrollToGuide(300);
+    } else if (detected !== 'other') {
+      setGuide(detected);
+    }
   }, []);
-  // An App Store link replaces the home-screen guide.
-  const showGuide = showIos && !iosStore;
 
-  const openIosGuide = () => {
-    setShowIos(true);
+  const openGuide = (platform: Platform) => {
+    setGuide(platform);
     // Wait for the guide to render before bringing it into view.
-    window.setTimeout(() => document.getElementById('ios-guide')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+    scrollToGuide(60);
   };
 
   const yourDevice = (
     <span className="absolute -top-2.5 right-5 rounded-full bg-ivory px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-ink">
       Your device
-    </span>
-  );
-
-  const androidLabel = (
-    <span className="text-left leading-tight">
-      <span className="block text-xs font-medium opacity-70">{androidStore ? 'Get it on' : 'Download for'}</span>
-      <span className="block text-lg">{androidStore ? 'Google Play' : 'Android'}</span>
     </span>
   );
 
@@ -187,68 +186,26 @@ export default function Download() {
         </p>
 
         <div className="mt-10 grid gap-4 sm:grid-cols-2">
-          {androidReady ? (
-            <a
-              href={android!.url!}
-              {...(androidStore ? { target: '_blank', rel: 'noopener noreferrer' } : { download: '' })}
-              className={btnClass(device === 'ios')}
-            >
-              {device === 'android' && yourDevice}
-              {androidStore ? <Play className="h-6 w-6" /> : <DownloadIcon className="h-6 w-6" />}
-              {androidLabel}
-            </a>
-          ) : (
-            <button type="button" disabled aria-disabled className={`${btnClass(true)} cursor-not-allowed`}>
-              {device === 'android' && yourDevice}
-              {appLinks.status === 'loading' ? <Loader2 className="h-6 w-6 animate-spin" /> : <DownloadIcon className="h-6 w-6" />}
-              <span className="text-left leading-tight">
-                <span className="block text-xs font-medium opacity-70">{appLinks.status === 'loading' ? 'Getting the link…' : 'Download for'}</span>
-                <span className="block text-lg">Android</span>
-              </span>
-            </button>
-          )}
-          {iosStore ? (
-            <a href={ios.url!} target="_blank" rel="noopener noreferrer" className={btnClass(device === 'android')}>
-              {device === 'ios' && yourDevice}
-              <Apple className="h-6 w-6" />
-              <span className="text-left leading-tight">
-                <span className="block text-xs font-medium opacity-70">Download on the</span>
-                <span className="block text-lg">App Store</span>
-              </span>
-            </a>
-          ) : (
+          {PLATFORM_BUTTONS.map(({ platform, icon: Icon, label }) => (
             <button
+              key={platform}
               type="button"
-              onClick={openIosGuide}
-              aria-expanded={showGuide}
-              aria-controls="ios-guide"
-              className={btnClass(device === 'android')}
+              onClick={() => openGuide(platform)}
+              aria-expanded={guide === platform}
+              aria-controls={GUIDE_ID}
+              className={btnClass(device !== 'other' && device !== platform)}
             >
-              {device === 'ios' && yourDevice}
-              <Apple className="h-6 w-6" />
+              {device === platform && yourDevice}
+              <Icon className="h-6 w-6" />
               <span className="text-left leading-tight">
-                <span className="block text-xs font-medium opacity-70">Download for</span>
-                <span className="block text-lg">iOS</span>
+                <span className="block text-xs font-medium opacity-70">How to install on</span>
+                <span className="block text-lg">{label}</span>
               </span>
             </button>
-          )}
+          ))}
         </div>
 
-        {appLinks.status === 'error' ? (
-          <DownloadError title="Android download unavailable" message={appLinks.reason} onRetry={appLinks.retry} />
-        ) : appLinks.status === 'ready' && !androidReady ? (
-          <DownloadError
-            title="Android download coming soon"
-            message="The Android app is not available to download yet. Please check back soon."
-          />
-        ) : androidReady && !androidStore ? (
-          // <p className="mt-5 text-sm font-light text-ivory-muted">
-          //   Android: open the downloaded file to install. If your phone asks, allow installs from your browser.
-          // </p>
-          <></>
-        ) : null}
-
-        {showGuide && <IosGuide webAppUrl={ios.url} />}
+        {guide && <InstallGuide key={guide} platform={guide} />}
       </main>
     </div>
   );

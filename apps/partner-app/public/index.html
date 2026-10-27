@@ -19,6 +19,35 @@
     <meta name="application-name" content="Lot More Wins" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
 
+    <!--
+      Install popup (components/install/InstallPopup.tsx): Chrome fires beforeinstallprompt once,
+      often before the app has loaded, so it is kept here until the popup asks for it.
+    -->
+    <script>
+      (function () {
+        var state = (window.__lmwInstall = { prompt: null, installed: false });
+        function changed() {
+          window.dispatchEvent(new Event('lmw-install-change'));
+        }
+        window.addEventListener('beforeinstallprompt', function (event) {
+          // Our own popup offers the install, instead of Chrome's mini-infobar.
+          event.preventDefault();
+          state.prompt = event;
+          changed();
+        });
+        window.addEventListener('appinstalled', function () {
+          state.prompt = null;
+          state.installed = true;
+          changed();
+        });
+        if ('serviceWorker' in navigator) {
+          window.addEventListener('load', function () {
+            navigator.serviceWorker.register('/sw.js').catch(function () {});
+          });
+        }
+      })();
+    </script>
+
     <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
     <style id="expo-reset">
       /* These styles make the body full-height */

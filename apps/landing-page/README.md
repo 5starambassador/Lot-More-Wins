@@ -3,7 +3,7 @@
 React + Vite + Tailwind CSS. Two routes:
 
 - `/` the product showcase (hero, how it works, how partners earn, screenshots, download QR)
-- `/download` the Android download and the iPhone install (App Store or "Add to Home Screen" guide)
+- `/download` "How to install" guides for Android and iPhone, both installing the Partner App web version
 
 ## Commands
 
@@ -19,30 +19,22 @@ Copy `.env.example` to `.env.local`, or set the same variables in the Vercel pro
 
 | Variable | Purpose |
 | --- | --- |
-| `VITE_API_URL` | Lot More Wins API, where the download links are read from (`/app-links`). Defaults to `https://superadmin.lotmorewins.com/api`. |
-| `VITE_PARTNER_WEB_URL` | Partner App web version. Used for "Download for iOS" when no iOS link is set in the panel. |
+| `VITE_PARTNER_WEB_URL` | Partner App web version that both install guides open. Defaults to `https://partner.lotmorewins.com`. |
 | `VITE_SITE_URL` | Public address used inside the download QR. Defaults to the address being viewed. |
 
-## Download links
+## Installing
 
-The download links are managed in the Super Admin panel under **Settings → App downloads**: one
-link per platform, each marked as a direct link (APK / web app) or a store listing (Google Play /
-App Store). `/download` reads them from the API every time it opens.
+`/download` offers no APK. Both buttons open a step-by-step guide for adding the Partner App web
+version (`VITE_PARTNER_WEB_URL`) to the home screen, with an "Open the Partner App" button in the
+first step: Chrome's Install app on Android, Safari's Share > Add to Home Screen on iPhone. The
+visitor's own device opens its guide automatically, and `?platform=android` or `?platform=ios`
+(used by the Partner App's install popup) opens that guide.
 
-- **Android** uses exactly that link. No APK is bundled with this site. While the link loads the
-  button waits; if the request fails, the page shows an error with a "Try again" button, and if no
-  Android link is set it says the Android app is coming soon.
-- **iOS** uses the panel's link, or `VITE_PARTNER_WEB_URL` when none is set. A direct link shows
-  the "Add to Home Screen" guide; an App Store link opens the store.
-
-Host the APK somewhere that can serve large files (GitHub's 100 MB limit rules out committing it)
-and paste its address into the panel.
-
-## iPhone install
+## Home-screen setup
 
 The Partner App web version carries its own home-screen setup (`apps/partner-app/public`:
 manifest, `apple-touch-icon.png`, standalone meta tags). This site only links to it and walks
-the user through Safari's Share > Add to Home Screen.
+the user through the install.
 
 ## Deploying
 
