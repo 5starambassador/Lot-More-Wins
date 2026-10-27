@@ -5,11 +5,32 @@ import { colors, fonts } from '../../theme/tokens';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
 
-/** Three primary areas; Scan is the home tab. Styled like the partner app's tab bar. */
-const TABS: { name: string; title: string; icon: IconName; active: IconName }[] = [
+/** Four primary areas; Scan is the home tab. Styled like the partner app's tab bar. */
+const TABS: {
+  name: string;
+  title: string;
+  icon: IconName;
+  active: IconName;
+}[] = [
   { name: 'index', title: 'Scan', icon: 'scan-outline', active: 'scan' },
-  { name: 'history', title: 'History', icon: 'receipt-outline', active: 'receipt' },
-  { name: 'profile', title: 'Outlet', icon: 'storefront-outline', active: 'storefront' },
+  {
+    name: 'history',
+    title: 'History',
+    icon: 'receipt-outline',
+    active: 'receipt',
+  },
+  {
+    name: 'offers',
+    title: 'Slabs',
+    icon: 'options-outline',
+    active: 'options',
+  },
+  {
+    name: 'profile',
+    title: 'Outlet',
+    icon: 'storefront-outline',
+    active: 'storefront',
+  },
 ];
 
 const TAB_BAR_HEIGHT = 64;

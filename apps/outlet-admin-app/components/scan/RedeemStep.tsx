@@ -1,42 +1,44 @@
-import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { ApiClientError } from '@lotmorewins/api-client';
-import type { RedeemScanResult, RedemptionReceipt } from '@lotmorewins/types';
+import { billAmountSchema } from '@lotmorewins/validation';
+import type { BillCalculation, BillRecord, RedeemScanResult } from '@lotmorewins/types';
 import * as Haptics from '../../lib/haptics';
 import { Badge, Button, Divider, Field, IconMark, InfoRow, Notice, Panel, Txt } from '../ui';
 import apiClient, { describeError, errorCode, isAuthError } from '../../lib/api';
-import { formatINR, formatPoints } from '../../lib/format';
-import { fonts, space } from '../../theme/tokens';
+import { formatINR, formatPercent, formatPoints, newIdempotencyKey } from '../../lib/format';
+import { Breakdown } from './AmountStep';
+import { colors, fonts, space } from '../../theme/tokens';
+
+const PREVIEW_DEBOUNCE_MS = 450;
 
 /** Staff-facing text for the redemption failures the server reports. */
 function redeemError(err: unknown): string {
   switch (errorCode(err)) {
+    case 'REDEEM_DISABLED':
+      return 'Wallet redemption is turned off';
     case 'REDEEM_QR_INVALID':
       return 'This redeem QR has expired or is not valid. Ask the partner to generate a new one in their wallet.';
     case 'REDEEM_QR_USED':
       return 'This redeem QR has already been used. Ask the partner to generate a new one in their wallet.';
     case 'INSUFFICIENT_POINTS':
-      return 'The partner does not have enough points for this amount. The balance below has been refreshed.';
-    case 'REDEEM_EXCEEDS_BILL':
-      return 'The amount to redeem cannot be more than the bill.';
+      return 'The partner has nothing in the wallet to redeem.';
     case 'PARTNER_INACTIVE':
-      return 'This partner account is not active, so points cannot be redeemed.';
+      return 'This partner account is not active, so the wallet cannot be used.';
     case 'OUTLET_INACTIVE':
-      return 'This outlet is inactive. Redemptions are disabled until the Super Admin reactivates it.';
+      return 'This outlet is inactive. Billing is disabled until the Super Admin reactivates it.';
     case 'SETTINGS_NOT_CONFIGURED':
-      return 'Programme settings have not been configured by the Super Admin yet. Redemption is unavailable.';
+      return 'Programme settings have not been configured by the Super Admin yet. Billing is unavailable.';
     default:
-      return describeError(err, 'Could not redeem the points');
+      return describeError(err, 'Could not complete the bill');
   }
 }
 
-const cleanAmount = (text: string) => text.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
-const TWO_DECIMALS = /^\d+(\.\d{1,2})?$/;
-
 /**
- * Wallet redemption: the partner and live balance come from the server. The admin enters the
- * bill first, then how much of it the wallet pays (typed, or the full value the wallet can
- * cover); the server converts that to points, debits the wallet and records the bill.
+ * Redeem bill: the partner pays part of the bill from their wallet with a redeem QR (instead of a
+ * discount QR, never together). The admin enters only the bill; the server works out the wallet
+ * part — at most half the bill, never more than the QR is worth — and what the customer pays.
+ * Whatever the QR was worth beyond that stays in the partner's wallet. No discount and no rewards.
  */
 export function RedeemStep({
   qrCode,
@@ -47,71 +49,103 @@ export function RedeemStep({
 }: {
   qrCode: string;
   scan: RedeemScanResult;
-  onCompleted: (receipt: RedemptionReceipt) => void;
+  onCompleted: (bill: BillRecord, replayed: boolean) => void;
   onCancel: () => void;
   onSignedOut: () => void;
 }) {
   const { partner, pointsRatio } = scan;
-  // Refreshed from the server when a redemption is refused for insufficient points.
-  const [balance, setBalance] = useState({ points: scan.balancePoints, rupees: scan.rupeeValue });
-  const [billText, setBillText] = useState('');
   const [amountText, setAmountText] = useState('');
+  const [amountError, setAmountError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<BillCalculation | null>(null);
+  const [previewing, setPreviewing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   // The QR is dead (expired / used): only a fresh scan can continue.
   const [dead, setDead] = useState(false);
 
-  const bill = Number(billText);
-  const hasBill = billText !== '' && Number.isFinite(bill);
-  const billError = !hasBill
-    ? null
-    : bill <= 0
-      ? 'Enter a bill amount greater than 0'
-      : !TWO_DECIMALS.test(billText)
-        ? 'Amount can have at most 2 decimal places'
-        : null;
-  const billValid = hasBill && !billError;
-  // The wallet can pay the whole bill, or as much of it as it is worth.
-  const maxRedeem = billValid ? Math.min(balance.rupees, bill) : 0;
+  // One key per calculated bill; retries of the same bill reuse it so the server de-duplicates.
+  const idempotencyKey = useRef<string | null>(null);
+  const requestSeq = useRef(0);
 
   const amount = Number(amountText);
-  const hasAmount = amountText !== '' && Number.isFinite(amount);
-  const amountError = !hasAmount
-    ? null
-    : amount <= 0
-      ? 'Enter an amount greater than 0'
-      : !TWO_DECIMALS.test(amountText)
-        ? 'Amount can have at most 2 decimal places'
-        : amount > balance.rupees
-          ? `The wallet is worth ${formatINR(balance.rupees)} at most`
-          : billValid && amount > bill
-            ? `Cannot be more than the bill of ${formatINR(bill)}`
-            : null;
-  const valid = billValid && hasAmount && !amountError;
-  const points = valid ? Math.round(((amount * pointsRatio.points) / pointsRatio.rupees) * 100) / 100 : 0;
-  const payable = valid ? Math.round((bill - amount) * 100) / 100 : 0;
+  const validAmount = amountText !== '' && billAmountSchema.safeParse(amount).success;
+  const previewMatches = !!preview && validAmount && preview.billAmount === Number(amount.toFixed(2));
 
-  const confirm = async () => {
-    if (!valid || submitting || dead) return;
+  const fail = (err: unknown) => {
+    const code = errorCode(err);
+    if (code === 'REDEEM_QR_INVALID' || code === 'REDEEM_QR_USED') setDead(true);
+    setError(redeemError(err));
+  };
+
+  // Live, debounced server preview as the amount is typed (the phone never calculates).
+  useEffect(() => {
+    setPreview(null);
+    idempotencyKey.current = null;
+    if (!amountText) {
+      setAmountError(null);
+      return;
+    }
+    const parsed = billAmountSchema.safeParse(amount);
+    if (!parsed.success) {
+      setAmountError(parsed.error.issues[0]?.message ?? 'Enter a valid amount');
+      return;
+    }
+    setAmountError(null);
+    const seq = ++requestSeq.current;
+    const timer = setTimeout(async () => {
+      setPreviewing(true);
+      try {
+        const res = await apiClient.previewBill({ qrCode, billAmount: parsed.data });
+        if (seq !== requestSeq.current) return;
+        setPreview(res.data);
+        idempotencyKey.current = newIdempotencyKey();
+        setError(null);
+      } catch (err) {
+        if (seq !== requestSeq.current) return;
+        if (isAuthError(err)) return onSignedOut();
+        fail(err);
+      } finally {
+        if (seq === requestSeq.current) setPreviewing(false);
+      }
+    }, PREVIEW_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amountText, qrCode]);
+
+  const complete = async () => {
+    if (!preview || !previewMatches || !idempotencyKey.current || submitting || dead) return;
     setSubmitting(true);
     setError(null);
+    setNotice(null);
     try {
-      const res = await apiClient.redeemPoints({ qrCode, rupees: amount, billAmount: bill });
+      const res = await apiClient.createBill({
+        qrCode,
+        billAmount: preview.billAmount,
+        idempotencyKey: idempotencyKey.current,
+        settingsVersion: preview.settingsVersion,
+      });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      onCompleted(res.data);
+      onCompleted(res.data.bill, res.data.replayed);
     } catch (err) {
       if (isAuthError(err)) return onSignedOut();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       const code = errorCode(err);
-      if (code === 'INSUFFICIENT_POINTS' && err instanceof ApiClientError) {
-        const details = err.details as { balancePoints?: number; rupeeValue?: number } | undefined;
-        if (typeof details?.balancePoints === 'number' && typeof details?.rupeeValue === 'number') {
-          setBalance({ points: details.balancePoints, rupees: details.rupeeValue });
+      if (code === 'SETTINGS_CHANGED' && err instanceof ApiClientError) {
+        const next = (err.details as { calculation?: BillCalculation } | undefined)?.calculation;
+        if (next) {
+          setPreview(next);
+          idempotencyKey.current = newIdempotencyKey();
         }
+        setNotice('Programme settings or this outlet’s offers were just updated. Check the new amounts, then complete the bill again.');
+      } else {
+        if (code === 'IDEMPOTENCY_CONFLICT') {
+          setPreview(null);
+          idempotencyKey.current = null;
+        }
+        // Network failures keep the same key: tapping Complete again safely replays or creates once.
+        fail(err);
       }
-      if (code === 'REDEEM_QR_INVALID' || code === 'REDEEM_QR_USED') setDead(true);
-      // Network failures can be retried: the redeem QR works once, so a retry replays the result.
-      setError(redeemError(err));
     } finally {
       setSubmitting(false);
     }
@@ -138,10 +172,10 @@ export function RedeemStep({
         </View>
         <Divider />
         <View style={styles.balance}>
-          <InfoRow label="Points balance" value={formatPoints(balance.points)} />
-          <InfoRow label="Worth" value={formatINR(balance.rupees)} strong tone="gold" />
+          <InfoRow label="This QR is worth up to" value={formatINR(scan.maxRupees)} strong tone="gold" />
+          <InfoRow label="Wallet balance" value={`${formatPoints(scan.balancePoints)} · ${formatINR(scan.rupeeValue)}`} />
           <Txt variant="caption" tone="muted">
-            {pointsRatio.points} pts = ₹{pointsRatio.rupees}
+            {pointsRatio.points} pts = ₹{pointsRatio.rupees} · at most half of the bill is paid from the wallet
           </Txt>
         </View>
       </Panel>
@@ -149,67 +183,42 @@ export function RedeemStep({
       <Field
         label="Bill amount"
         prefix="₹"
-        value={billText}
-        onChangeText={(t) => setBillText(cleanAmount(t))}
-        error={billError}
+        value={amountText}
+        onChangeText={(t) => setAmountText(t.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))}
+        error={amountError}
         keyboardType="decimal-pad"
         placeholder="0.00"
         editable={!submitting && !dead}
         autoFocus
         style={styles.amountInput}
-        hint="The customer’s total bill, before the wallet is used."
+        accessory={previewing ? <ActivityIndicator color={colors.gold} style={styles.spinner} /> : null}
+        hint={`The customer’s total bill${scan.gstPercentage > 0 ? ` before ${formatPercent(scan.gstPercentage)} GST` : ''}. The server works out the wallet part: up to half the bill.`}
       />
 
-      <Field
-        label="Amount to redeem"
-        prefix="₹"
-        value={amountText}
-        onChangeText={(t) => setAmountText(cleanAmount(t))}
-        error={amountError}
-        keyboardType="decimal-pad"
-        placeholder="0.00"
-        editable={billValid && !submitting && !dead}
-        style={styles.amountInput}
-        hint={
-          !billValid
-            ? 'Enter the bill amount first.'
-            : valid
-              ? `Uses ${formatPoints(points)} from the wallet`
-              : `Up to ${formatINR(maxRedeem)} can be taken off this bill from the wallet.`
-        }
-        accessory={
-          <Button
-            label="Full value"
-            variant="ghost"
-            compact
-            onPress={() => setAmountText(maxRedeem.toFixed(2))}
-            disabled={!billValid || submitting || dead || maxRedeem <= 0}
-          />
-        }
-      />
-
-      {valid && (
-        <Panel style={styles.card}>
-          <InfoRow label="Bill amount" value={formatINR(bill)} />
-          <InfoRow label="Paid from wallet" value={`− ${formatINR(amount)}`} />
-          <View style={styles.gap}>
-            <Divider />
-          </View>
-          <InfoRow label="Customer pays" value={formatINR(payable)} strong tone="gold" />
-        </Panel>
-      )}
-
+      {notice && <Notice tone="warning" message={notice} onDismiss={() => setNotice(null)} />}
       {error && <Notice tone="error" message={error} onDismiss={dead ? undefined : () => setError(null)} />}
+
+      {preview ? (
+        <Panel style={styles.card}>
+          <Breakdown calc={preview} />
+        </Panel>
+      ) : (
+        <View style={styles.placeholder}>
+          <Txt variant="small" tone="muted">
+            {previewing ? 'Calculating…' : 'The wallet part and what the customer pays appear here'}
+          </Txt>
+        </View>
+      )}
 
       {dead ? (
         <Button label="Scan again" onPress={onCancel} />
       ) : (
         <>
           <Button
-            label={valid ? `Complete bill · redeem ${formatINR(amount)}` : 'Complete bill'}
-            onPress={confirm}
+            label={preview ? `Complete bill · collect ${formatINR(preview.finalAmount)}` : 'Complete bill'}
+            onPress={complete}
             loading={submitting}
-            disabled={!valid}
+            disabled={!previewMatches || previewing}
           />
           <Button label="Cancel" variant="ghost" onPress={onCancel} disabled={submitting} style={styles.cancel} />
         </>
@@ -225,6 +234,15 @@ const styles = StyleSheet.create({
   details: { marginTop: space.md, marginBottom: space.sm },
   balance: { paddingTop: space.sm },
   amountInput: { fontFamily: fonts.semibold, fontSize: 24, height: 60 },
-  gap: { marginVertical: space.xs },
+  spinner: { marginRight: space.md },
+  placeholder: {
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.line,
+    borderRadius: 14,
+    paddingVertical: space.xl,
+    alignItems: 'center',
+    marginBottom: space.lg,
+  },
   cancel: { marginTop: space.xs },
 });

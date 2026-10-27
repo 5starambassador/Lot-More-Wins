@@ -23,7 +23,7 @@ export function NotificationPanel({
   const [error, setError] = useState<string | null>(null);
   const n = bill.notification;
   const badge = notificationBadge(n);
-  const who = bill.transactionType === 'DIRECT_PARTNER' ? 'partner' : 'customer';
+  const who = bill.transactionType === 'REFERRAL' ? 'customer' : 'partner';
 
   const resend = async () => {
     setSending(true);
@@ -44,7 +44,7 @@ export function NotificationPanel({
 
   const detail =
     n.status === 'SENT'
-      ? `Bill, points and app download link sent to the ${who}${n.recipient ? ` (${n.recipient})` : ''}.`
+      ? `Receipt (bill, discount and GST breakdown, final amount, rewards and app download link) sent to the ${who}${n.recipient ? ` (${n.recipient})` : ''}.`
       : n.status === 'PENDING'
         ? 'The message is being sent.'
         : n.error ?? `The bill message did not reach the ${who}.`;
@@ -52,7 +52,7 @@ export function NotificationPanel({
   return (
     <Panel style={styles.section}>
       <View style={styles.head}>
-        <Txt variant="bodyMedium">Bill message</Txt>
+        <Txt variant="bodyMedium">Receipt message</Txt>
         <Badge label={badge.label} tone={badge.tone} icon={n.channel === 'whatsapp' ? 'logo-whatsapp' : 'mail-outline'} />
       </View>
       <Txt variant="small" tone="secondary" style={styles.detail}>
@@ -118,7 +118,7 @@ export function BillDone({
           ) : (
             <View style={styles.referred} />
           )}
-          <Breakdown calc={bill} partnerName={partner?.name ?? 'the partner'} />
+          <Breakdown calc={bill} />
         </Panel>
 
         <NotificationPanel bill={bill} onUpdated={setBill} onSignedOut={onSignedOut} />
@@ -134,7 +134,12 @@ const styles = StyleSheet.create({
   heroTitle: { marginTop: space.md },
   section: { marginBottom: space.lg },
   referred: { marginBottom: space.sm },
-  head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.sm },
+  head: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.sm,
+  },
   detail: { marginTop: space.xs },
   error: { marginTop: space.sm, marginBottom: 0 },
   resend: { marginTop: space.md, alignSelf: 'flex-start' },

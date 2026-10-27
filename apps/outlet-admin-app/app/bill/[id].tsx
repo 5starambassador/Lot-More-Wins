@@ -76,7 +76,7 @@ export default function BillDetailScreen() {
         <View style={styles.section}>
           <SectionLabel label="Bill" />
           <Panel>
-            <Breakdown calc={bill} partnerName={partner?.name ?? 'the partner'} />
+            <Breakdown calc={bill} />
           </Panel>
         </View>
 

@@ -10,17 +10,17 @@ import * as Haptics from '../../lib/haptics';
 import { Badge, Divider, ListSkeleton, Segmented, StatTile, StateView, Txt } from '../../components/ui';
 import { BrandLogo } from '../../components/brand/Brand';
 import apiClient, { describeError } from '../../lib/api';
-import { formatDateTime, formatINR, formatINRCompact, formatPoints, formatTime, notificationBadge } from '../../lib/format';
+import { formatDateTime, formatINR, formatINRCompact, formatTime, notificationBadge } from '../../lib/format';
 import { canvasFill, colors, GUTTER, space } from '../../theme/tokens';
 
 const PAGE_SIZE = 20;
 
 function BillRow({ bill, range, onPress }: { bill: BillRecord; range: BillHistoryRange; onPress: () => void }) {
   const isReferral = bill.transactionType === 'REFERRAL';
+  const isRedeem = bill.transactionType === 'WALLET_REDEEM';
   const partner = bill.partner ?? bill.referrerPartner;
   const buyer = isReferral ? bill.customer?.name ?? 'Customer' : partner?.name ?? 'Partner';
   const message = notificationBadge(bill.notification);
-  const points = bill.purchasePoints + bill.referralPoints;
 
   return (
     <Pressable
@@ -33,26 +33,26 @@ function BillRow({ bill, range, onPress }: { bill: BillRecord; range: BillHistor
       style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surfacePressed }]}
     >
       <View style={styles.rowIcon}>
-        <Ionicons name={isReferral ? 'people-outline' : 'person-outline'} size={18} color={colors.gold} />
+        <Ionicons name={isReferral ? 'people-outline' : isRedeem ? 'wallet-outline' : 'person-outline'} size={18} color={colors.gold} />
       </View>
       <View style={styles.flex}>
         <Txt variant="bodyMedium" numberOfLines={1}>
           {buyer}
         </Txt>
         <Txt variant="small" tone="secondary" numberOfLines={1}>
-          {isReferral ? `Referred by ${partner?.name ?? '—'}` : 'Partner discount'} ·{' '}
+          {isReferral ? `Referred by ${partner?.name ?? '—'}` : isRedeem ? 'Wallet redeem' : 'Partner discount'} ·{' '}
           {range === 'today' ? formatTime(bill.createdAt) : formatDateTime(bill.createdAt)}
         </Txt>
         <View style={styles.badges}>
           {bill.isFirstTime && !isReferral && <Badge label="First-time bonus" />}
-          {points > 0 && <Badge label={`+${formatPoints(points)}`} icon="diamond-outline" />}
+          {bill.gstAmount > 0 && <Badge label={`GST ${formatINR(bill.gstAmount)}`} tone="muted" />}
           <Badge label={message.label} tone={message.tone} />
         </View>
       </View>
       <View style={styles.amounts}>
         <Txt variant="bodyMedium">{formatINR(bill.finalAmount)}</Txt>
         <Txt variant="caption" tone="success">
-          −{formatINR(bill.discountAmount)}
+          −{formatINR(isRedeem ? bill.walletRedeemAmount : bill.discountAmount)}
         </Txt>
       </View>
     </Pressable>
@@ -95,7 +95,7 @@ export default function HistoryScreen() {
           </View>
           <View style={styles.tiles}>
             <StatTile label="Discount given" value={formatINRCompact(summary.discountAmount)} />
-            <StatTile label="Points issued" value={(summary.purchasePoints + summary.referralPoints).toLocaleString('en-IN')} gold />
+            {summary.gstAmount > 0 && <StatTile label="GST collected" value={formatINRCompact(summary.gstAmount)} />}
           </View>
         </Animated.View>
       )}
@@ -154,11 +154,22 @@ const styles = StyleSheet.create({
   root: { flex: 1, ...canvasFill },
   content: { paddingHorizontal: GUTTER, paddingBottom: space.xl, flexGrow: 1 },
   flex: { flex: 1, gap: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: space.lg, marginBottom: space.lg },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: space.lg,
+    marginBottom: space.lg,
+  },
   summary: { marginTop: space.lg, gap: space.sm },
   tiles: { flexDirection: 'row', gap: space.sm },
   listLabel: { marginTop: space.xl, marginBottom: space.xs },
-  row: { flexDirection: 'row', alignItems: 'flex-start', gap: space.md, paddingVertical: space.md },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.md,
+    paddingVertical: space.md,
+  },
   rowIcon: {
     width: 40,
     height: 40,

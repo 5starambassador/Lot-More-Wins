@@ -5,7 +5,7 @@ import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTim
 import type { RedeemScanResult, ScanResult } from '@lotmorewins/types';
 import * as Haptics from '../../lib/haptics';
 import { Button, Field, IconMark, Notice, Panel, Segmented, Txt } from '../ui';
-import apiClient, { describeError, isAuthError } from '../../lib/api';
+import apiClient, { describeError, errorCode, isAuthError } from '../../lib/api';
 import { isRedeemQr } from '../../lib/format';
 import { colors, radius, space } from '../../theme/tokens';
 
@@ -159,7 +159,11 @@ export function Scanner({
         }
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         lastFailureRef.current = { code, at: Date.now() };
-        setErrorMsg(describeError(err, 'Could not verify this QR code'));
+        setErrorMsg(
+          errorCode(err) === 'REDEEM_DISABLED'
+            ? 'Points redemption is turned off. Scan the partner’s Personal Discount or Referral QR to bill.'
+            : describeError(err, 'Could not verify this QR code')
+        );
         setBusy(false);
         if (source === 'manual') {
           lockRef.current = false;
@@ -271,9 +275,23 @@ const styles = StyleSheet.create({
     borderColor: colors.goldLine,
     backgroundColor: '#140404',
   },
-  finderWrap: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
-  finder: { width: FRAME_SIZE, height: FRAME_SIZE, alignItems: 'center', justifyContent: 'center' },
-  corner: { position: 'absolute', width: 34, height: 34, borderColor: colors.gold },
+  finderWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  finder: {
+    width: FRAME_SIZE,
+    height: FRAME_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  corner: {
+    position: 'absolute',
+    width: 34,
+    height: 34,
+    borderColor: colors.gold,
+  },
   laser: {
     width: FRAME_SIZE - 30,
     height: 2,
@@ -291,6 +309,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(20, 4, 4, 0.65)',
   },
   permission: { alignItems: 'center', paddingVertical: space.xl },
-  permissionCopy: { marginTop: space.xs, marginBottom: space.lg, paddingHorizontal: space.md },
+  permissionCopy: {
+    marginTop: space.xs,
+    marginBottom: space.lg,
+    paddingHorizontal: space.md,
+  },
   stretch: { alignSelf: 'stretch' },
 });

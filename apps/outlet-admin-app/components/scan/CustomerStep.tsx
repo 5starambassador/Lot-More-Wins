@@ -8,9 +8,9 @@ import { normalizeMobileInput } from '../../lib/format';
 import { colors, space } from '../../theme/tokens';
 
 /**
- * Details of the customer who brought a partner's referral code. The mobile number is the
- * customer's long-term identity: purchase points are kept against it until they join the app.
- * A known mobile pre-fills name and email.
+ * Details of the guest who brought a partner's referral code: mobile, name and email, all required
+ * here (the bill is emailed to them). The mobile number is the guest's long-term identity: purchase
+ * points are kept against it until they join the app. A known mobile pre-fills name and email.
  */
 export function CustomerStep({
   initial,
@@ -67,9 +67,10 @@ export function CustomerStep({
       return;
     }
     const parsed = referredCustomerSchema.safeParse(input);
-    if (!parsed.success) {
-      const errs: Record<string, string> = {};
-      for (const issue of parsed.error.issues) errs[String(issue.path[0])] ??= issue.message;
+    const errs: Record<string, string> = {};
+    if (!parsed.success) for (const issue of parsed.error.issues) errs[String(issue.path[0])] ??= issue.message;
+    if (!input.email.trim()) errs.email ??= "Enter the guest's email for their bill";
+    if (!parsed.success || Object.keys(errs).length > 0) {
       setErrors(errs);
       return;
     }
@@ -79,9 +80,9 @@ export function CustomerStep({
 
   return (
     <View>
-      <Txt variant="heading">Customer details</Txt>
+      <Txt variant="heading">Guest details</Txt>
       <Txt variant="small" tone="secondary" style={styles.intro}>
-        Who brought this referral code? Their mobile number keeps track of their purchase points.
+        Who brought this referral code? Their mobile number keeps track of their rewards, and the bill is emailed to them.
       </Txt>
 
       <Field
@@ -110,7 +111,7 @@ export function CustomerStep({
       )}
 
       <Field
-        label="Customer name"
+        label="Guest name"
         value={input.name}
         onChangeText={(name) => setInput({ ...input, name })}
         error={errors.name}
@@ -118,13 +119,13 @@ export function CustomerStep({
         placeholder="Full name"
       />
       <Field
-        label="Email (optional)"
+        label="Email"
         value={input.email}
         onChangeText={(email) => setInput({ ...input, email })}
         error={errors.email}
         keyboardType="email-address"
         autoCapitalize="none"
-        placeholder="For the bill by email"
+        placeholder="name@example.com"
       />
 
       <View style={styles.actions}>
