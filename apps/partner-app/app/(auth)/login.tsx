@@ -168,13 +168,13 @@ export default function PartnerLoginScreen() {
           </>
         ) : (
           <Field
-            label="Mobile number or email"
+            label="Email"
             value={identifier}
             onChangeText={(v) => {
               setIdentifier(v);
               if (identifierError) setIdentifierError(undefined);
             }}
-            placeholder="98765 43210 or name@example.com"
+            placeholder="partner@example.com"
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="email-address"
