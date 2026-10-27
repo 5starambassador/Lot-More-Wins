@@ -13,7 +13,7 @@ import { colors, space } from '../theme/tokens';
 const BENEFITS = [
   { icon: 'qr-code-outline' as const, title: 'A permanent discount QR', body: 'Show it at any participating outlet for your partner discount.' },
   { icon: 'people-outline' as const, title: 'A referral QR of your own', body: 'Share it with family and friends and earn points on their visits.' },
-  { icon: 'diamond-outline' as const, title: 'Points that add up', body: 'Every eligible bill builds your rewards balance.' },
+  { icon: 'diamond-outline' as const, title: 'Rewards that add up', body: 'Every eligible bill builds your rewards balance.' },
 ];
 
 export default function WelcomeScreen() {

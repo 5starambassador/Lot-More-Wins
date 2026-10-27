@@ -10,7 +10,7 @@ import { Field, Txt } from '../ui';
 const OPTIONS: { value: ReferredByType; label: string }[] = [
   { value: 'PARTNER', label: 'Partner' },
   { value: 'OUTLET', label: 'Outlet' },
-  { value: 'MARKETING_REP', label: 'Marketing rep' },
+  { value: 'MARKETING_REP', label: 'Marketing' },
   { value: 'OTHER', label: 'Others' },
 ];
 
@@ -19,7 +19,7 @@ export type ReferredByErrors = { partnerCode?: string; outletId?: string; other?
 /**
  * Optional "Referred by" answer of the registration contact step. Tapping the selected option
  * again clears it. Partner asks for that partner's ID, Outlet for one of the onboarded outlets,
- * Others for a short note; Marketing rep needs nothing more.
+ * Others for a short note; Marketing needs nothing more.
  */
 export function ReferredByFields({
   value,

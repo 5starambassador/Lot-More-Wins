@@ -11,6 +11,9 @@ import type {
   OtpVerifyPayload,
   OtpVerifyResponse,
   PartnerOnboardingPayload,
+  BillDeletionResult,
+  PartnerRegistrationCheckPayload,
+  PartnerRegistrationCheckResponse,
   OutletOption,
   PartnerOnboardingResponse,
   PartnerQrResponse,
@@ -258,6 +261,11 @@ export class ApiClient {
     return this.put<OtpVerifyResponse>('/auth/otp', payload);
   }
 
+  /** Registration step 1: whether the mobile number or email already belongs to a partner. */
+  public checkPartnerRegistration(payload: PartnerRegistrationCheckPayload): Promise<ApiResponse<PartnerRegistrationCheckResponse>> {
+    return this.post<ApiResponse<PartnerRegistrationCheckResponse>>('/partner/onboarding/check', payload);
+  }
+
   public registerPartner(payload: PartnerOnboardingPayload): Promise<ApiResponse<PartnerOnboardingResponse>> {
     return this.post<ApiResponse<PartnerOnboardingResponse>>('/partner/onboarding', payload);
   }
@@ -456,8 +464,8 @@ export class ApiClient {
     return this.delete<ApiResponse<DeletionImpact>>(`/admin/outlets/${encodeURIComponent(id)}`, { timeoutMs: 60000 });
   }
 
-  public deleteAdminTransaction(id: string): Promise<ApiResponse<{ billNumber: string; pointsEntries: number }>> {
-    return this.delete<ApiResponse<{ billNumber: string; pointsEntries: number }>>(`/admin/transactions/${encodeURIComponent(id)}`);
+  public deleteAdminTransaction(id: string): Promise<ApiResponse<BillDeletionResult>> {
+    return this.delete<ApiResponse<BillDeletionResult>>(`/admin/transactions/${encodeURIComponent(id)}`);
   }
 
   /** Activate / deactivate a partner or change their classification (Achariya / Non-Achariya). */

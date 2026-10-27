@@ -138,7 +138,7 @@ export default function PartnerLoginScreen() {
         <Txt variant="body" tone="secondary" style={styles.subtitle}>
           {sent
             ? `We sent a 6-digit code by ${channelLabel} to ${sent.destination}.`
-            : 'Sign in with the mobile number or email you registered with. We’ll send you a one-time code.'}
+            : 'Sign in with the email you registered with. We’ll send you a one-time code.'}
         </Txt>
 
         {error && <Notice tone="error" message={error} />}

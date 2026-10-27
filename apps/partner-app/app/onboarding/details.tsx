@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { partnerContactStepSchema } from '@lotmorewins/validation';
 import type { PartnerReferredByPayload } from '@lotmorewins/types';
 import * as Haptics from '../../lib/haptics';
+import apiClient from '../../lib/api';
 import { useOnboardingStore } from '../../store/onboarding-store';
 import { OnboardingShell } from '../../components/onboarding/OnboardingShell';
 import { ReferredByFields, type ReferredByErrors } from '../../components/onboarding/ReferredByFields';
@@ -11,9 +12,18 @@ import { Button, Field } from '../../components/ui';
 
 type Errors = { name?: string; email?: string; mobile?: string };
 
+/** Shown under the email field when the entered details already belong to a partner. */
+function takenMessage(emailTaken: boolean, mobileTaken: boolean): string | null {
+  if (emailTaken && mobileTaken) return 'This email and mobile number are already registered. Please sign in instead.';
+  if (emailTaken) return 'This email is already registered. Please sign in instead.';
+  if (mobileTaken) return 'This mobile number is already registered. Please sign in instead.';
+  return null;
+}
+
 /**
  * Step 1: name, email and mobile (all required), and who referred the partner (optional). The UPI ID
  * is not asked for at registration; the dashboard and wallet prompt partners to add it in Profile.
+ * An email or mobile number that is already registered stops here, before the remaining steps.
  */
 export default function DetailsScreen() {
   const router = useRouter();
@@ -25,10 +35,15 @@ export default function DetailsScreen() {
   const [referredBy, setReferredBy] = useState<PartnerReferredByPayload | null>(stored.referredBy);
   const [errors, setErrors] = useState<Errors>({});
   const [referredByErrors, setReferredByErrors] = useState<ReferredByErrors>({});
+  const [taken, setTaken] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
   const emailRef = useRef<TextInput>(null);
   const mobileRef = useRef<TextInput>(null);
 
-  const clear = (key: keyof Errors) => errors[key] && setErrors((e) => ({ ...e, [key]: undefined }));
+  const clear = (key: keyof Errors) => {
+    if (errors[key]) setErrors((e) => ({ ...e, [key]: undefined }));
+    if (key === 'email' || key === 'mobile') setTaken(null);
+  };
 
   const handleContinue = async () => {
     const parsed = partnerContactStepSchema.safeParse({ name, email, mobile, referredBy });
@@ -47,6 +62,23 @@ export default function DetailsScreen() {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       return;
     }
+
+    setChecking(true);
+    try {
+      const res = await apiClient.checkPartnerRegistration({ mobile: parsed.data.mobile, email: parsed.data.email });
+      const message = takenMessage(res.data.emailTaken, res.data.mobileTaken);
+      if (message) {
+        setTaken(message);
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        return;
+      }
+    } catch {
+      // The check could not run (offline, or an older server): carry on. Registration itself
+      // still rejects an email or mobile number that is already registered.
+    } finally {
+      setChecking(false);
+    }
+
     stored.setContact({ ...parsed.data, referredBy: parsed.data.referredBy ?? null, upiId: '' });
     router.push('/onboarding/location');
   };
@@ -56,7 +88,7 @@ export default function DetailsScreen() {
       step="details"
       title="Let’s get you started"
       subtitle="Tell us who you are. Name, email and mobile are required."
-      footer={<Button label="Continue" onPress={handleContinue} />}
+      footer={<Button label="Continue" onPress={handleContinue} loading={checking} />}
     >
       <Field
         label="Full name"
@@ -89,7 +121,7 @@ export default function DetailsScreen() {
         autoComplete="email"
         returnKeyType="next"
         onSubmitEditing={() => mobileRef.current?.focus()}
-        error={errors.email}
+        error={errors.email ?? taken ?? undefined}
       />
       <Field
         ref={mobileRef}

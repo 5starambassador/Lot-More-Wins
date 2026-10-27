@@ -170,6 +170,12 @@ export const normalizedMobileSchema = z
   .transform(normalizeIndianMobile)
   .pipe(phoneSchema);
 
+/** Registration step 1: is this mobile number or email already used by a partner? */
+export const partnerRegistrationCheckSchema = z.object({
+  mobile: normalizedMobileSchema,
+  email: emailSchema,
+});
+
 const hasAtMostTwoDecimals = (value: number) =>
   Math.abs(value * 100 - Math.round(value * 100)) < 1e-6;
 

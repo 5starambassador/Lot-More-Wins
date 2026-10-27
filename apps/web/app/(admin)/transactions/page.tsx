@@ -49,7 +49,14 @@ function TransactionsView() {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<BillRecord | null>(null);
   const [deleting, setDeleting] = useState<BillRecord | null>(null);
+  const [finalCheck, setFinalCheck] = useState(false);
+  const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
+  const closeDelete = () => {
+    setDeleting(null);
+    setFinalCheck(false);
+    setTyped('');
+  };
   const toast = useToast();
   const { canDelete } = useAdminAccess();
   const q = useDebounced(search.trim());
@@ -224,30 +231,58 @@ function TransactionsView() {
 
       <BillDrawer bill={selected} onClose={() => setSelected(null)} onDelete={canDelete('transactions') ? setDeleting : undefined} />
 
+      {/* Step 1: what the delete reverses. */}
       <ConfirmDialog
-        open={!!deleting}
-        onClose={() => setDeleting(null)}
-        busy={busy}
+        open={!!deleting && !finalCheck}
+        onClose={closeDelete}
         tone="danger"
         title={`Delete transaction ${deleting?.billNumber ?? ''}?`}
-        confirmLabel="Delete transaction"
-        description="This permanently deletes the bill and takes the points credited on it out of the partner wallets (any part already redeemed is not reversed). Outlet totals and reports change accordingly. This cannot be undone."
+        confirmLabel="Continue"
+        description={
+          <>
+            <p>The bill is removed everywhere as if it never happened:</p>
+            <ul className="mt-1.5 list-disc space-y-0.5 pl-4">
+              <li>Points and cash rewards it credited leave the partner wallets, including any part already spent.</li>
+              <li>A wallet redeem paid on it is undone and the points go back to the partner&apos;s wallet.</li>
+              <li>It disappears from the Partner App, the Outlet Admin app history and metrics, and the panel reports.</li>
+            </ul>
+          </>
+        }
+        onConfirm={() => setFinalCheck(true)}
+      />
+
+      {/* Step 2: the double check, typing the bill number. */}
+      <ConfirmDialog
+        open={!!deleting && finalCheck}
+        onClose={closeDelete}
+        busy={busy}
+        tone="danger"
+        title="Are you sure? This cannot be undone."
+        confirmLabel="Delete permanently"
+        confirmDisabled={typed.trim().toUpperCase() !== deleting?.billNumber.toUpperCase()}
+        description={
+          <>
+            Type <span className="font-mono font-semibold text-stone-900">{deleting?.billNumber}</span> to delete this transaction.
+          </>
+        }
         onConfirm={async () => {
           if (!deleting) return;
           setBusy(true);
           try {
             await adminApi.deleteAdminTransaction(deleting.id);
             toast('success', `Transaction ${deleting.billNumber} deleted`);
-            setDeleting(null);
             setSelected(null);
+            setBusy(false);
+            closeDelete();
             reload();
           } catch (err) {
             toast('error', 'Could not delete this transaction', errorMessage(err));
-          } finally {
             setBusy(false);
           }
         }}
-      />
+      >
+        <Input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={deleting?.billNumber} aria-label="Bill number" autoComplete="off" />
+      </ConfirmDialog>
     </>
   );
 }

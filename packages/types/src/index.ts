@@ -460,6 +460,17 @@ export interface AdminOutletOption {
 }
 
 /** What deleting a partner or outlet also removes, shown before the admin confirms. */
+/** DELETE /admin/transactions/:id: what deleting the bill reversed. */
+export interface BillDeletionResult {
+  billNumber: string;
+  pointsEntries: number;
+  /** Wallet points given back because the bill's redeem QR payment was undone. */
+  refundedPoints: number;
+  /** Points already spent from this bill's credits, now taken from the same wallets' other points. */
+  respentPoints: number;
+  notifications: number;
+}
+
 export interface DeletionImpact {
   /** Bills (transactions) that are deleted with it. */
   bills: number;
@@ -1772,6 +1783,17 @@ export interface WeeklyPayoutRunResult {
  */
 export interface PartnerLoginOtpRequestPayload {
   identifier: string;
+}
+
+/** POST /partner/onboarding/check: which of the entered contact details are already registered. */
+export interface PartnerRegistrationCheckPayload {
+  mobile: string;
+  email: string;
+}
+
+export interface PartnerRegistrationCheckResponse {
+  mobileTaken: boolean;
+  emailTaken: boolean;
 }
 
 export interface PartnerLoginOtpResponse {
