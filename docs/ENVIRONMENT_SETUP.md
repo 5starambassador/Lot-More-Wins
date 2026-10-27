@@ -38,3 +38,11 @@ pnpm dev:outlet
 # Start Next.js Central Admin + API
 pnpm dev:web
 ```
+
+## Revised flow variables
+- `CRON_SECRET` (web, at least 16 characters): protects `/api/cron/weekly-payouts`. Vercel sends it to
+  cron jobs automatically when set in the project (the cron is in `apps/web/vercel.json`).
+- `MSG91_INVOICE_GST_TEMPLATE_NAME` (optional): approved WhatsApp invoice template with 12 body
+  parameters (name, outlet, bill no., bill amount, discount (₹ and %), amount after discount, GST (₹ and %),
+  final amount, points, cash reward, points note, download link). Until set, the original 9-parameter
+  template is used (its amount is the final payable, but it has no GST line).

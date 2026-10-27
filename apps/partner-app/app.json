@@ -28,7 +28,7 @@
         "backgroundColor": "#D12426"
       },
       "package": "com.lotmorewins.partner",
-      "versionCode": 8,
+      "versionCode": 9,
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",

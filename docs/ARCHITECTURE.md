@@ -85,3 +85,23 @@ All clients (Partner App, Outlet Admin App, and external webhooks) communicate w
     "timestamp": "ISO-8601"
   }
   ```
+
+## 4. Revised flow (outlet offers, GST, cash reward wallet, Finance payouts)
+
+- **Outlet offers** (`lib/outlet-offers.ts`): per-outlet overrides of the first-time (Non-Achariya /
+  Achariya), repeat and referral discounts fall back to the programme settings; GST % and the cash
+  reward switch are per outlet. Edits from the panel or (when allowed) the Outlet Admin app go through
+  `applyOfferChanges`, which writes `outlet_offer_changes` (who, field, old, new, when) and bumps
+  `outlets.offers_updated_at`, the version every bill snapshots.
+- **Billing** (`lib/billing.ts`) stays one transaction (idempotency key, duplicate window, advisory
+  locks, settings-changed check now covering outlet offers). It adds GST on the whole-rupee discounted
+  amount and credits the cash reward ledger next to the points ledger.
+- **Cash reward wallet** (`lib/cash-wallet.ts`): `cash_reward_entries` is an append-only ledger
+  (PURCHASE, REFERRAL credits; PAYOUT debits). `payouts` rows start PENDING (weekly cron or the
+  partner's request) and hold their amount; only a PAID row on an uploaded sheet writes the debit, for
+  the amount actually paid, so rewards earned after an export are never lost.
+- **Finance** (`lib/finance.ts`): Excel export / upload of the payout sheet, validate-all-then-apply in
+  one transaction under the per-wallet advisory locks, idempotent per payout, logged in
+  `payout_uploads`. No payment gateway: UPI payments happen outside the system.
+- **Partner classification**: `partners.category` (Achariya / Non-Achariya, set by the Super Admin)
+  selects the first-time discount and referral points %. `partners.upi_id` is required for payouts.
