@@ -54,7 +54,7 @@ export function HomeStats({ home, wallet }: { home: PartnerHome | undefined; wal
         <View style={styles.row}>
           <Stat icon="people-outline" label="Total referrals" value={home ? String(home.referrals.total) : '—'} />
           <View style={styles.vline} />
-          <Stat icon="pricetag-outline" label="Your discount" value={discount !== null ? formatPercent(discount) : '—'} />
+          <Stat icon="pricetag-outline" label="Your discount" value={discount !== null ? `Up to ${formatPercent(discount)}` : '—'} />
         </View>
       </Glass>
     </View>

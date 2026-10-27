@@ -2,12 +2,13 @@ import { StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { colors } from '../../theme/tokens';
 
-const GIFT = require('../../assets/Gift.gif');
+// 600×600 animated WebP made from Gift.gif (1280×1280, 14 MB); it is never shown above 200pt.
+const GIFT = require('../../assets/Gift.webp');
 
-/** Gift.gif is drawn on this opaque backdrop, so it is shown on a disc of the same colour. */
+/** The gift animation is drawn on this opaque backdrop, so it is shown on a disc of the same colour. */
 const GIFT_BACKDROP = '#F2F3F6';
 
-/** The looping gift box on a gold-ringed disc. expo-image loops animated GIFs by default. */
+/** The looping gift box on a gold-ringed disc. expo-image loops animated images by default. */
 export function GiftAnimation({ size }: { size: number }) {
   return (
     <View style={[styles.disc, { width: size, height: size, borderRadius: size / 2 }]}>

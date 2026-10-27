@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState, type ComponentProps } from 'react';
-import { AppState, Platform, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react';
+import { AppState, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import type { Outlet } from '@lotmorewins/types';
 import * as Haptics from '../../lib/haptics';
-import { Avatar, Glass, ListSkeleton, Screen, SectionLabel, StateView, Txt } from '../../components/ui';
+import { Avatar, Badge, Glass, ListSkeleton, Screen, SectionLabel, StateView, Txt } from '../../components/ui';
 import { OutletLogo } from '../../components/outlets/OutletLogo';
 import { BrandLogo, Wordmark } from '../../components/brand/Brand';
 import { WelcomeGift } from '../../components/home/WelcomeGift';
@@ -47,9 +47,19 @@ function OutletButton({ outlet, onPress }: { outlet: Outlet; onPress: () => void
   return (
     <Glass onPress={onPress} accessibilityLabel={outlet.name} style={styles.outlet}>
       <OutletLogo outlet={outlet} size={48} />
-      <Txt variant="bodyMedium" numberOfLines={1} style={styles.flex}>
-        {outlet.name}
-      </Txt>
+      <View style={styles.flex}>
+        <Txt variant="bodyMedium" numberOfLines={1}>
+          {outlet.name}
+        </Txt>
+        {outlet.offer ? (
+          <View style={styles.offerRow}>
+            <Txt variant="caption" tone="gold">
+              {outlet.offer.label}
+            </Txt>
+            {outlet.offer.givesCashReward ? <Badge label="Cash reward" tone="success" /> : null}
+          </View>
+        ) : null}
+      </View>
       <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
     </Glass>
   );
@@ -101,8 +111,12 @@ export default function HomeScreen() {
   const router = useRouter();
   const { partner, welcome, setWelcome } = useAuthStore();
   const home = useHome();
-  const outlets = useOutlets();
+  const outletsQuery = useOutlets();
   const wallet = useWallet();
+  const scrollRef = useRef<ScrollView>(null);
+  const outletsY = useRef(0);
+  // Home's list carries each outlet's offer for this partner; the public list until it loads.
+  const outlets = { ...outletsQuery, data: home.data?.outlets ?? outletsQuery.data };
   const format = walletFormat(wallet.data);
   const greetingText = useGreeting();
   const update = useUpdatePopup(!!home.data?.homePopupEnabled, home.data?.latestAppVersion);
@@ -114,6 +128,7 @@ export default function HomeScreen() {
     <>
       <Screen
         edges={['top']}
+        scrollRef={scrollRef}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -191,8 +206,14 @@ export default function HomeScreen() {
           />
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.outlets}>
-          <SectionLabel label="Outlets" />
+        <Animated.View
+          entering={FadeInDown.delay(200).duration(400)}
+          style={styles.outlets}
+          onLayout={(e) => {
+            outletsY.current = e.nativeEvent.layout.y;
+          }}
+        >
+          <SectionLabel label="Participating outlets" />
           {outlets.isLoading ? (
             <ListSkeleton rows={4} />
           ) : outlets.isError ? (
@@ -228,8 +249,13 @@ export default function HomeScreen() {
       {welcome ? (
         <WelcomeGift
           firstTimeDiscount={home.data?.offers.firstTimeDiscount}
+          maxOutletDiscount={home.data?.maxOutletDiscount}
           claimedPoints={welcome.claimedPoints}
           onClose={() => setWelcome(null)}
+          onExploreOutlets={() => {
+            setWelcome(null);
+            scrollRef.current?.scrollTo({ y: outletsY.current, animated: true });
+          }}
         />
       ) : update.visible ? (
         <UpdatePopup
@@ -291,4 +317,5 @@ const styles = StyleSheet.create({
   outletList: { gap: space.sm },
   extras: { marginTop: space.xxl, gap: space.lg },
   outlet: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm, paddingHorizontal: space.md },
+  offerRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space.xs, marginTop: 2 },
 });

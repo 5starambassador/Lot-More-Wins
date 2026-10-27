@@ -20,9 +20,10 @@ function secondsLeft(expiresAt: string): number {
 }
 
 /**
- * Redeem QR: a fresh, single-use code generated each time this page opens, carrying the
- * partner and the current worth of their points. The Outlet Admin app scans it to take
- * points off a bill.
+ * Redeem QR: a fresh, single-use code generated each time this page opens, worth the whole
+ * wallet. The Outlet Admin app scans it in place of a discount QR and the wallet pays for up to
+ * half the bill; the partner pays the rest. Anything the QR was worth beyond that stays in the
+ * wallet (nothing is held when the QR is generated).
  */
 export default function RedeemScreen() {
   const queryClient = useQueryClient();
@@ -88,7 +89,8 @@ export default function RedeemScreen() {
       ) : (
         <Animated.View key={qr.code} entering={FadeInDown.duration(400)} style={styles.body}>
           <Txt variant="small" tone="secondary" align="center" style={styles.copy}>
-            Show this to the outlet at billing. They scan it and take your {inRupees ? 'wallet amount' : 'points'} off the bill.
+            Show this to the outlet at billing, in place of your discount QR. Your wallet pays up to half of the bill; you pay the
+            rest. Whatever is not used stays in your wallet.
           </Txt>
 
           <View style={styles.plateWrap}>
@@ -114,14 +116,12 @@ export default function RedeemScreen() {
 
           <View style={styles.worth}>
             <Txt variant="overline" tone="muted" align="center">
-              {inRupees ? 'Wallet balance' : 'Current points worth'}
+              This QR is worth up to
             </Txt>
-            <Txt style={styles.worthFigure}>{formatINR(qr.rupeeValue)}</Txt>
-            {inRupees ? null : (
-              <Txt variant="small" tone="secondary" align="center">
-                {formatPoints(qr.balancePoints)} points
-              </Txt>
-            )}
+            <Txt style={styles.worthFigure}>{formatINR(qr.maxRupees ?? qr.rupeeValue)}</Txt>
+            <Txt variant="small" tone="secondary" align="center">
+              {inRupees ? '' : `${formatPoints(qr.maxPoints ?? qr.balancePoints)} points · `}your whole wallet · pays up to half of the bill
+            </Txt>
           </View>
 
           <View style={styles.details}>

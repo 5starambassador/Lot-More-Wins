@@ -14,6 +14,7 @@ const OLDEST = new Date(new Date().getFullYear() - 120, 0, 1);
 /**
  * Date of birth entry: type it as DD/MM/YYYY or pick it from the calendar.
  * `value` is the raw text; use `dobInputToIso(value)` for the validated date.
+ * Also used for past dates such as a history filter (`pickerDefault` = where the calendar opens).
  */
 export function DateField({
   label,
@@ -21,16 +22,18 @@ export function DateField({
   onChangeText,
   error,
   hint,
+  pickerDefault = DEFAULT_PICKER_DATE,
 }: {
   label: string;
   value: string;
   onChangeText: (value: string) => void;
   error?: string | null;
   hint?: string;
+  pickerDefault?: Date;
 }) {
   const [open, setOpen] = useState(false);
   const iso = dobInputToIso(value);
-  const pickerDate = iso ? isoToLocalDate(iso) : DEFAULT_PICKER_DATE;
+  const pickerDate = iso ? isoToLocalDate(iso) : pickerDefault;
   // The native calendar has no web implementation; typing still works there.
   const hasCalendar = Platform.OS !== 'web';
 

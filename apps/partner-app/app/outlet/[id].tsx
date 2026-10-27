@@ -108,7 +108,8 @@ export default function OutletDetailScreen() {
   const home = useHome();
   const [viewing, setViewing] = useState<number | null>(null);
 
-  const outlet = outlets.data?.find((o) => o.id === id);
+  // Home's copy carries the offer label for this partner's classification.
+  const outlet = home.data?.outlets?.find((o) => o.id === id) ?? outlets.data?.find((o) => o.id === id);
   const images = (outlet?.images ?? []).map((u) => apiClient.resolveAssetUrl(u)).filter((u): u is string => !!u);
 
   if (outlets.isLoading) return <FullScreenLoader />;
@@ -138,7 +139,15 @@ export default function OutletDetailScreen() {
   };
 
   const offers = home.data?.offers;
-  const discount = offers ? (offers.firstTimeAvailable && offers.firstTimeDiscount > 0 ? offers.firstTimeDiscount : offers.repeatDiscount) : 0;
+  // This outlet's own offer from the server; the programme discount before outlet offers existed.
+  const offer = outlet.offer;
+  const discount = offer
+    ? offer.maxDiscount
+    : offers
+      ? offers.firstTimeAvailable && offers.firstTimeDiscount > 0
+        ? offers.firstTimeDiscount
+        : offers.repeatDiscount
+      : 0;
 
   return (
     <View style={styles.root}>
@@ -191,14 +200,19 @@ export default function OutletDetailScreen() {
                   {formatPercent(discount)}
                 </Txt>
                 <Txt variant="caption" tone="onGold">
-                  off
+                  up to
                 </Txt>
               </View>
               <View style={styles.flex}>
-                <Txt variant="bodyMedium">Your partner discount here</Txt>
+                <Txt variant="bodyMedium">{offer ? offer.label : 'Your partner discount here'}</Txt>
                 <Txt variant="small" tone="secondary">
                   Show your Personal Discount QR at billing.
                 </Txt>
+                {offer?.givesCashReward ? (
+                  <Txt variant="caption" tone="gold">
+                    Earn cash rewards on purchases here
+                  </Txt>
+                ) : null}
               </View>
               <Button
                 label="Show QR"

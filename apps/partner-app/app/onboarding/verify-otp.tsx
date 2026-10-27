@@ -1,24 +1,32 @@
 import { Pressable, StyleSheet, View } from 'react-native';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'expo-router';
 import * as Haptics from '../../lib/haptics';
 import { useOnboardingStore } from '../../store/onboarding-store';
+import { useAuthStore } from '../../store/auth-store';
 import apiClient from '../../lib/api';
 import { describeError } from '../../lib/queries';
 import { OnboardingShell } from '../../components/onboarding/OnboardingShell';
 import { Button, Notice, OtpInput, Txt } from '../../components/ui';
 import { space } from '../../theme/tokens';
 
-/** Step 4: the 6-digit code sent when the partner left the birthday step. */
+/**
+ * Step 4 (last): the 6-digit code sent when the partner left the birthday step. A correct code
+ * creates the account straight away (there is no password) and Home opens with the welcome gift.
+ */
 export default function VerifyOtpScreen() {
   const router = useRouter();
-  const { mobile, email, name, messagingMode, setMessagingMode, setOtp: saveOtpToStore } = useOnboardingStore();
+  const onboarding = useOnboardingStore();
+  const { mobile, email, name, messagingMode, setMessagingMode } = onboarding;
+  const { setSession, setWelcome } = useAuthStore();
 
   const [otp, setOtp] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(60);
+  /** A code already accepted; retrying after a failed account creation must not re-verify it. */
+  const verifiedCode = useRef<string | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -37,10 +45,34 @@ export default function VerifyOtpScreen() {
     setIsVerifying(true);
 
     try {
-      await apiClient.verifyOtp({ identifier: mobile, otp: code });
+      // Checked first on its own: this endpoint counts wrong attempts.
+      if (verifiedCode.current !== code) {
+        await apiClient.verifyOtp({ identifier: mobile, otp: code });
+        verifiedCode.current = code;
+      }
+      const res = await apiClient.registerPartner({
+        name: onboarding.name,
+        mobile: onboarding.mobile,
+        email: onboarding.email,
+        city: onboarding.city,
+        state: onboarding.state,
+        pincode: onboarding.pincode,
+        dateOfBirth: onboarding.dateOfBirth,
+        referredBy: onboarding.referredBy,
+        upiId: onboarding.upiId || null,
+        otp: code,
+      });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      saveOtpToStore(code);
-      router.push('/onboarding/set-password');
+
+      // Home opens the welcome gift once. Points earned as a customer before registering
+      // are claimed during onboarding and mentioned on the card.
+      setWelcome({ claimedPoints: res.data.claimedPoints ?? 0 });
+      // Store the permanent session and QR codes in SecureStore + Zustand.
+      await setSession(res.data.partner, res.data.qrCodes, res.data.token);
+
+      router.dismissAll();
+      router.replace('/dashboard');
+      onboarding.reset();
     } catch (err) {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setErrorMsg(describeError(err));
@@ -75,7 +107,7 @@ export default function VerifyOtpScreen() {
       title="Enter your code"
       subtitle={`We sent a 6-digit code by ${channelLabel} to ${destination}.`}
       footer={
-        <Button label="Verify" onPress={() => handleVerify()} loading={isVerifying} disabled={otp.length !== 6} />
+        <Button label="Create account" onPress={() => handleVerify()} loading={isVerifying} disabled={otp.length !== 6} />
       }
     >
       {errorMsg && <Notice tone="error" message={errorMsg} />}

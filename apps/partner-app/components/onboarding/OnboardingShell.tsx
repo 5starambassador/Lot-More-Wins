@@ -4,8 +4,8 @@ import Animated, { FadeInDown, useAnimatedStyle, withTiming } from 'react-native
 import { Screen, TopBar, Txt } from '../ui';
 import { colors, GUTTER, space } from '../../theme/tokens';
 
-/** Every partner registers through the same five steps. */
-const STEPS = ['details', 'location', 'birthday', 'verify', 'password'] as const;
+/** Every partner registers through the same four steps; there is no password (sign-in is by code). */
+const STEPS = ['details', 'location', 'birthday', 'verify'] as const;
 export type OnboardingStep = (typeof STEPS)[number];
 
 function Progress({ current, total }: { current: number; total: number }) {

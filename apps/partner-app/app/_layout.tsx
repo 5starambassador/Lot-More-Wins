@@ -54,6 +54,8 @@ export default function RootLayout() {
             <Stack.Screen name="outlet/[id]" />
             <Stack.Screen name="qr/[type]" />
             <Stack.Screen name="redeem" />
+            <Stack.Screen name="transfer" />
+            <Stack.Screen name="transaction/[id]" />
             <Stack.Screen name="notifications" />
             <Stack.Screen name="(auth)" />
           </Stack>

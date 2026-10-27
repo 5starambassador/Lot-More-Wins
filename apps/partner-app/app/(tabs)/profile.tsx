@@ -30,7 +30,7 @@ import { dobInputToIso, isoToDobInput } from '../../lib/dates';
 import { formatDate } from '../../lib/format';
 import { colors, GUTTER, radius, space } from '../../theme/tokens';
 
-type FieldKey = 'name' | 'email' | 'mobile' | 'city' | 'state' | 'pincode' | 'dateOfBirth';
+type FieldKey = 'name' | 'email' | 'mobile' | 'city' | 'state' | 'pincode' | 'dateOfBirth' | 'upiId';
 type Errors = Partial<Record<FieldKey, string>>;
 
 /** A new mobile number or email must be confirmed with a code before it is saved. */
@@ -44,7 +44,7 @@ interface PendingVerification {
 
 /**
  * Profile: every detail collected at registration is editable here, plus the profile photo,
- * followed by sign out and the app version.
+ * followed by sign out and the app version. (There is no UPI ID: the wallet is spent in the app.)
  */
 export default function ProfileScreen() {
   const router = useRouter();
@@ -80,7 +80,7 @@ export default function ProfileScreen() {
   }, [updatePartner]);
 
   // Re-seed the form when the stored profile changes (after a save or a refresh), keeping unsaved typing otherwise.
-  const profileKey = partner ? JSON.stringify([partner.name, partner.email, partner.mobile, partner.city, partner.state, partner.pincode, partner.dateOfBirth]) : '';
+  const profileKey = partner ? JSON.stringify([partner.name, partner.email, partner.mobile, partner.city, partner.state, partner.pincode, partner.dateOfBirth, partner.upiId]) : '';
   useEffect(() => {
     if (!partner) return;
     setName(partner.name);

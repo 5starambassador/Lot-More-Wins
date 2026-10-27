@@ -11,7 +11,10 @@ import { Button, Field } from '../../components/ui';
 
 type Errors = { name?: string; email?: string; mobile?: string };
 
-/** Step 1: name, email and mobile (all required), and who referred the partner (optional). */
+/**
+ * Step 1: name, email and mobile (all required), and who referred the partner (optional). The UPI ID
+ * is not asked for at registration; the dashboard and wallet prompt partners to add it in Profile.
+ */
 export default function DetailsScreen() {
   const router = useRouter();
   const stored = useOnboardingStore();
@@ -44,7 +47,7 @@ export default function DetailsScreen() {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       return;
     }
-    stored.setContact({ ...parsed.data, referredBy: parsed.data.referredBy ?? null });
+    stored.setContact({ ...parsed.data, referredBy: parsed.data.referredBy ?? null, upiId: '' });
     router.push('/onboarding/location');
   };
 

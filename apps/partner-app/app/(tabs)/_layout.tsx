@@ -18,8 +18,20 @@ const TABS: { name: string; title: string; icon: IconName; active: IconName }[] 
 
 const TAB_BAR_HEIGHT = 64;
 
-/** Pushes about the wallet (earned, claimed, redeemed) open the Wallet tab when tapped. */
-const WALLET_NOTIFICATIONS = new Set(['PURCHASE_POINTS', 'REFERRAL_POINTS', 'POINTS_CLAIMED', 'POINTS_REDEEMED']);
+/** Pushes about the wallet (receipts, rewards, transfers) open the Wallet tab when tapped. */
+const WALLET_NOTIFICATIONS = new Set([
+  'PURCHASE_POINTS',
+  'REFERRAL_POINTS',
+  'POINTS_CLAIMED',
+  'POINTS_REDEEMED',
+  'BILL_RECEIPT',
+  'CASH_REWARD',
+  'PAYOUT_REQUESTED',
+  'PAYOUT_PAID',
+  'PAYOUT_FAILED',
+  'WALLET_TRANSFER_IN',
+  'WALLET_TRANSFER_OUT',
+]);
 
 /** Signed-in shell. Without a stored partner session the user is sent to the login page. */
 export default function TabsLayout() {

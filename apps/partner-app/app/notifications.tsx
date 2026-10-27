@@ -19,10 +19,29 @@ const ICONS: Record<PartnerNotificationType, IconName> = {
   POINTS_CLAIMED: 'diamond-outline',
   POINTS_REDEEMED: 'arrow-up-outline',
   REFERRAL_REWARD: 'trophy-outline',
+  BILL_RECEIPT: 'receipt-outline',
+  CASH_REWARD: 'cash-outline',
+  PAYOUT_REQUESTED: 'time-outline',
+  PAYOUT_PAID: 'checkmark-done-outline',
+  PAYOUT_FAILED: 'alert-circle-outline',
+  WALLET_TRANSFER_IN: 'arrow-down-outline',
+  WALLET_TRANSFER_OUT: 'paper-plane-outline',
 };
 
-/** Notifications about the wallet (earned, claimed, redeemed) open the Wallet page. */
-const OPENS_WALLET: ReadonlySet<PartnerNotificationType> = new Set(['PURCHASE_POINTS', 'REFERRAL_POINTS', 'POINTS_CLAIMED', 'POINTS_REDEEMED']);
+/** Notifications about the wallet (receipts, rewards, payouts) open the Wallet page. */
+const OPENS_WALLET: ReadonlySet<PartnerNotificationType> = new Set([
+  'PURCHASE_POINTS',
+  'REFERRAL_POINTS',
+  'POINTS_CLAIMED',
+  'POINTS_REDEEMED',
+  'BILL_RECEIPT',
+  'CASH_REWARD',
+  'PAYOUT_REQUESTED',
+  'PAYOUT_PAID',
+  'PAYOUT_FAILED',
+  'WALLET_TRANSFER_IN',
+  'WALLET_TRANSFER_OUT',
+]);
 
 function NotificationRow({ item, onOpenWallet }: { item: PartnerNotification; onOpenWallet: () => void }) {
   const opensWallet = OPENS_WALLET.has(item.type);

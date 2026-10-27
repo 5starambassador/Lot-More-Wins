@@ -8,7 +8,6 @@ export default function OnboardingLayout() {
       <Stack.Screen name="location" />
       <Stack.Screen name="birthday" />
       <Stack.Screen name="verify-otp" />
-      <Stack.Screen name="set-password" />
     </Stack>
   );
 }

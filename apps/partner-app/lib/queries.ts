@@ -1,4 +1,5 @@
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import type { PartnerTransactionsQuery } from '@lotmorewins/types';
 import { ApiClientError } from '@lotmorewins/api-client';
 import apiClient from './api';
 
@@ -7,6 +8,28 @@ export function useWallet() {
   return useQuery({
     queryKey: ['wallet'],
     queryFn: async () => (await apiClient.getPartnerWallet()).data,
+  });
+}
+
+/**
+ * Wallet history with the page's filters. Keyed under 'wallet' so everything that refreshes the
+ * wallet (a bill, a redeem, a transfer) refreshes it too. The last list stays on screen while a new
+ * filter loads. null = the filter is not complete yet (nothing is fetched).
+ */
+export function useTransactions(query: PartnerTransactionsQuery | null) {
+  return useQuery({
+    queryKey: ['wallet', 'transactions', query],
+    queryFn: async () => (await apiClient.getPartnerTransactions(query!)).data,
+    placeholderData: keepPreviousData,
+    enabled: !!query,
+  });
+}
+
+export function useTransaction(id: string | undefined) {
+  return useQuery({
+    queryKey: ['wallet', 'transaction', id],
+    queryFn: async () => (await apiClient.getPartnerTransaction(id!)).data,
+    enabled: !!id,
   });
 }
 
@@ -58,7 +81,7 @@ export function useOffers() {
 
 export function describeError(error: unknown): string {
   if (error instanceof ApiClientError) {
-    if (error.status === 401 && error.code === 'UNAUTHENTICATED') return 'Your session has expired. Please sign in again.';
+    if (error.status === 401 && error.code === 'UNAUTHENTICATED') return 'You have been signed out. Please sign in again.';
     if (error.code === 'NETWORK_ERROR' || error.status === 0) return 'You appear to be offline. Check your connection and try again.';
     if (error.code === 'TIMEOUT') return 'The server took too long to respond. Please try again.';
     return error.message;

@@ -6,7 +6,7 @@ import { unregisterPush } from './push';
 import { useAuthStore } from '../store/auth-store';
 
 const TITLE = 'Sign out?';
-const MESSAGE = 'You can sign in again any time with your mobile number or email and password.';
+const MESSAGE = 'You can sign in again any time with your mobile number or email and a one-time code.';
 
 /** Asks before signing out. React Native Web's Alert shows nothing, so the web uses the browser's confirm. */
 function confirmSignOut(onConfirm: () => void) {

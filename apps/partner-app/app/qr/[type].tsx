@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { Redirect, useLocalSearchParams } from 'expo-router';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
+import * as ScreenCapture from 'expo-screen-capture';
 import type { QRCodeType } from '@lotmorewins/types';
 import apiClient from '../../lib/api';
 import * as Haptics from '../../lib/haptics';
@@ -33,6 +34,8 @@ const PAGES: Record<string, { qrType: QRCodeType; title: string; heading: string
   },
 };
 
+const CAPTURE_KEY = 'personal-discount-qr';
+
 /** One page per permanent QR: /qr/discount and /qr/referral. */
 export default function QrScreen() {
   const { type } = useLocalSearchParams<{ type: string }>();
@@ -52,6 +55,17 @@ export default function QrScreen() {
     enabled: !!page && !!code,
     staleTime: Infinity,
   });
+
+  // The personal discount QR is for the partner's own bills only: block screenshots and screen
+  // recordings while it is on screen (Android, iOS 13+; browsers offer no way to do this).
+  const blockCapture = page?.qrType === 'DEFAULT_DISCOUNT' && Platform.OS !== 'web';
+  useEffect(() => {
+    if (!blockCapture) return;
+    ScreenCapture.preventScreenCaptureAsync(CAPTURE_KEY).catch(() => {});
+    return () => {
+      ScreenCapture.allowScreenCaptureAsync(CAPTURE_KEY).catch(() => {});
+    };
+  }, [blockCapture]);
 
   if (!page) return <Redirect href="/dashboard" />;
 
@@ -99,7 +113,7 @@ export default function QrScreen() {
       const lines = [
         `${partner?.name ?? 'A Lot More partner'} has shared a Lot More Wins referral QR with you.`,
         `Show this QR code at the billing counter of any participating Lot More outlet to get ${
-          discount ? `${formatPercent(discount)} off your bill` : 'your discount'
+          discount ? `up to ${formatPercent(discount)} off your bill` : 'your discount'
         }.`,
         link ? `Download the Lot More Partner app to earn rewards of your own: ${link}` : null,
       ];
@@ -115,28 +129,30 @@ export default function QrScreen() {
   const reward = home.data?.referrals;
   const hint =
     !isReferral && reward?.rewardAvailable
-      ? { icon: 'trophy-outline' as const, tone: 'gold' as const, text: `${formatPercent(reward.rewardDiscount)} special referral reward applies to your next purchase` }
+      ? { icon: 'trophy-outline' as const, tone: 'gold' as const, text: `Up to ${formatPercent(reward.rewardDiscount)} special referral reward applies to your next purchase` }
       : !isReferral && offer?.firstTimeAvailable && offer.firstTimeDiscount > 0
-        ? { icon: 'gift-outline' as const, tone: 'gold' as const, text: `${formatPercent(offer.firstTimeDiscount)} off your first purchase is ready to use` }
+        ? { icon: 'gift-outline' as const, tone: 'gold' as const, text: `Up to ${formatPercent(offer.firstTimeDiscount)} off your first purchase at each outlet is ready to use` }
         : isReferral && offer && offer.referralDiscount > 0
-          ? { icon: 'pricetag-outline' as const, tone: 'gold' as const, text: `Your referred customers get ${formatPercent(offer.referralDiscount)} off with this QR` }
+          ? { icon: 'pricetag-outline' as const, tone: 'gold' as const, text: `Your referred customers get up to ${formatPercent(offer.referralDiscount)} off with this QR` }
           : { icon: 'lock-closed-outline' as const, tone: 'muted' as const, text: 'Permanent code — it never changes' };
 
   return (
     <Screen
       padded={false}
       footer={
-        <View style={styles.actions}>
-          <Button
-            label="Download QR"
-            variant={isReferral ? 'secondary' : 'primary'}
-            icon={<Ionicons name="download-outline" size={18} color={isReferral ? colors.gold : colors.textOnGold} />}
-            onPress={handleDownload}
-            loading={busy === 'download'}
-            disabled={!code || busy === 'share'}
-            style={styles.action}
-          />
-          {isReferral ? (
+        // Download QR is hidden on the personal discount page (that QR is not to be saved or
+        // passed on); only the referral page has the actions.
+        isReferral ? (
+          <View style={styles.actions}>
+            <Button
+              label="Download QR"
+              variant="secondary"
+              icon={<Ionicons name="download-outline" size={18} color={colors.gold} />}
+              onPress={handleDownload}
+              loading={busy === 'download'}
+              disabled={!code || busy === 'share'}
+              style={styles.action}
+            />
             <Button
               label="Share QR"
               icon={<Ionicons name="share-social-outline" size={18} color={colors.textOnGold} />}
@@ -145,8 +161,10 @@ export default function QrScreen() {
               disabled={!code || busy === 'download'}
               style={styles.action}
             />
-          ) : null}
-        </View>
+          </View>
+        ) : // Commented out for the personal discount QR:
+        // <Button label="Download QR" variant="primary" onPress={handleDownload} ... />
+        undefined
       }
     >
       <TopBar title={page.title} />

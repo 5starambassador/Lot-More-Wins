@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View, type RefreshControlProps } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -18,6 +18,7 @@ export function Screen({
   edges = ['top', 'bottom'],
   refreshControl,
   padded = true,
+  scrollRef,
 }: {
   children: ReactNode;
   footer?: ReactNode;
@@ -25,9 +26,12 @@ export function Screen({
   edges?: Edge[];
   refreshControl?: React.ReactElement<RefreshControlProps>;
   padded?: boolean;
+  /** Lets the screen scroll itself, e.g. to a section. */
+  scrollRef?: RefObject<ScrollView | null>;
 }) {
   const body = scroll ? (
     <ScrollView
+      ref={scrollRef}
       contentContainerStyle={[padded && styles.padded, styles.grow]}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}

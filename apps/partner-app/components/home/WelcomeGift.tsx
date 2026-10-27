@@ -15,7 +15,7 @@ import * as Haptics from '../../lib/haptics';
 import { formatPercent } from '../../lib/format';
 import { useWalletFormat } from '../../lib/wallet-display';
 import { colors, fonts, radius, space } from '../../theme/tokens';
-import { Txt } from '../ui';
+import { Button, Txt } from '../ui';
 import { Confetti } from './Confetti';
 import { GiftAnimation } from './GiftAnimation';
 
@@ -30,13 +30,18 @@ const POP_AT_MS = 1100;
  */
 export function WelcomeGift({
   firstTimeDiscount,
+  maxOutletDiscount,
   claimedPoints,
   onClose,
+  onExploreOutlets,
 }: {
   /** From the Super Admin settings; undefined while it loads. */
   firstTimeDiscount: number | undefined;
+  /** Highest discount any active outlet gives, from the server; null / undefined hides the line. */
+  maxOutletDiscount: number | null | undefined;
   claimedPoints: number;
   onClose: () => void;
+  onExploreOutlets: () => void;
 }) {
   const { height } = useWindowDimensions();
   const format = useWalletFormat();
@@ -86,13 +91,39 @@ export function WelcomeGift({
             <Txt variant="overline" tone="gold" align="center">
               Welcome gift
             </Txt>
-            {discount ? <Txt style={styles.figure}>{discount}</Txt> : <Ionicons name="gift" size={44} color={colors.gold} style={styles.giftIcon} />}
+            {discount ? (
+              <>
+                <Txt variant="smallMedium" tone="gold" align="center">
+                  Up to
+                </Txt>
+                <Txt style={styles.figure}>{discount}</Txt>
+              </>
+            ) : (
+              <Ionicons name="gift" size={44} color={colors.gold} style={styles.giftIcon} />
+            )}
             <Txt variant="subheading" align="center" style={styles.message}>
-              You have activated your {discount ? `${discount} ` : ''}special Lot More partner discount for your first purchase.
+              You have activated your special Lot More partner discount{discount ? ` of up to ${discount}` : ''} for your first purchase.
             </Txt>
-            <Txt variant="small" tone="secondary" align="center">
-              Show your Personal Discount QR at any outlet to use it.
-            </Txt>
+            {maxOutletDiscount ? (
+              <Txt variant="bodyMedium" tone="gold" align="center">
+                Get up to {formatPercent(maxOutletDiscount)} discount at participating outlets
+              </Txt>
+            ) : null}
+            <View style={styles.qrs}>
+              <View style={styles.qr}>
+                <Ionicons name="qr-code-outline" size={16} color={colors.gold} />
+                <Txt variant="caption" tone="secondary" style={styles.flex}>
+                  Personal Discount QR: show it at billing for your own purchases.
+                </Txt>
+              </View>
+              <View style={styles.qr}>
+                <Ionicons name="people-outline" size={16} color={colors.gold} />
+                <Txt variant="caption" tone="secondary" style={styles.flex}>
+                  Referral QR: share it with friends and family; you earn when they shop.
+                </Txt>
+              </View>
+            </View>
+            <Button label="Explore Outlets" onPress={onExploreOutlets} style={styles.explore} />
             {claimedPoints > 0 ? (
               <View style={styles.claimed}>
                 <Ionicons name="diamond-outline" size={14} color={colors.gold} />
@@ -155,6 +186,10 @@ const styles = StyleSheet.create({
   },
   figure: { fontFamily: fonts.bold, fontSize: 56, lineHeight: 64, letterSpacing: -1.5, color: colors.gold },
   giftIcon: { marginVertical: space.xs },
+  flex: { flex: 1 },
+  qrs: { alignSelf: 'stretch', gap: space.xs, marginTop: space.xs },
+  qr: { flexDirection: 'row', alignItems: 'flex-start', gap: space.xs },
+  explore: { alignSelf: 'stretch', marginTop: space.sm },
   message: { marginBottom: space.xxs },
   claimed: {
     flexDirection: 'row',

@@ -1,26 +1,32 @@
 import { create } from 'zustand';
 import type { MessagingMode, PartnerReferredByPayload } from '@lotmorewins/types';
 
-/** Registration wizard state: 1 contact, 2 address, 3 birthday (optional), 4 OTP, 5 password. */
+/** Registration wizard state: 1 contact, 2 address, 3 birthday (optional), 4 OTP (creates the account; there is no password). */
 interface OnboardingState {
   name: string;
   mobile: string;
   email: string;
   /** Optional "Referred by" answer; null when left blank. */
   referredBy: PartnerReferredByPayload | null;
+  /** UPI ID for cash reward payouts. */
+  upiId: string;
   city: string;
   state: string;
   pincode: string;
   /** YYYY-MM-DD, or null when the birthday step was skipped. */
   dateOfBirth: string | null;
-  otp: string;
   messagingMode: MessagingMode;
 
-  setContact: (details: { name: string; mobile: string; email: string; referredBy: PartnerReferredByPayload | null }) => void;
+  setContact: (details: {
+    name: string;
+    mobile: string;
+    email: string;
+    referredBy: PartnerReferredByPayload | null;
+    upiId: string;
+  }) => void;
   setAddress: (details: { city: string; state: string; pincode: string }) => void;
   setDateOfBirth: (dateOfBirth: string | null) => void;
   setMessagingMode: (mode: MessagingMode) => void;
-  setOtp: (otp: string) => void;
   reset: () => void;
 }
 
@@ -29,11 +35,11 @@ const initialState = {
   mobile: '',
   email: '',
   referredBy: null as PartnerReferredByPayload | null,
+  upiId: '',
   city: '',
   state: '',
   pincode: '',
   dateOfBirth: null,
-  otp: '',
   messagingMode: 'email' as MessagingMode,
 };
 
@@ -44,7 +50,6 @@ export const useOnboardingStore = create<OnboardingState>((set) => ({
   setAddress: (details) => set(details),
   setDateOfBirth: (dateOfBirth) => set({ dateOfBirth }),
   setMessagingMode: (messagingMode) => set({ messagingMode }),
-  setOtp: (otp) => set({ otp }),
 
   reset: () => set(initialState),
 }));
