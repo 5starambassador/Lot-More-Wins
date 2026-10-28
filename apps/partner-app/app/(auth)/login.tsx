@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import { ApiClientError } from '@lotmorewins/api-client';
 import { partnerLoginOtpRequestSchema } from '@lotmorewins/validation';
 import type { PartnerLoginOtpResponse } from '@lotmorewins/types';
 import apiClient from '../../lib/api';
@@ -32,6 +33,8 @@ export default function PartnerLoginScreen() {
   const [otp, setOtp] = useState('');
   const [countdown, setCountdown] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  /** Confirms a resent code and where it went. */
+  const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -50,6 +53,7 @@ export default function PartnerLoginScreen() {
 
   const requestCode = async () => {
     setError(null);
+    setNotice(null);
     const parsed = partnerLoginOtpRequestSchema.safeParse({ identifier });
     if (!parsed.success) {
       setIdentifierError(parsed.error.issues[0]?.message);
@@ -58,15 +62,26 @@ export default function PartnerLoginScreen() {
     }
     setIdentifierError(undefined);
     setSubmitting(true);
+    const isResend = !!sent;
     try {
       const res = await apiClient.requestPartnerLoginOtp({ identifier });
+      // The channel can change between sends (Super Admin setting), so the screen follows each response.
       setSent(res.data);
       setOtp('');
-      setCountdown(RESEND_AFTER_SEC);
+      setCountdown(res.data.resendAfterSec ?? RESEND_AFTER_SEC);
+      if (isResend) {
+        setNotice(`New code sent by ${res.data.mode === 'whatsapp' ? 'WhatsApp' : 'email'} to ${res.data.destination}.`);
+      }
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (err) {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setError(describeError(err));
+      // Too soon after the last code: the server says how long to wait, and the timer shows it.
+      const wait =
+        err instanceof ApiClientError && err.code === 'OTP_RESEND_WAIT'
+          ? (err.details as { retryAfterSec?: number } | undefined)?.retryAfterSec
+          : undefined;
+      if (wait && isResend) setCountdown(wait);
+      else setError(describeError(err));
     } finally {
       setSubmitting(false);
     }
@@ -78,6 +93,7 @@ export default function PartnerLoginScreen() {
       return;
     }
     setError(null);
+    setNotice(null);
     setSubmitting(true);
     try {
       const res = await apiClient.partnerLogin({ identifier, otp: code });
@@ -95,9 +111,11 @@ export default function PartnerLoginScreen() {
     setSent(null);
     setOtp('');
     setError(null);
+    setNotice(null);
   };
 
   const channelLabel = sent?.mode === 'whatsapp' ? 'WhatsApp' : 'email';
+  const countdownLabel = `${Math.floor(countdown / 60)}:${String(countdown % 60).padStart(2, '0')}`;
 
   return (
     <Screen
@@ -142,6 +160,7 @@ export default function PartnerLoginScreen() {
         </Txt>
 
         {error && <Notice tone="error" message={error} />}
+        {!error && notice && <Notice tone="success" message={notice} />}
 
         {sent ? (
           <>
@@ -151,11 +170,11 @@ export default function PartnerLoginScreen() {
                 Didn’t get it?{' '}
               </Txt>
               {countdown > 0 ? (
-                <Txt variant="smallMedium" tone="muted">{`Resend in 0:${String(countdown).padStart(2, '0')}`}</Txt>
+                <Txt variant="smallMedium" tone="muted">{`Resend in ${countdownLabel}`}</Txt>
               ) : (
                 <Pressable accessibilityRole="button" onPress={requestCode} disabled={submitting} hitSlop={8}>
                   <Txt variant="smallMedium" tone="gold">
-                    Resend code
+                    {`Resend code by ${channelLabel}`}
                   </Txt>
                 </Pressable>
               )}

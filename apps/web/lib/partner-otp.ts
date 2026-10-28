@@ -40,40 +40,68 @@ export function maskMobile(mobile: string): string {
 /**
  * App store review login: store reviewers cannot receive the emailed code, so the review account
  * (REVIEW_LOGIN_EMAIL, apptest@lotmorewins.com by default) signs in with the fixed code in
- * REVIEW_LOGIN_OTP and no message is sent. Off unless REVIEW_LOGIN_OTP is a 6-digit code; it only
- * covers sign-in, never wallet transfers.
+ * REVIEW_LOGIN_OTP and no message is sent. Reviewers test on many devices at once, so this account
+ * has no request limit, resend gap or attempt limit, and the code is never used up. Off unless
+ * REVIEW_LOGIN_OTP is a 6-digit code; it only covers sign-in, never wallet transfers.
  */
-function reviewLoginOtp(partner: Pick<Partner, 'email'>, purpose: PartnerOtpPurpose): string | null {
+export function reviewLoginOtp(email: string): string | null {
   const otp = process.env.REVIEW_LOGIN_OTP?.trim() ?? '';
-  const email = (process.env.REVIEW_LOGIN_EMAIL?.trim() || 'apptest@lotmorewins.com').toLowerCase();
-  return purpose === 'login' && /^\d{6}$/.test(otp) && partner.email.toLowerCase() === email ? otp : null;
+  const reviewEmail = (process.env.REVIEW_LOGIN_EMAIL?.trim() || 'apptest@lotmorewins.com').toLowerCase();
+  return /^\d{6}$/.test(otp) && email.trim().toLowerCase() === reviewEmail ? otp : null;
 }
+
+/** Minimum gap between two sign-in codes for the same partner. */
+export const RESEND_GAP_SEC = 60;
 
 export interface SentPartnerOtp {
   mode: MessagingMode;
   /** Masked address the code was sent to, for display. */
   destination: string;
   expiresAt: string;
+  /** Seconds until another code can be requested. */
+  resendAfterSec: number;
   devOtp?: string;
 }
 
-/** Sends a code for `purpose`. Throws 429 after 5 codes in 10 minutes and 502 when it cannot be delivered. */
+/**
+ * Sends a code for `purpose`. Throws 429 after 5 codes in 10 minutes, 429 OTP_RESEND_WAIT when a
+ * sign-in code was sent less than RESEND_GAP_SEC ago (`details.retryAfterSec`), and 502 when it
+ * cannot be delivered. The channel is read from the Super Admin setting on every send.
+ */
 export async function sendPartnerOtp(
   partner: Pick<Partner, 'id' | 'name' | 'mobile' | 'email'>,
   purpose: PartnerOtpPurpose
 ): Promise<SentPartnerOtp> {
+  const mode = await messagingService.getMode();
+  const destination = mode === 'whatsapp' ? maskMobile(partner.mobile) : maskEmail(partner.email);
+  const expiresAt = new Date(Date.now() + OTP_VALIDITY_MS);
+
+  // The review code is fixed and checked directly at sign-in: nothing is stored, sent or limited.
+  if (purpose === 'login' && reviewLoginOtp(partner.email)) {
+    return { mode, destination, expiresAt: expiresAt.toISOString(), resendAfterSec: RESEND_GAP_SEC };
+  }
+
   const key = partnerOtpKey(purpose, partner.id);
-  const [recentCount, mode] = await Promise.all([
+  const [recentCount, latest] = await Promise.all([
     prisma.otpVerification.count({ where: { identifier: key, createdAt: { gte: new Date(Date.now() - OTP_VALIDITY_MS) } } }),
-    messagingService.getMode(),
+    prisma.otpVerification.findFirst({ where: { identifier: key }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } }),
   ]);
   if (recentCount >= MAX_REQUESTS_PER_WINDOW) {
     throw new HttpError(429, 'Too many code requests. Please wait a few minutes before trying again.', 'RATE_LIMITED');
   }
+  if (purpose === 'login' && latest) {
+    const retryAfterSec = Math.ceil((latest.createdAt.getTime() + RESEND_GAP_SEC * 1000 - Date.now()) / 1000);
+    if (retryAfterSec > 0) {
+      throw new HttpError(
+        429,
+        `A code was sent moments ago. You can request a new one in ${retryAfterSec} seconds.`,
+        'OTP_RESEND_WAIT',
+        { retryAfterSec }
+      );
+    }
+  }
 
-  const reviewOtp = reviewLoginOtp(partner, purpose);
-  const rawOtp = reviewOtp ?? crypto.randomInt(100000, 1000000).toString();
-  const expiresAt = new Date(Date.now() + OTP_VALIDITY_MS);
+  const rawOtp = crypto.randomInt(100000, 1000000).toString();
   const record = await prisma.otpVerification.create({
     data: {
       identifier: key,
@@ -85,9 +113,7 @@ export async function sendPartnerOtp(
   });
 
   const to = mode === 'whatsapp' ? partner.mobile : partner.email;
-  const sendResult = reviewOtp
-    ? { success: true }
-    : await messagingService.sendRegistrationOtp({ to, name: partner.name, otp: rawOtp, purpose }, mode);
+  const sendResult = await messagingService.sendRegistrationOtp({ to, name: partner.name, otp: rawOtp, purpose }, mode);
   if (!sendResult.success) {
     // A code that never went out must not count towards the request limit.
     await prisma.otpVerification.delete({ where: { id: record.id } }).catch(() => undefined);
@@ -96,8 +122,9 @@ export async function sendPartnerOtp(
 
   return {
     mode,
-    destination: mode === 'whatsapp' ? maskMobile(partner.mobile) : maskEmail(partner.email),
+    destination,
     expiresAt: expiresAt.toISOString(),
+    resendAfterSec: purpose === 'login' ? RESEND_GAP_SEC : 0,
     // In non-production or when ENABLE_DEV_OTP=true, return devOtp for testing.
     devOtp: process.env.NODE_ENV !== 'production' || process.env.ENABLE_DEV_OTP === 'true' ? rawOtp : undefined,
   };

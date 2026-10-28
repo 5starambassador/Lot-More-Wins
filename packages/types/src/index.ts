@@ -1802,6 +1802,8 @@ export interface PartnerLoginOtpResponse {
   /** Masked email address or mobile number the code was sent to, for display. */
   destination: string;
   expiresAt: string;
+  /** Seconds until another code can be requested (absent from servers before the resend gap). */
+  resendAfterSec?: number;
   /** Only in development (or with ENABLE_DEV_OTP=true). */
   devOtp?: string;
 }

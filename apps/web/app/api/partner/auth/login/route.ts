@@ -4,7 +4,7 @@ import { partnerLoginSchema, partnerPasswordLoginSchema } from '@lotmorewins/val
 import prisma from '@/lib/prisma';
 import { HttpError } from '@/lib/auth';
 import { activeQrInclude, partnerSession } from '@/lib/partners';
-import { consumePartnerOtp } from '@/lib/partner-otp';
+import { consumePartnerOtp, reviewLoginOtp } from '@/lib/partner-otp';
 import { fail, handleRouteError, ok, readJson, validationError } from '@/lib/api-response';
 import {
   RATE_LIMIT_RETRY_AFTER_SEC,
@@ -60,18 +60,26 @@ export async function POST(req: NextRequest) {
       const parsed = partnerLoginSchema.safeParse(body);
       if (!parsed.success) return validationError(parsed.error);
       identifier = parsed.data.identifier;
-      await assertLoginAllowed('partner', identifier.value, ip);
+      // The app store review account signs in with its fixed code, free of the lockout (see reviewLoginOtp).
+      const reviewOtp = identifier.kind === 'email' ? reviewLoginOtp(identifier.value) : null;
+      if (!reviewOtp) await assertLoginAllowed('partner', identifier.value, ip);
 
       partner = await findPartner(identifier);
       if (!partner) {
-        await recordLoginFailure('partner', identifier.value, ip);
+        if (!reviewOtp) await recordLoginFailure('partner', identifier.value, ip);
         return fail(400, 'This code is not valid. Please request a new one.', 'OTP_INVALID');
       }
-      try {
-        await consumePartnerOtp(partner.id, 'login', parsed.data.otp);
-      } catch (error) {
-        if (error instanceof HttpError && error.code === 'OTP_INVALID') await recordLoginFailure('partner', identifier.value, ip);
-        throw error;
+      if (reviewOtp) {
+        if (parsed.data.otp !== reviewOtp) {
+          return fail(400, 'Incorrect code. Please check it and try again.', 'OTP_INVALID');
+        }
+      } else {
+        try {
+          await consumePartnerOtp(partner.id, 'login', parsed.data.otp);
+        } catch (error) {
+          if (error instanceof HttpError && error.code === 'OTP_INVALID') await recordLoginFailure('partner', identifier.value, ip);
+          throw error;
+        }
       }
     }
     await clearLoginFailures('partner', identifier.value, ip);

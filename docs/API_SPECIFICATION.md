@@ -44,8 +44,12 @@ settings; there is no partner classification. All routes below except onboarding
 - `POST /api/partner/auth/otp` — Sign-in step 1. Body `{ identifier }` (registered mobile or email).
   Sends a 6-digit code on the Super Admin's messaging channel (email → the partner's registered
   email, WhatsApp → their registered mobile); the partner never chooses. Returns `mode`, a masked
-  `destination` and `expiresAt`. `404 PARTNER_NOT_FOUND`, `403 PARTNER_INACTIVE`, `429` after 5 codes
-  in 10 minutes.
+  `destination`, `expiresAt` and `resendAfterSec`. `404 PARTNER_NOT_FOUND`, `403 PARTNER_INACTIVE`,
+  `429` after 5 codes in 10 minutes, `429 OTP_RESEND_WAIT` (`details.retryAfterSec`) within 60 seconds
+  of the last code. The channel is read from Settings on every request, so a resend follows a change.
+  App store review account (`REVIEW_LOGIN_EMAIL`, default `apptest@lotmorewins.com`, with
+  `REVIEW_LOGIN_OTP` set): nothing is sent or stored, no request limit, resend gap or sign-in lockout,
+  and the fixed code is accepted every time.
 - `POST /api/partner/auth/login` — Sign-in step 2. Body `{ identifier, otp }`. The current app has
   no password sign-in. Partner App v1.0.0 (still installed as APKs) sends `{ identifier, password }`
   instead; that is checked against the password set at registration (`401 INVALID_CREDENTIALS`).
