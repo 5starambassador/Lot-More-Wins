@@ -3,6 +3,10 @@ const clean = (value: string | undefined) => value?.trim().replace(/\/+$/, '') |
 /** The Partner App web version, installed to the iOS home screen from the download page. */
 export const PARTNER_WEB_URL = clean(import.meta.env.VITE_PARTNER_WEB_URL) ?? 'https://partner.lotmorewins.com';
 
+/** The Outlet Admin app's Google Play listing (package com.lotmorewins.outletadmin). */
+export const OUTLET_PLAY_URL =
+  clean(import.meta.env.VITE_OUTLET_PLAY_URL) ?? 'https://play.google.com/store/apps/details?id=com.lotmorewins.outletadmin';
+
 /** Absolute address of the download page, for the QR code. */
 export function downloadPageUrl(): string {
   const origin = clean(import.meta.env.VITE_SITE_URL) ?? window.location.origin;

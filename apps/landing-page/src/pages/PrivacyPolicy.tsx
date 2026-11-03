@@ -1,43 +1,11 @@
-import { useEffect, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { Wordmark } from '../components/Brand';
+import { Bullets, P, Section, Sub, useDocumentTitle } from '../components/Legal';
 import { Footer } from '../sections/DownloadCta';
 
 const EFFECTIVE_DATE = '22 October 2026';
 const LAST_UPDATED = '22 October 2026';
-
-function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
-  return (
-    <section id={id} className="scroll-mt-8 border-t border-white/10 pt-8">
-      <h2 className="text-xl font-semibold tracking-tight text-ivory sm:text-2xl">{title}</h2>
-      <div className="mt-4 space-y-4">{children}</div>
-    </section>
-  );
-}
-
-function Sub({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="space-y-3 pt-2">
-      <h3 className="font-semibold text-gilt-bright">{title}</h3>
-      {children}
-    </div>
-  );
-}
-
-function P({ children }: { children: ReactNode }) {
-  return <p>{children}</p>;
-}
-
-function Bullets({ items }: { items: string[] }) {
-  return (
-    <ul className="list-disc space-y-1.5 pl-5 marker:text-gilt">
-      {items.map((item) => (
-        <li key={item}>{item}</li>
-      ))}
-    </ul>
-  );
-}
 
 const SECTIONS = [
   { id: 'introduction', title: '1. Introduction' },
@@ -86,13 +54,7 @@ const CONTACT: [string, string][] = [
 ];
 
 export default function PrivacyPolicy() {
-  useEffect(() => {
-    const previous = document.title;
-    document.title = 'Privacy Policy | Lot More Wins';
-    return () => {
-      document.title = previous;
-    };
-  }, []);
+  useDocumentTitle('Privacy Policy | Lot More Wins');
 
   return (
     <div className="canvas-fill relative min-h-screen">

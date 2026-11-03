@@ -3,14 +3,28 @@ import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import { Logo, Wordmark } from './Brand';
 
-const LINKS = [
+export interface NavLink {
+  href: string;
+  label: string;
+}
+
+const LINKS: NavLink[] = [
   { href: '#how-it-works', label: 'How it works' },
   { href: '#earn', label: 'How you earn' },
   { href: '#screens', label: 'The app' },
   { href: '#get-the-app', label: 'Get the app' },
 ];
 
-export function Nav() {
+interface NavProps {
+  /** Section links (hash anchors on the current page). */
+  links?: NavLink[];
+  /** The app named in the wordmark pill. */
+  label?: string;
+  /** The gold button: a route ("/download") or a hash anchor on this page ("#get-the-app"). */
+  cta?: NavLink;
+}
+
+export function Nav({ links = LINKS, label = 'Partner App', cta = { href: '/download', label: 'Download' } }: NavProps = {}) {
   const [scrolled, setScrolled] = useState(false);
   const [progress, setProgress] = useState(0);
 
@@ -36,21 +50,28 @@ export function Nav() {
       }`}
     >
       <div className="mx-auto flex h-[4.5rem] max-w-stage items-center justify-between gap-4 px-5 sm:px-8">
-        <a href="#top" className="flex items-center gap-3" aria-label="Lot More Wins Partner App, back to top">
+        <a href="#top" className="flex items-center gap-3" aria-label={`Lot More Wins ${label}, back to top`}>
           <Logo className="h-11 w-11" />
-          <Wordmark />
+          <Wordmark label={label} />
         </a>
         <nav className="hidden items-center gap-8 lg:flex" aria-label="Sections">
-          {LINKS.map((link) => (
+          {links.map((link) => (
             <a key={link.href} href={link.href} className="text-sm text-ivory-soft/80 transition-colors hover:text-gilt-bright">
               {link.label}
             </a>
           ))}
         </nav>
-        <Link to="/download" className="btn-gold !px-5 !py-2.5 !text-sm">
-          Download
-          <ArrowRight className="h-4 w-4" />
-        </Link>
+        {cta.href.startsWith('#') ? (
+          <a href={cta.href} className="btn-gold !px-5 !py-2.5 !text-sm">
+            {cta.label}
+            <ArrowRight className="h-4 w-4" />
+          </a>
+        ) : (
+          <Link to={cta.href} className="btn-gold !px-5 !py-2.5 !text-sm">
+            {cta.label}
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        )}
       </div>
       {/* Reading progress, as a gold hairline under the bar. */}
       <div

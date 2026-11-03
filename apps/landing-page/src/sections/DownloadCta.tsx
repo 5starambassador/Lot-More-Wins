@@ -70,15 +70,28 @@ export function DownloadCta() {
 const ADDRESS_LINES = ['88, Candappa Mudaliyar Street', 'Pondicherry, Puducherry 605001'];
 const MAP_URL = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ADDRESS_LINES.join(', '))}`;
 
+interface FooterProps {
+  /** The app this page presents. */
+  appName?: string;
+  /** That app's privacy policy. */
+  privacyHref?: string;
+  /** A link to the programme's other app page. */
+  otherApp?: { to: string; label: string };
+}
+
 /** Brand and tagline, the office address, and links; copyright underneath. */
-export function Footer() {
+export function Footer({
+  appName = 'Lot More Wins Partner App',
+  privacyHref = '/privacy-policy',
+  otherApp = { to: '/outlet-admin', label: 'Outlet Admin App' },
+}: FooterProps = {}) {
   return (
     <footer className="border-t border-white/10 bg-canvas-night">
       <div className="mx-auto grid max-w-stage gap-10 px-5 py-12 text-sm font-light text-ivory-muted sm:grid-cols-2 sm:px-8 lg:grid-cols-[1.4fr_1fr_auto] lg:gap-16">
         <div className="space-y-4">
           <div className="flex items-center gap-3">
             <Logo className="h-10 w-10" />
-            <span className="font-medium text-ivory">Lot More Wins Partner App</span>
+            <span className="font-medium text-ivory">{appName}</span>
           </div>
           <p className="max-w-sm leading-relaxed">More connections. More discounts. More prizes.</p>
         </div>
@@ -98,9 +111,12 @@ export function Footer() {
         </div>
 
         <div className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-gilt">Legal</h2>
-          <Link to="/privacy-policy" className="block transition-colors hover:text-gilt-bright">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-gilt">Links</h2>
+          <Link to={privacyHref} className="block transition-colors hover:text-gilt-bright">
             Privacy Policy
+          </Link>
+          <Link to={otherApp.to} className="block transition-colors hover:text-gilt-bright">
+            {otherApp.label}
           </Link>
           {/* <Link to="/download" className="font-medium text-gilt transition-colors hover:text-gilt-bright">
             Download

@@ -15,15 +15,15 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Logo, Wordmark } from '../components/Brand';
+import { useAppLinks, type Platform } from '../lib/app-links';
 import { PARTNER_WEB_URL, detectDevice, type Device } from '../lib/config';
 import { ScreenShowcase } from '../sections/Screens';
 
 /**
- * The Partner App is installed from its web version (partner.lotmorewins.com) on both platforms:
- * each button opens a step-by-step guide for adding it to the home screen.
+ * Each platform's button follows the Super Admin's choice in Settings → App downloads: a store
+ * link opens Google Play / the App Store, the web version opens a step-by-step guide for adding
+ * partner.lotmorewins.com to the home screen.
  */
-
-type Platform = 'android' | 'ios';
 
 interface Step {
   icon: LucideIcon;
@@ -117,30 +117,31 @@ function InstallGuide({ platform }: { platform: Platform }) {
 
 const btnClass = (dimmed: boolean) => `btn-gold relative !rounded-2xl !py-5 ${dimmed ? 'opacity-70' : ''}`;
 
-const PLATFORM_BUTTONS: { platform: Platform; icon: LucideIcon; label: string }[] = [
-  { platform: 'android', icon: Smartphone, label: 'Android' },
-  { platform: 'ios', icon: Apple, label: 'iOS' },
+const PLATFORM_BUTTONS: { platform: Platform; icon: LucideIcon; label: string; store: [string, string] }[] = [
+  { platform: 'android', icon: Smartphone, label: 'Android', store: ['Get it on', 'Google Play'] },
+  { platform: 'ios', icon: Apple, label: 'iOS', store: ['Download on the', 'App Store'] },
 ];
 
 const scrollToGuide = (delay: number) =>
   window.setTimeout(() => document.getElementById(GUIDE_ID)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), delay);
 
 export default function Download() {
+  const links = useAppLinks();
   const [device, setDevice] = useState<Device>('other');
   const [guide, setGuide] = useState<Platform | null>(null);
 
+  useEffect(() => setDevice(detectDevice()), []);
+
+  // Once the links are known, open the guide for this device (or the one the Partner App's install
+  // popup asked for with ?platform=), unless that platform is set to a store listing.
   useEffect(() => {
-    const detected = detectDevice();
-    setDevice(detected);
-    // ?platform=android|ios: sent here by the Partner App's install popup, so open on that guide.
+    if (links.status !== 'ready') return;
     const asked = new URLSearchParams(window.location.search).get('platform');
-    if (asked === 'android' || asked === 'ios') {
-      setGuide(asked);
-      scrollToGuide(300);
-    } else if (detected !== 'other') {
-      setGuide(detected);
-    }
-  }, []);
+    const platform = asked === 'android' || asked === 'ios' ? asked : detectDevice();
+    if (platform === 'other' || links.stores[platform]) return;
+    setGuide(platform);
+    if (asked) scrollToGuide(300);
+  }, [links]);
 
   const openGuide = (platform: Platform) => {
     setGuide(platform);
@@ -186,23 +187,42 @@ export default function Download() {
         </p>
 
         <div className="mt-10 grid gap-4 sm:grid-cols-2">
-          {PLATFORM_BUTTONS.map(({ platform, icon: Icon, label }) => (
-            <button
-              key={platform}
-              type="button"
-              onClick={() => openGuide(platform)}
-              aria-expanded={guide === platform}
-              aria-controls={GUIDE_ID}
-              className={btnClass(device !== 'other' && device !== platform)}
-            >
-              {device === platform && yourDevice}
-              <Icon className="h-6 w-6" />
-              <span className="text-left leading-tight">
-                <span className="block text-xs font-medium opacity-70">How to install on</span>
-                <span className="block text-lg">{label}</span>
-              </span>
-            </button>
-          ))}
+          {PLATFORM_BUTTONS.map(({ platform, icon: Icon, label, store }) => {
+            const dimmed = device !== 'other' && device !== platform;
+            const storeUrl = links.status === 'ready' ? links.stores[platform] : null;
+            if (storeUrl) {
+              return (
+                <a key={platform} href={storeUrl} target="_blank" rel="noopener noreferrer" className={btnClass(dimmed)}>
+                  {device === platform && yourDevice}
+                  <Icon className="h-6 w-6" />
+                  <span className="text-left leading-tight">
+                    <span className="block text-xs font-medium opacity-70">{store[0]}</span>
+                    <span className="block text-lg">{store[1]}</span>
+                  </span>
+                </a>
+              );
+            }
+            return (
+              <button
+                key={platform}
+                type="button"
+                onClick={() => openGuide(platform)}
+                // Until the Super Admin's choice is known, a tap could open the wrong thing.
+                disabled={links.status === 'loading'}
+                aria-busy={links.status === 'loading'}
+                aria-expanded={guide === platform}
+                aria-controls={GUIDE_ID}
+                className={`${btnClass(dimmed)} disabled:cursor-wait`}
+              >
+                {device === platform && yourDevice}
+                <Icon className="h-6 w-6" />
+                <span className="text-left leading-tight">
+                  <span className="block text-xs font-medium opacity-70">How to install on</span>
+                  <span className="block text-lg">{label}</span>
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {guide && <InstallGuide key={guide} platform={guide} />}

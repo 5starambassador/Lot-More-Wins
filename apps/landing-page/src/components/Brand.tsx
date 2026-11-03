@@ -23,8 +23,8 @@ export function Logo({ className = 'h-12 w-12', halo = false }: LogoProps) {
   );
 }
 
-/** Wordmark and "Partner App" pill, matching the app header. */
-export function Wordmark({ size = 'md' }: { size?: 'md' | 'lg' }) {
+/** Wordmark and app-name pill ("Partner App" by default), matching the app header. */
+export function Wordmark({ size = 'md', label = 'Partner App' }: { size?: 'md' | 'lg'; label?: string }) {
   const large = size === 'lg';
   return (
     <div className="flex flex-col items-start gap-1.5">
@@ -36,7 +36,7 @@ export function Wordmark({ size = 'md' }: { size?: 'md' | 'lg' }) {
           large ? 'px-3 py-1.5 text-[11px]' : 'px-2 py-1 text-[9px]'
         }`}
       >
-        Partner App
+        {label}
       </span>
     </div>
   );

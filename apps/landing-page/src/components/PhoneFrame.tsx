@@ -6,10 +6,13 @@ interface PhoneFrameProps {
   eager?: boolean;
   /** A thumbnail-sized phone: tighter corners and bezel to suit the smaller body. */
   small?: boolean;
+  /** Natural screenshot size, so the frame keeps its shape while the image loads. */
+  width?: number;
+  height?: number;
 }
 
-/** A Partner App screenshot inside a slim phone body. Screenshots are 720 x 1431. */
-export function PhoneFrame({ src, alt, className = '', eager = false, small = false }: PhoneFrameProps) {
+/** An app screenshot inside a slim phone body. Partner App screenshots are 720 x 1431. */
+export function PhoneFrame({ src, alt, className = '', eager = false, small = false, width = 720, height = 1431 }: PhoneFrameProps) {
   return (
     <div className={`relative ${className}`}>
       <div className={`gilt-frame shadow-[0_40px_90px_-30px_rgba(0,0,0,0.9)] ${small ? 'rounded-[1rem]' : 'rounded-[2.4rem]'}`}>
@@ -22,8 +25,8 @@ export function PhoneFrame({ src, alt, className = '', eager = false, small = fa
             <img
               src={src}
               alt={alt}
-              width={720}
-              height={1431}
+              width={width}
+              height={height}
               loading={eager ? 'eager' : 'lazy'}
               className="block h-auto w-full"
             />

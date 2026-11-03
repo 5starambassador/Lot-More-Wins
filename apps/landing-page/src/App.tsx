@@ -3,6 +3,8 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import Home from './pages/Home';
 import Download from './pages/Download';
 import PrivacyPolicy from './pages/PrivacyPolicy';
+import OutletAdmin from './pages/OutletAdmin';
+import OutletPrivacyPolicy from './pages/OutletPrivacyPolicy';
 
 /** Scrolls to the section named in the URL hash, or to the top on a plain route change. */
 function ScrollManager() {
@@ -25,6 +27,8 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/download" element={<Download />} />
         <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+        <Route path="/outlet-admin" element={<OutletAdmin />} />
+        <Route path="/outlet-admin/privacy-policy" element={<OutletPrivacyPolicy />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </>
