@@ -94,6 +94,13 @@
     transform: none;
   }
 
+  /* Gold light rays fading out from the centre, behind the referral prize. */
+  .gift-rays {
+    background: repeating-conic-gradient(rgba(255, 221, 117, 0.34) 0deg 9deg, transparent 9deg 30deg);
+    -webkit-mask-image: radial-gradient(circle, #000 14%, transparent 46%);
+    mask-image: radial-gradient(circle, #000 14%, transparent 46%);
+  }
+
   /* Gold dashed connectors whose dashes travel in the direction of the flow. */
   .flow-line {
     height: 2px;
@@ -130,6 +137,40 @@
   }
   .animate-sheen {
     animation: sheen 5s ease-in-out infinite;
+  }
+  .animate-count-rise {
+    animation: count-rise 1.8s ease-out both;
+  }
+  .animate-twinkle {
+    animation: twinkle 2.8s ease-in-out infinite;
+  }
+}
+
+@keyframes twinkle {
+  0%,
+  100% {
+    transform: scale(0.55) rotate(0deg);
+    opacity: 0.25;
+  }
+  50% {
+    transform: scale(1.1) rotate(20deg);
+    opacity: 1;
+  }
+}
+
+@keyframes count-rise {
+  0% {
+    transform: translateY(14px) scale(0.7);
+    opacity: 0;
+  }
+  18%,
+  70% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-16px);
+    opacity: 0;
   }
 }
 

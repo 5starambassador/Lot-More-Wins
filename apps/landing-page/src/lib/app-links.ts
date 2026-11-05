@@ -15,7 +15,7 @@ export type StoreLinks = Record<Platform, string | null>;
 
 export type AppLinksState = { status: 'loading' } | { status: 'ready'; stores: StoreLinks };
 
-const API_URL = (import.meta.env.VITE_API_URL?.trim() || 'https://superadmin.lotmorewins.com/api').replace(/\/+$/, '');
+export const API_URL = (import.meta.env.VITE_API_URL?.trim() || 'https://superadmin.lotmorewins.com/api').replace(/\/+$/, '');
 const TIMEOUT_MS = 8_000;
 
 interface RemoteLink {

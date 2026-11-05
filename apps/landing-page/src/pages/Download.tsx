@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Apple,
@@ -125,7 +125,14 @@ const PLATFORM_BUTTONS: { platform: Platform; icon: LucideIcon; label: string; s
 const scrollToGuide = (delay: number) =>
   window.setTimeout(() => document.getElementById(GUIDE_ID)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), delay);
 
-export default function Download() {
+interface DownloadProps {
+  /** Shown between the intro and the download buttons. */
+  aboveButtons?: ReactNode;
+  /** Shown under the download buttons and the install guide. */
+  children?: ReactNode;
+}
+
+export default function Download({ aboveButtons, children }: DownloadProps) {
   const links = useAppLinks();
   const [device, setDevice] = useState<Device>('other');
   const [guide, setGuide] = useState<Platform | null>(null);
@@ -186,6 +193,8 @@ export default function Download() {
           Save at every Lot More outlet, share your referral QR and watch your reward points grow in your wallet.
         </p>
 
+        {aboveButtons}
+
         <div className="mt-10 grid gap-4 sm:grid-cols-2">
           {PLATFORM_BUTTONS.map(({ platform, icon: Icon, label, store }) => {
             const dimmed = device !== 'other' && device !== platform;
@@ -226,6 +235,7 @@ export default function Download() {
         </div>
 
         {guide && <InstallGuide key={guide} platform={guide} />}
+        {children}
       </main>
     </div>
   );

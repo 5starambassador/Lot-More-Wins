@@ -61,7 +61,7 @@ function FlowStrip() {
   );
 }
 
-export function Hero() {
+export function Hero({ downloadHref = '/download' }: { downloadHref?: string } = {}) {
   return (
     <section id="top" className="canvas-fill relative overflow-hidden pt-[4.5rem]">
       {/* Atmosphere: a warm glow behind the phone and a faint rotating mandala ring. */}
@@ -97,7 +97,7 @@ export function Hero() {
             </Reveal>
 
             <Reveal delay={320} className="mt-10 flex flex-wrap items-center gap-4">
-              <Link to="/download" className="btn-gold">
+              <Link to={downloadHref} className="btn-gold">
                 Get the app
                 <ArrowRight className="h-5 w-5" />
               </Link>

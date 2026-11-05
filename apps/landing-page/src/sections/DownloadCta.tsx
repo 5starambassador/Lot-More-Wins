@@ -5,7 +5,7 @@ import { QrCode } from '../components/QrCode';
 import { Reveal } from '../components/Reveal';
 import { downloadPageUrl } from '../lib/config';
 
-const SCAN_STEPS = [
+export const SCAN_STEPS = [
   'Open the camera on your phone.',
   'Point it at the QR code and tap the link that appears.',
   'On the download page, choose Android or iPhone.',

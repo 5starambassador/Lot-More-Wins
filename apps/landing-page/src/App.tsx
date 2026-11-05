@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import Home from './pages/Home';
 import Download from './pages/Download';
+import StudentsDownload from './pages/StudentsDownload';
+import DiwaliLaunch from './pages/DiwaliLaunch';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import OutletAdmin from './pages/OutletAdmin';
 import OutletPrivacyPolicy from './pages/OutletPrivacyPolicy';
@@ -26,6 +28,8 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/download" element={<Download />} />
+        <Route path="/students-download" element={<StudentsDownload />} />
+        <Route path="/diwali-launch" element={<DiwaliLaunch />} />
         <Route path="/privacy-policy" element={<PrivacyPolicy />} />
         <Route path="/outlet-admin" element={<OutletAdmin />} />
         <Route path="/outlet-admin/privacy-policy" element={<OutletPrivacyPolicy />} />

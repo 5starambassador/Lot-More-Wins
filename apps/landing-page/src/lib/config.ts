@@ -13,7 +13,10 @@ export function downloadPageUrl(): string {
   return `${origin}/download`;
 }
 
-export type Device = 'ios' | 'android' | 'other';
+/** Where the /diwali-launch QR code leads: always the live site, wherever the page is viewed. */
+export const STUDENTS_DOWNLOAD_URL = 'https://lotmorewins.com/students-download';
+
+export type Device ='ios' | 'android' | 'other';
 
 export function detectDevice(): Device {
   const ua = navigator.userAgent;

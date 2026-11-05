@@ -1,9 +1,11 @@
 # Lot More Wins Partner App: landing page
 
-React + Vite + Tailwind CSS. Two routes:
+React + Vite + Tailwind CSS. Routes:
 
 - `/` the product showcase (hero, how it works, how partners earn, screenshots, download QR)
 - `/download` "How to install" guides for Android and iPhone, both installing the Partner App web version
+- `/students-download` the download page plus the live partner count (the API's `/partner-count`) and the referral prize
+- `/diwali-launch` the product showcase, with the QR code leading to `/students-download` beside the count and the prize
 
 ## Commands
 
