@@ -5,6 +5,6 @@
   "buildCommand": "cd ../.. && npx prisma generate --schema=prisma/schema.prisma && cd apps/web && npx next build",
   "crons": [
     { "path": "/api/cron/diwali-greeting", "schedule": "30 3 8 11 *" },
-    { "path": "/api/cron/dinner-greeting", "schedule": "15 12 6 11 *" }
+    { "path": "/api/cron/dinner-greeting", "schedule": "30 12 6 11 *" }
   ]
 }
