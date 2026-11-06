@@ -78,7 +78,9 @@
           "photosPermission": "Allow Lot More Wins Partner to save your QR codes to your photos.",
           "savePhotosPermission": "Allow Lot More Wins Partner to save your QR codes to your photos.",
           "isAccessMediaLocationEnabled": false,
-          "granularPermissions": ["photo"]
+          "granularPermissions": [
+            "photo"
+          ]
         }
       ],
       [
@@ -87,6 +89,14 @@
           "photosPermission": "Allow Lot More Wins Partner to choose your profile photo.",
           "cameraPermission": false,
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableMinifyInReleaseBuilds": true
+          }
         }
       ]
     ],
