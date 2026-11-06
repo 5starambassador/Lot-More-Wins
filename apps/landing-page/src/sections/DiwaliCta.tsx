@@ -3,12 +3,11 @@ import { ArrowRight, Sparkles } from 'lucide-react';
 import { Logo } from '../components/Brand';
 import { LiveCounter } from '../components/LiveCounter';
 import { QrCode } from '../components/QrCode';
-import { ReferralGift } from '../components/ReferralGift';
 import { Reveal } from '../components/Reveal';
 import { STUDENTS_DOWNLOAD_URL } from '../lib/config';
 import { SCAN_STEPS } from './DownloadCta';
 
-/** The /diwali-launch get-the-app section: the QR code beside the live count and the referral prize. */
+/** The /diwali-launch get-the-app section: the live count, then the QR code large and on its own. */
 export function DiwaliCta() {
   return (
     <section id="get-the-app" className="canvas-fill relative overflow-hidden py-24 sm:py-32">
@@ -44,11 +43,7 @@ export function DiwaliCta() {
                   <LiveCounter />
                 </div>
 
-              {/* The row takes the gift box's height, and the QR code stretches to match it. */}
-              <div className="relative mt-12 grid gap-10 lg:grid-cols-2 lg:gap-12">
-                <QrCode value={STUDENTS_DOWNLOAD_URL} stretch className="mx-auto w-full max-w-[26rem] lg:max-w-none" />
-                <ReferralGift />
-              </div>
+              <QrCode value={STUDENTS_DOWNLOAD_URL} className="mx-auto mt-12 w-full max-w-[36rem]" />
 
               <div className="relative mt-12 flex flex-col items-center text-center">
                 <p className="text-sm font-medium uppercase tracking-[0.24em] text-gilt">Scan with your phone camera</p>

@@ -1,5 +1,6 @@
 import { Nav } from '../components/Nav';
 import { DiwaliCta } from '../sections/DiwaliCta';
+import { DiwaliGifts } from '../sections/DiwaliGifts';
 import { Footer } from '../sections/DownloadCta';
 import { Earn } from '../sections/Earn';
 import { Hero } from '../sections/Hero';
@@ -16,6 +17,7 @@ export default function DiwaliLaunch() {
         <HowItWorks />
         <Earn />
         <Screens />
+        <DiwaliGifts />
         <DiwaliCta />
       </main>
       <Footer />
