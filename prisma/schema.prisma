@@ -44,6 +44,36 @@ enum QRCodeStatus {
   REVOKED
 }
 
+/// The kinds of people in the Achariya community list. Only students are loaded so far.
+enum AchariyanCategory {
+  STUDENT
+  STAFF
+  OTHER
+}
+
+/// People of the Achariya institutions, loaded from institution lists. Not tied to a partner account.
+model Achariyan {
+  id        String            @id @default(uuid())
+  category  AchariyanCategory
+  /// Institution code: AASC (arts and science), ACET (engineering).
+  college   String?
+  /// Degree or course as the institution names it, e.g. BCOM HONS, CSE.
+  degree    String?
+  year      Int?
+  semester  Int?
+  name      String
+  /// As given in the list. Not unique: family members can share a number, and a few are mistyped.
+  mobile    String
+  /// Where the row came from, e.g. AASC-12 (sheet and serial number). Makes a repeat load add nothing twice.
+  sourceRef String?           @unique @map("source_ref")
+  createdAt DateTime          @default(now()) @map("created_at")
+  updatedAt DateTime          @updatedAt @map("updated_at")
+
+  @@index([mobile])
+  @@index([category, college])
+  @@map("achariyans")
+}
+
 /// Who introduced a partner to the programme, as answered while registering.
 enum ReferredByType {
   PARTNER

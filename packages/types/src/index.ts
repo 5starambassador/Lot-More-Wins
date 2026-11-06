@@ -1653,6 +1653,32 @@ export interface DiwaliLeaderboard {
   lastDate: string;
 }
 
+export interface DiwaliRegistrationLeaderboardRow {
+  rank: number;
+  partnerId: ID;
+  name: string;
+  partnerCode: string;
+  mobile: string;
+  email: string;
+  /** Active partners who named this partner as "Referred by" when registering. The board is ranked by this. */
+  partnersReferred: number;
+  /** When the latest of them registered. On equal counts, whoever got there first ranks higher. */
+  lastReferredAt: string;
+}
+
+export interface DiwaliRegistrationLeaderboard {
+  rows: DiwaliRegistrationLeaderboardRow[];
+  meta: PaginationMeta;
+  summary: {
+    partners: number;
+    partnersReferred: number;
+    /** "Referred by a partner" answers whose text matches no partner, so nobody is credited. */
+    unmatchedAnswers: number;
+  };
+  /** IST calendar date, YYYY-MM-DD: registrations after it do not count. */
+  lastDate: string;
+}
+
 export interface AdminPartnerActivityPage {
   rows: AdminPartnerActivityRow[];
   meta: PaginationMeta;

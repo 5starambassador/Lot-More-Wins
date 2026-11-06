@@ -8,6 +8,9 @@ node_modules/
 .env*.local
 !.env.example
 
+# Lists with people's personal details (the repos are public)
+/apps/web/assets/data/
+
 # Next.js
 .next/
 out/

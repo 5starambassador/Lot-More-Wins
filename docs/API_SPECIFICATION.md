@@ -181,6 +181,9 @@ Outlets hold at most 12 gallery images (`MAX_OUTLET_IMAGES`).
   and applied in one transaction: PAID → payout Paid + a PAYOUT debit of the amount paid; FAILED →
   amount released; already-settled rows are UNCHANGED (re-uploading is a no-op). Each applied file is
   logged (uploader, file name, SHA-256). `GET` on the same path lists the uploads.
+- `GET /api/cron/diwali-greeting` — `Authorization: Bearer $CRON_SECRET` (Vercel cron, 03:30 UTC on
+  8 Nov = 09:00 IST). Pushes the greeting once to active partners on Android, only on 8 Nov 2026
+  between 08:00 and 20:00 IST; `?dry=1` reports the audience without sending.
 - `GET /api/cron/weekly-payouts` — `Authorization: Bearer $CRON_SECRET` (Vercel cron, daily 03:30
   UTC). On the configured IST weekday creates one Pending payout per active partner whose available
   balance ≥ `payoutMinimumAmount` and who has a UPI ID; `?force=1` runs on any day. Idempotent per week.

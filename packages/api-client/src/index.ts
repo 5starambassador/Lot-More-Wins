@@ -46,6 +46,7 @@ import type {
   CustomerLookup,
   PartnerWallet,
   DiwaliLeaderboard,
+  DiwaliRegistrationLeaderboard,
   PartnerReferralHistory,
   PartnerTransaction,
   PartnerTransactionsPage,
@@ -517,6 +518,10 @@ export class ApiClient {
 
   public getAdminDiwaliLeaderboard(page = 1, limit = 25): Promise<ApiResponse<DiwaliLeaderboard>> {
     return this.get<ApiResponse<DiwaliLeaderboard>>('/admin/diwali-leaderboard', { params: { page, limit } });
+  }
+
+  public getAdminDiwaliRegistrationLeaderboard(page = 1, limit = 25): Promise<ApiResponse<DiwaliRegistrationLeaderboard>> {
+    return this.get<ApiResponse<DiwaliRegistrationLeaderboard>>('/admin/diwali-leaderboard', { params: { board: 'registrations', page, limit }, timeoutMs: 30000 });
   }
 
   public getAdminPartnerActivity(id: string, query: AdminPartnerActivityQuery = {}): Promise<ApiResponse<AdminPartnerActivityPage>> {
