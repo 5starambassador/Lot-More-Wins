@@ -19,8 +19,10 @@ export interface SendInvoiceOptions {
   discountAmount: number;
   /** Total discount %, birthday bonus / referral reward included. */
   discountPercentage: number;
-  /** Amount after discount, before GST. */
+  /** Amount after discount, before service charge and GST. */
   taxableAmount: number;
+  /** The outlet's service charge on this bill (0 = no line). */
+  serviceChargeAmount?: number;
   /** The outlet's GST % and the GST charged on the taxable amount (0 = no GST line). */
   gstPercentage: number;
   gstAmount: number;

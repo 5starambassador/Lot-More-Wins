@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Store,
+  Trophy,
   Users,
   X,
 } from 'lucide-react';
@@ -49,6 +50,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     section: 'Network',
     items: [
       { href: '/partners', label: 'Partners', icon: Users, page: 'partners' },
+      { href: '/diwali-leaderboard', label: 'Diwali launch leaderboard', icon: Trophy, page: 'partners' },
       { href: '/outlets', label: 'Outlets', icon: Store, page: 'outlets' },
     ],
   },

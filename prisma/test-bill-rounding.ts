@@ -5,7 +5,7 @@
  *   npx tsx prisma/test-bill-rounding.ts
  */
 import type { ConfiguredProgramSettings } from '../apps/web/lib/settings';
-import { calculateBill, type BillContext } from '../apps/web/lib/billing';
+import { calculateBill, programmeBillTerms, type BillContext } from '../apps/web/lib/billing';
 
 let failed = 0;
 function assert(condition: boolean, name: string, details?: unknown) {
@@ -72,8 +72,26 @@ for (const c of cases) {
 }
 
 // Points use the rounded payable amount: 2% of ₹331 × 10 points per rupee = 66.2 points.
-const p = calculateBill(settings, direct(true), 413.38);
+const p = calculateBill(settings, direct(false), 367.5);
 assert(p.pointsBaseAmount === 331 && p.purchasePoints === 66.2, 'Purchase points are calculated on the rounded payable amount', p);
+
+// A partner's own first bill at an outlet already gets the first-time discount: no purchase points.
+const first = calculateBill(settings, direct(true), 413.38);
+assert(first.purchasePoints === 0 && first.purchasePointsPercentage === 0, 'No purchase points on a partner\'s own first bill at an outlet', first);
+
+// A referred guest's first bill is still rewarded: 5% of ₹900 × 10 points per rupee = 450 referral points.
+const referred = calculateBill(settings, { ...direct(true), qrType: 'REFERRAL' }, 1000);
+assert(referred.finalAmount === 900 && referred.referralPoints === 450, 'Referral points are still given on a guest\'s first bill', referred);
+
+// Service charge: on the discounted amount, added to what the customer pays, never earning points.
+const base = programmeBillTerms(settings);
+const percent = calculateBill(settings, direct(false), 1000, { ...base, serviceChargeType: 'PERCENTAGE', serviceChargeValue: 5 });
+assert(percent.taxableAmount === 900 && percent.serviceChargeAmount === 45 && percent.finalAmount === 945, '5% service charge on ₹900 → pays ₹945', percent);
+assert(percent.pointsBaseAmount === 900, 'Service charge does not earn points', percent);
+const fixed = calculateBill(settings, direct(false), 1000, { ...base, serviceChargeType: 'FIXED', serviceChargeValue: 25 });
+assert(fixed.serviceChargeAmount === 25 && fixed.finalAmount === 925, '₹25 fixed service charge on ₹900 → pays ₹925', fixed);
+const none = calculateBill(settings, direct(false), 1000);
+assert(none.serviceChargeAmount === 0 && none.finalAmount === 900, 'No service charge by default: an existing outlet\'s total is unchanged', none);
 
 console.log(failed ? `\n${failed} FAILED` : '\nAll passed');
 process.exit(failed ? 1 : 0);

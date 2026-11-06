@@ -13,7 +13,7 @@ import * as path from 'path';
 import * as dotenv from 'dotenv';
 
 const env = dotenv.config({ path: path.resolve(__dirname, '../.env'), processEnv: {} }).parsed ?? {};
-const LIVE_URL = env.DATABASE_URL ?? '';
+const LIVE_URL = env.LIVE_DATABASE_URL ?? env.DATABASE_URL ?? '';
 const TEST_URL = process.env.TEST_DATABASE_URL ?? env.TEST_DATABASE_URL ?? '';
 const isLocal = (u: string) => /@(localhost|127\.0\.0\.1)(:\d+)?\//.test(u);
 const hostOf = (u: string) => {

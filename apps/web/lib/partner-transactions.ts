@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import type {
+  PartnerReferralHistory,
   PartnerTransaction,
   PartnerTransactionBill,
   PartnerTransactionFilter,
@@ -8,6 +9,7 @@ import type {
 } from '@lotmorewins/types';
 import prisma from './prisma';
 import { HttpError } from './auth';
+import { maskEmail, maskMobile } from './partner-otp';
 import { createdAtRange } from './admin-insights';
 import { rupeeValueOf } from './points';
 import { roundOffOf } from './billing';
@@ -64,6 +66,7 @@ function toBill(bill: BillRow, partnerId: string): PartnerTransactionBill {
     referralRewardPercentage: n(bill.referralRewardPercentage),
     // Bills from before GST stored no taxable amount: it equals the final amount there.
     taxableAmount: n(bill.taxableAmount ?? bill.finalAmount),
+    serviceChargeAmount: n(bill.serviceChargeAmount),
     gstPercentage: n(bill.gstPercentage),
     gstAmount: n(bill.gstAmount),
     walletRedeemPoints: n(bill.walletRedeemPoints),
@@ -238,6 +241,74 @@ export async function listPartnerTransactions(
   ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   return { items: all.slice(0, limit), hasMore: all.length > limit };
+}
+
+const referralBillInclude = {
+  outlet: { select: { name: true } },
+  customer: { select: { name: true, partnerId: true, mobile: true, email: true, partner: { select: { email: true } } } },
+} satisfies Prisma.BillInclude;
+
+/** What tells one referred guest from another. */
+export const guestIdentitySelect = { mobile: true, email: true, partner: { select: { email: true } } } satisfies Prisma.CustomerSelect;
+
+type GuestIdentity = { mobile: string; email: string | null; partner: { email: string } | null };
+
+/** A registered guest may have given no email at the counter: their partner account's email is theirs too. */
+const guestEmailOf = (customer: Omit<GuestIdentity, 'mobile'>) => customer.email ?? customer.partner?.email ?? null;
+
+/** Customer.mobile is unique, so two guests are one person when their emails match. */
+export const countUniqueGuests = (guests: GuestIdentity[]) => new Set(guests.map((g) => guestEmailOf(g)?.toLowerCase() ?? g.mobile)).size;
+
+/**
+ * Bills closed at an outlet with this partner's referral QR, newest first, with totals over all of
+ * them. Only a completed bill counts; sharing the QR creates no bill. The partner sees their guests'
+ * contact details masked (see the privacy policy); `revealContacts` is for the admin panel.
+ */
+export async function getPartnerReferralHistory(
+  partnerId: string,
+  page: number,
+  limit: number,
+  { revealContacts = false }: { revealContacts?: boolean } = {}
+): Promise<PartnerReferralHistory> {
+  const where = { referrerPartnerId: partnerId, transactionType: 'REFERRAL' } satisfies Prisma.BillWhereInput;
+  const [totals, bills, guests, settings] = await Promise.all([
+    prisma.bill.aggregate({ where, _count: true, _sum: { billAmount: true } }),
+    prisma.bill.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit, include: referralBillInclude }),
+    prisma.customer.findMany({
+      where: { bills: { some: where } },
+      select: guestIdentitySelect,
+    }),
+    getProgramSettings(),
+  ]);
+
+  const ratio = { ...settings.pointsToRupees };
+  const now = new Date();
+  const rewards = await rewardsByBill(
+    partnerId,
+    bills.map((b) => b.id)
+  );
+  const total = totals._count;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  return {
+    summary: {
+      completedBills: total,
+      totalBillValue: n(totals._sum.billAmount),
+      uniqueGuests: countUniqueGuests(guests),
+    },
+    bills: bills.map((b) => {
+      const { bill, rewards: billRewards } = billTransaction(b, rewards.get(b.id) ?? [], partnerId, ratio, now);
+      const email = b.customer ? guestEmailOf(b.customer) : null;
+      return {
+        id: b.id,
+        bill: bill!,
+        rewards: billRewards,
+        guestMobile: b.customer ? (revealContacts ? b.customer.mobile : maskMobile(b.customer.mobile)) : null,
+        guestEmail: email ? (revealContacts ? email : maskEmail(email)) : null,
+      };
+    }),
+    meta: { page, limit, total, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1 },
+  };
 }
 
 /** One transaction for its details page; 404 unless it belongs to this partner. */

@@ -354,7 +354,8 @@ export class EmailProvider {
                     <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #0f172a; border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 28px;">
                       ${row('Bill Amount', inr(subtotal), '#ffffff')}
                       ${discountAmount > 0 || !options.walletRedeemAmount ? row(`Discount (${pct(options.discountPercentage)})`, `- ${inr(discountAmount)}`, '#4ade80') : ''}
-                      ${options.gstAmount > 0 ? row('Amount after Discount', inr(options.taxableAmount), '#ffffff') : ''}
+                      ${options.gstAmount > 0 || options.serviceChargeAmount ? row('Amount after Discount', inr(options.taxableAmount), '#ffffff') : ''}
+                      ${options.serviceChargeAmount ? row('Service Charge', `+ ${inr(options.serviceChargeAmount)}`, '#ffffff') : ''}
                       ${options.gstAmount > 0 ? row(`GST (${pct(options.gstPercentage)})`, `+ ${inr(options.gstAmount)}`, '#ffffff') : ''}
                       ${options.walletRedeemAmount ? row('Paid from Wallet', `- ${inr(options.walletRedeemAmount)}`, '#4ade80') : ''}
                       ${options.roundOffAmount ? row('Round Off', `${options.roundOffAmount > 0 ? '+' : '-'} ${inr(Math.abs(options.roundOffAmount))}`, '#ffffff') : ''}

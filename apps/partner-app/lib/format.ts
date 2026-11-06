@@ -32,6 +32,10 @@ export function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 }
 
+export function formatDateTimeFull(iso: string): string {
+  return new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
 /** "Just now", "12 min ago", "3 h ago", then the date. */
 export function formatRelative(iso: string, now = Date.now()): string {
   const minutes = Math.floor((now - new Date(iso).getTime()) / 60_000);

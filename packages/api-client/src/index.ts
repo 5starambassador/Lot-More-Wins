@@ -45,6 +45,8 @@ import type {
   BillHistorySummary,
   CustomerLookup,
   PartnerWallet,
+  DiwaliLeaderboard,
+  PartnerReferralHistory,
   PartnerTransaction,
   PartnerTransactionsPage,
   PartnerTransactionsQuery,
@@ -319,6 +321,11 @@ export class ApiClient {
     return this.post<ApiResponse<{ recorded: boolean }>>('/partner/referral-share');
   }
 
+  /** Totals and the bills closed at outlets with this partner's referral QR. */
+  public getPartnerReferralHistory(page = 1, limit = 20): Promise<ApiResponse<PartnerReferralHistory>> {
+    return this.get<ApiResponse<PartnerReferralHistory>>('/partner/referral-history', { params: { page, limit } });
+  }
+
   public getPartnerNotifications(page = 1, limit = 30): Promise<ApiResponse<PartnerNotificationPage>> {
     return this.get<ApiResponse<PartnerNotificationPage>>('/partner/notifications', { params: { page, limit } });
   }
@@ -500,6 +507,16 @@ export class ApiClient {
   /** Sends a test notification to the partner's phones and reports the delivery outcome. */
   public sendAdminTestPush(id: string): Promise<ApiResponse<AdminTestPushResult>> {
     return this.post<ApiResponse<AdminTestPushResult>>(`/admin/partners/${encodeURIComponent(id)}/test-push`);
+  }
+
+  public getAdminPartnerReferralHistory(id: string, page = 1, limit = 25): Promise<ApiResponse<PartnerReferralHistory>> {
+    return this.get<ApiResponse<PartnerReferralHistory>>(`/admin/partners/${encodeURIComponent(id)}/referral-history`, {
+      params: { page, limit },
+    });
+  }
+
+  public getAdminDiwaliLeaderboard(page = 1, limit = 25): Promise<ApiResponse<DiwaliLeaderboard>> {
+    return this.get<ApiResponse<DiwaliLeaderboard>>('/admin/diwali-leaderboard', { params: { page, limit } });
   }
 
   public getAdminPartnerActivity(id: string, query: AdminPartnerActivityQuery = {}): Promise<ApiResponse<AdminPartnerActivityPage>> {

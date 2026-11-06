@@ -15,7 +15,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.lotmorewins.outletadmin"
+      "bundleIdentifier": "com.lotmorewins.outletadmin",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -23,9 +26,17 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.lotmorewins.outletadmin",
+      "versionCode": 1,
       "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.CAMERA"
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE"
       ]
     },
     "web": {
@@ -38,14 +49,16 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Lot More Wins Outlet Admin to scan partner and customer QR codes."
+          "cameraPermission": "Allow Lot More Wins Outlet Admin to scan partner and customer QR codes.",
+          "recordAudioAndroid": false
         }
       ],
       [
         "expo-image-picker",
         {
           "photosPermission": "Allow Lot More Wins Outlet Admin to choose your outlet logo and images.",
-          "cameraPermission": "Allow Lot More Wins Outlet Admin to scan partner QR codes."
+          "cameraPermission": "Allow Lot More Wins Outlet Admin to scan partner QR codes.",
+          "microphonePermission": false
         }
       ]
     ],

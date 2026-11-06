@@ -92,6 +92,7 @@ export async function sendBillNotification(billId: string): Promise<BillRecord> 
           discountAmount: record.discountAmount,
           discountPercentage: record.discountPercentage,
           taxableAmount: record.taxableAmount,
+          serviceChargeAmount: record.serviceChargeAmount,
           gstPercentage: record.gstPercentage,
           gstAmount: record.gstAmount,
           walletRedeemAmount: record.walletRedeemAmount,

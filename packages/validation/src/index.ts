@@ -366,6 +366,38 @@ const discountOverrideSchema = discountPercentageSchema.nullable();
 /** Reward override (points or cash reward %): null (or empty in a form) uses the programme setting. */
 const rewardOverrideSchema = percentageSchema.nullable();
 
+/** A percentage service charge is at most this share of the discounted amount. */
+export const MAX_SERVICE_CHARGE_PERCENT = 50;
+/** A fixed service charge is at most this many rupees per bill. */
+export const MAX_SERVICE_CHARGE_RUPEES = 10000;
+
+export const serviceChargeTypeSchema = z.enum(['PERCENTAGE', 'FIXED'], {
+  errorMap: () => ({ message: 'Service charge must be a percentage or a fixed amount' }),
+});
+
+/** A service charge % or ₹ amount; checked against its type by refineServiceCharge. */
+export const serviceChargeValueSchema = z
+  .number({ invalid_type_error: 'Service charge must be a number' })
+  .finite()
+  .min(0, 'Service charge cannot be negative')
+  .max(MAX_SERVICE_CHARGE_RUPEES, `A service charge cannot exceed ₹${MAX_SERVICE_CHARGE_RUPEES}`)
+  .refine(hasAtMostTwoDecimals, 'Service charge can have at most 2 decimal places');
+
+/** The error for a service charge value under its type, or null when it is allowed. */
+export function serviceChargeError(type: 'PERCENTAGE' | 'FIXED', value: number): string | null {
+  if (type === 'PERCENTAGE' && value > MAX_SERVICE_CHARGE_PERCENT) {
+    return `A service charge cannot exceed ${MAX_SERVICE_CHARGE_PERCENT}% of the bill`;
+  }
+  return null;
+}
+
+/** When a payload sends both, the value must suit the type (the server re-checks against the saved type). */
+function refineServiceCharge(v: { serviceChargeType?: 'PERCENTAGE' | 'FIXED'; serviceChargeValue?: number }, ctx: z.RefinementCtx) {
+  if (v.serviceChargeType === undefined || v.serviceChargeValue === undefined) return;
+  const message = serviceChargeError(v.serviceChargeType, v.serviceChargeValue);
+  if (message) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['serviceChargeValue'], message });
+}
+
 /** The offer fields (slabs) an Outlet Admin may edit. */
 const outletOfferFields = {
   firstTimeDiscount: discountOverrideSchema,
@@ -373,6 +405,8 @@ const outletOfferFields = {
   repeatDiscount: discountOverrideSchema,
   referralDiscount: discountOverrideSchema,
   gstPercentage: percentageSchema.refine((v) => v <= 50, 'GST cannot exceed 50%'),
+  serviceChargeType: serviceChargeTypeSchema,
+  serviceChargeValue: serviceChargeValueSchema,
   purchasePointsPercentage: rewardOverrideSchema,
   referralPointsPercentage: rewardOverrideSchema,
   achariyaReferralPointsPercentage: rewardOverrideSchema,
@@ -396,6 +430,8 @@ export const OUTLET_OFFER_FIELDS = [
   'repeatDiscount',
   'referralDiscount',
   'gstPercentage',
+  'serviceChargeType',
+  'serviceChargeValue',
   'purchasePointsPercentage',
   'referralPointsPercentage',
   'achariyaReferralPointsPercentage',
@@ -405,7 +441,7 @@ export const OUTLET_OFFER_FIELDS = [
   'canEditOffers',
 ] as const;
 
-export const outletOffersUpdateSchema = z.object(outletOfferFields).partial().strict();
+export const outletOffersUpdateSchema = z.object(outletOfferFields).partial().strict().superRefine(refineServiceCharge);
 
 export const outletCreateSchema = z
   .object({
@@ -421,6 +457,8 @@ export const outletCreateSchema = z
     repeatDiscount: outletOfferFields.repeatDiscount.optional(),
     referralDiscount: outletOfferFields.referralDiscount.optional(),
     gstPercentage: outletOfferFields.gstPercentage.optional(),
+    serviceChargeType: outletOfferFields.serviceChargeType.optional(),
+    serviceChargeValue: outletOfferFields.serviceChargeValue.optional(),
     purchasePointsPercentage: outletOfferFields.purchasePointsPercentage.optional(),
     referralPointsPercentage: outletOfferFields.referralPointsPercentage.optional(),
     achariyaReferralPointsPercentage: outletOfferFields.achariyaReferralPointsPercentage.optional(),
@@ -431,7 +469,8 @@ export const outletCreateSchema = z
     adminEmail: emailSchema,
     adminPassword: outletPasswordSchema,
   })
-  .strict();
+  .strict()
+  .superRefine(refineServiceCharge);
 
 export const outletUpdateSchema = z
   .object({
@@ -442,7 +481,8 @@ export const outletUpdateSchema = z
     adminPassword: outletPasswordSchema,
   })
   .partial()
-  .strict();
+  .strict()
+  .superRefine(refineServiceCharge);
 
 /** Outlet Admins may edit profile fields only — never status or credentials. */
 export const outletProfileUpdateSchema = z.object(outletProfileFields).partial().strict();

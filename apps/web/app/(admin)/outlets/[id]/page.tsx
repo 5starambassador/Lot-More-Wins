@@ -41,6 +41,8 @@ const OFFER_FIELD_LABEL: Record<string, string> = {
   ...Object.fromEntries(DISCOUNT_FIELDS.map(({ key, label }) => [key, `${label} discount`])),
   ...Object.fromEntries(REWARD_FIELDS.map(({ key, label }) => [key, `${label} rate`])),
   gstPercentage: 'GST',
+  serviceChargeType: 'Service charge type',
+  serviceChargeValue: 'Service charge',
   givesCashReward: 'Gives cashback',
   canEditOffers: 'Outlet can edit offers',
 };
@@ -50,6 +52,9 @@ function offerValue(field: string, value: string | null): string {
   if (value === null) return 'Programme setting';
   if (value === 'true') return 'On';
   if (value === 'false') return 'Off';
+  if (field === 'serviceChargeType') return value === 'FIXED' ? 'Fixed ₹' : 'Percentage';
+  // A % or a ₹ amount, by the type saved with it.
+  if (field === 'serviceChargeValue') return value;
   return field === 'givesCashReward' || field === 'canEditOffers' ? value : `${value}%`;
 }
 
@@ -423,7 +428,7 @@ function OutletDetailView({ id }: { id: string }) {
 
           <Panel>
             <PanelHeader
-              title="Offers & GST"
+              title="Offers, service charge & GST"
               description={`${outlet.offer?.label ?? ''}${outlet.offers.givesCashReward ? ' · gives cashback' : ''}`}
               actions={
                 <Button variant="secondary" size="sm" onClick={() => setTab('profile')}>
@@ -441,7 +446,20 @@ function OutletDetailView({ id }: { id: string }) {
                 {
                   label: 'GST',
                   value: `${outlet.offers.gstPercentage}%`,
-                  note: 'On the discounted amount',
+                  note: 'On the discounted amount + service charge',
+                },
+                {
+                  label: 'Service charge',
+                  value:
+                    outlet.offers.serviceChargeType === 'FIXED'
+                      ? formatINR(outlet.offers.serviceChargeValue)
+                      : `${outlet.offers.serviceChargeValue}%`,
+                  note:
+                    outlet.offers.serviceChargeValue > 0
+                      ? outlet.offers.serviceChargeType === 'FIXED'
+                        ? 'Fixed on every bill'
+                        : 'Of the discounted amount'
+                      : 'None',
                 },
                 ...REWARD_FIELDS.filter((f) => !f.cashback || outlet.offers.givesCashReward).map(({ key, label }) => ({
                   label,
@@ -461,7 +479,7 @@ function OutletDetailView({ id }: { id: string }) {
           <Panel>
             <PanelHeader
               title="Offer change log"
-              description="Every change to this outlet's discounts, points and cashback rates, GST, cashback and edit permission."
+              description="Every change to this outlet's discounts, points and cashback rates, service charge, GST, cashback and edit permission."
             />
             {offerChanges.error ? (
               <div className="p-5">

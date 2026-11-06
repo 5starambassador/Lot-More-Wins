@@ -10,14 +10,15 @@ import type {
   PartnerCategory,
   ProgramSettings,
 } from '@lotmorewins/types';
-import { OUTLET_OFFER_FIELDS } from '@lotmorewins/validation';
+import { OUTLET_OFFER_FIELDS, serviceChargeError } from '@lotmorewins/validation';
 import prisma from './prisma';
+import { HttpError } from './auth';
 
 /**
  * Outlet offers. Each outlet may override the first-time (Non-Achariya and Achariya), repeat and
  * referral discounts, and the purchase / referral points and cash reward percentages; a blank
- * override uses the programme setting of the same name. GST and whether the cash reward is given
- * are per outlet only. The birthday bonus and the referral reward stay programme-wide.
+ * override uses the programme setting of the same name. GST, the service charge (a % or a fixed ₹)
+ * and whether the cash reward is given are per outlet only. The birthday bonus and the referral reward stay programme-wide.
  * Every change, from the Super Admin panel or the Outlet Admin app, is written to the audit log
  * and bumps the outlet's offer settings version, which each bill snapshots.
  */
@@ -30,6 +31,8 @@ type OfferRow = Pick<
   | 'repeatDiscount'
   | 'referralDiscount'
   | 'gstPercentage'
+  | 'serviceChargeType'
+  | 'serviceChargeValue'
   | 'purchasePointsPercentage'
   | 'referralPointsPercentage'
   | 'achariyaReferralPointsPercentage'
@@ -51,6 +54,8 @@ export function serializeOfferSettings(outlet: OfferRow): OutletOfferSettings {
     repeatDiscount: num(outlet.repeatDiscount),
     referralDiscount: num(outlet.referralDiscount),
     gstPercentage: outlet.gstPercentage.toNumber(),
+    serviceChargeType: outlet.serviceChargeType,
+    serviceChargeValue: outlet.serviceChargeValue.toNumber(),
     purchasePointsPercentage: num(outlet.purchasePointsPercentage),
     referralPointsPercentage: num(outlet.referralPointsPercentage),
     achariyaReferralPointsPercentage: num(outlet.achariyaReferralPointsPercentage),
@@ -155,9 +160,10 @@ export interface OfferActor {
 
 type OfferField = (typeof OUTLET_OFFER_FIELDS)[number];
 
-function asText(value: Prisma.Decimal | number | boolean | null | undefined): string | null {
+function asText(value: Prisma.Decimal | number | boolean | string | null | undefined): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'string') return value;
   return new Prisma.Decimal(value).toDecimalPlaces(2).toString();
 }
 
@@ -184,6 +190,12 @@ export async function applyOfferChanges(
   const current = await tx.outlet.findUniqueOrThrow({
     where: { id: outletId },
   });
+
+  // The service charge value must suit its type, whichever of the two this edit changes.
+  const chargeType = input.serviceChargeType ?? current.serviceChargeType;
+  const chargeValue = input.serviceChargeValue ?? current.serviceChargeValue.toNumber();
+  const chargeError = serviceChargeError(chargeType, chargeValue);
+  if (chargeError) throw new HttpError(422, chargeError, 'VALIDATION_ERROR');
 
   const data: Prisma.OutletUpdateInput = {};
   const changes: Prisma.OutletOfferChangeCreateManyInput[] = [];

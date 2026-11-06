@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Platform, StyleSheet, View } from 'react-native';
-import { Redirect, useLocalSearchParams } from 'expo-router';
+import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as ScreenCapture from 'expo-screen-capture';
@@ -15,7 +15,7 @@ import { describeError, useHome } from '../../lib/queries';
 import { formatPercent } from '../../lib/format';
 import { useWalletFormat } from '../../lib/wallet-display';
 import { QrExportError, qrImageBase64, saveQrImage, shareQrImage } from '../../lib/qr-export';
-import { colors, GUTTER, space } from '../../theme/tokens';
+import { colors, fonts, GUTTER, radius, space } from '../../theme/tokens';
 
 const PAGES: Record<string, { qrType: QRCodeType; title: string; heading: string; body: string; fileName: string }> = {
   discount: {
@@ -39,6 +39,7 @@ const CAPTURE_KEY = 'personal-discount-qr';
 /** One page per permanent QR: /qr/discount and /qr/referral. */
 export default function QrScreen() {
   const { type } = useLocalSearchParams<{ type: string }>();
+  const router = useRouter();
   const { partner, qrCodes } = useAuthStore();
   const home = useHome();
   const walletNoun = useWalletFormat().noun;
@@ -187,6 +188,26 @@ export default function QrScreen() {
           </Txt>
         </View>
 
+        {isReferral ? (
+          <View style={styles.referred}>
+            <View style={styles.referredCount}>
+              <Txt style={styles.referredNumber}>{reward ? reward.total.toLocaleString('en-IN') : '—'}</Txt>
+              <View style={styles.referredText}>
+                <Txt variant="bodyMedium">Total guests referred</Txt>
+                <Txt variant="caption" tone="muted">
+                  Counted for each unique bill completed with this QR at any outlet. Sharing the QR is not counted.
+                </Txt>
+              </View>
+            </View>
+            <Button
+              label="Referral history"
+              variant="secondary"
+              icon={<Ionicons name="time-outline" size={18} color={colors.gold} />}
+              onPress={() => router.push('/referral-history')}
+            />
+          </View>
+        ) : null}
+
         {message && (
           <View style={styles.message}>
             <Notice tone={message.tone} message={message.text} />
@@ -202,6 +223,18 @@ const styles = StyleSheet.create({
   copy: { marginTop: space.xs, marginHorizontal: space.md },
   qrWrap: { marginVertical: space.xl },
   hint: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  referred: {
+    marginTop: space.xl,
+    padding: space.lg,
+    gap: space.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.goldLine,
+    backgroundColor: colors.maroonSoft,
+  },
+  referredCount: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  referredNumber: { fontFamily: fonts.bold, fontSize: 36, lineHeight: 44, color: colors.gold },
+  referredText: { flex: 1, gap: 2 },
   message: { marginTop: space.lg },
   actions: { flexDirection: 'row', gap: space.sm },
   action: { flex: 1 },

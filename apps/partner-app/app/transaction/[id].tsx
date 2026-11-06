@@ -13,7 +13,7 @@ import {
   walletAmount,
 } from '../../components/wallet/TransactionRow';
 import { describeError, useTransaction } from '../../lib/queries';
-import { formatDate, formatINR, formatPercent, formatPoints } from '../../lib/format';
+import { formatDate, formatDateTimeFull, formatINR, formatPercent, formatPoints } from '../../lib/format';
 import { useWalletFormat, type WalletFormat } from '../../lib/wallet-display';
 import { colors, fonts, radius, space } from '../../theme/tokens';
 
@@ -22,10 +22,6 @@ const QR_USED: Record<PartnerTransactionBill['transactionType'], string> = {
   REFERRAL: 'Referral QR',
   WALLET_REDEEM: 'Wallet redeem QR',
 };
-
-function formatDateTimeFull(iso: string): string {
-  return new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
-}
 
 function Line({ label, value, tone, strong = false }: { label: string; value: string; tone?: 'gold' | 'success' | 'muted'; strong?: boolean }) {
   return (
@@ -91,6 +87,7 @@ function BillCard({ bill, format }: { bill: PartnerTransactionBill; format: Wall
           <Line label="After discount" value={formatINR(bill.taxableAmount)} />
         </>
       ) : null}
+      {(bill.serviceChargeAmount ?? 0) > 0 ? <Line label="Service charge" value={`+ ${formatINR(bill.serviceChargeAmount)}`} /> : null}
       {bill.gstPercentage > 0 ? <Line label={`GST (${formatPercent(bill.gstPercentage)})`} value={`+ ${formatINR(bill.gstAmount)}`} /> : null}
       {redeem ? (
         <>

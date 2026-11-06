@@ -16,6 +16,7 @@ import { Pagination, SkeletonRows, TBody, TD, TH, THead, TR, Table, TableScroll 
 import { useToast } from '@/components/ui/toast';
 import { DeleteRecordButton } from '@/components/admin/delete-record';
 import { PartnerAccessPanel } from '@/components/admin/partner-cash';
+import { PartnerReferralHistory } from '@/components/admin/partner-referral-history';
 import { PARTNER_CATEGORY } from '@/components/admin/revised-labels';
 import { adminApi, errorMessage, useAdminQuery } from '@/lib/admin-client';
 import { PARTNER_STATUS, QR_TYPE_LABEL, REFERRED_BY_LABEL, WALLET_ENTRY_LABEL } from '@/lib/admin-labels';
@@ -387,6 +388,8 @@ function PartnerDetailView({ id }: { id: string }) {
               />
             )}
           </Panel>
+
+          <PartnerReferralHistory partnerId={p.id} />
 
           <Panel>
             <PanelHeader

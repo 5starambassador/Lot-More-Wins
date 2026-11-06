@@ -56,6 +56,7 @@ export default function RootLayout() {
             <Stack.Screen name="redeem" />
             <Stack.Screen name="transfer" />
             <Stack.Screen name="transaction/[id]" />
+            <Stack.Screen name="referral-history" />
             <Stack.Screen name="notifications" />
             <Stack.Screen name="(auth)" />
           </Stack>

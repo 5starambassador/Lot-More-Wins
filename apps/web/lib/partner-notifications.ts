@@ -39,18 +39,19 @@ type PointsEntryInput = Pick<Prisma.PointsEntryCreateManyInput, 'type' | 'points
 type CashEntryInput = { type: 'PURCHASE' | 'REFERRAL'; amount: number; partnerId: string | null };
 
 /**
- * One line of bill amounts: "₹100.00 − ₹10.00 discount (10%) + ₹4.50 GST (5%) = ₹94.50", or for a
+ * One line of bill amounts: "₹100.00 − ₹10.00 discount (10%) + ₹9.00 service charge + ₹4.95 GST (5%) = ₹104.00", or for a
  * redeem bill "₹300.00 − ₹150.00 from wallet = ₹150.00".
  */
 export function billBreakdownText(
   calc: Pick<BillCalculation, 'billAmount' | 'discountPercentage' | 'discountAmount' | 'gstPercentage' | 'gstAmount' | 'finalAmount'> &
-    Partial<Pick<BillCalculation, 'walletRedeemAmount'>>
+    Partial<Pick<BillCalculation, 'walletRedeemAmount' | 'serviceChargeAmount'>>
 ): string {
   const discount =
     calc.discountAmount > 0 ? ` − ${formatRupees(calc.discountAmount)} discount (${formatPercent(calc.discountPercentage)})` : '';
+  const service = calc.serviceChargeAmount ? ` + ${formatRupees(calc.serviceChargeAmount)} service charge` : '';
   const gst = calc.gstAmount > 0 ? ` + ${formatRupees(calc.gstAmount)} GST (${formatPercent(calc.gstPercentage)})` : '';
   const wallet = calc.walletRedeemAmount ? ` − ${formatRupees(calc.walletRedeemAmount)} from wallet` : '';
-  return `${formatRupees(calc.billAmount)}${discount}${gst}${wallet} = ${formatRupees(calc.finalAmount)}`;
+  return `${formatRupees(calc.billAmount)}${discount}${service}${gst}${wallet} = ${formatRupees(calc.finalAmount)}`;
 }
 
 /**
@@ -68,7 +69,8 @@ export function billNotificationRows(input: {
   customerName: string | null;
   /** The registered partner who purchased: the direct partner, or a referred customer who is a partner. */
   purchaserPartnerId: string | null;
-  calc: Pick<BillCalculation, 'billAmount' | 'discountPercentage' | 'discountAmount' | 'gstPercentage' | 'gstAmount' | 'finalAmount'>;
+  calc: Pick<BillCalculation, 'billAmount' | 'discountPercentage' | 'discountAmount' | 'gstPercentage' | 'gstAmount' | 'finalAmount'> &
+    Partial<Pick<BillCalculation, 'serviceChargeAmount'>>;
   entries: PointsEntryInput[];
   cashEntries: CashEntryInput[];
 }): Prisma.NotificationCreateManyInput[] {

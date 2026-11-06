@@ -1,10 +1,10 @@
 import { useEffect, useState, type ComponentProps } from 'react';
-import { RefreshControl, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { outletOffersUpdateSchema } from '@lotmorewins/validation';
-import type { OutletOfferChangeRecord, OutletSettingsView, UpdateOutletOffersPayload } from '@lotmorewins/types';
+import type { OutletOfferChangeRecord, OutletSettingsView, ServiceChargeType, UpdateOutletOffersPayload } from '@lotmorewins/types';
 import * as Haptics from '../../lib/haptics';
 import { Button, Divider, FullScreenLoader, InfoRow, Notice, Panel, Screen, SectionLabel, StateView, Txt } from '../../components/ui';
 import { BrandLogo } from '../../components/brand/Brand';
@@ -14,11 +14,12 @@ import { useSession } from '../../store/session-store';
 import { colors, fonts, radius, space } from '../../theme/tokens';
 
 /**
- * This outlet's slabs, edited by the Outlet Admin: GST, the first-bill and repeat-bill partner
- * discounts, cashback (the purchase reward credited to the partner's wallet), the referring
- * partner's reward and the referred guest's bill discount. Each slab is one rate for every partner
- * (Achariya and Non-Achariya alike). On a bill the discount comes off the product total first and
- * GST is charged on what remains. A discount is never more than half the bill. Every change is
+ * This outlet's slabs, edited by the Outlet Admin: GST, the service charge (a % or a fixed ₹), the
+ * first-bill and repeat-bill partner discounts, cashback (the purchase reward credited to the
+ * partner's wallet, on repeat bills only), the referring partner's reward and the referred guest's
+ * bill discount. Each slab is one rate for every partner (Achariya and Non-Achariya alike). On a
+ * bill the discount comes off the product total first, the service charge is added to what remains
+ * and GST is charged on both. A discount is never more than half the bill. Every change is
  * audit-logged on the server and applies to the next bill.
  */
 
@@ -53,7 +54,7 @@ const PARTNER_SLABS: Slab[] = [
   {
     key: 'cashback',
     label: 'Cashback',
-    hint: "Of each bill, credited to the partner's wallet",
+    hint: "Of each repeat bill, credited to the partner's wallet. None on the first bill",
     icon: 'wallet-outline',
     fields: ['purchasePointsPercentage'],
   },
@@ -80,7 +81,7 @@ const TAX_SLABS: Slab[] = [
   {
     key: 'gst',
     label: 'GST',
-    hint: 'Charged on the bill after the discount',
+    hint: 'Charged on the bill after the discount, plus the service charge',
     icon: 'document-text-outline',
     fields: ['gstPercentage'],
   },
@@ -94,6 +95,8 @@ const FIELD_LABELS: Record<string, string> = {
   repeatDiscount: 'Repeat bill discount',
   referralDiscount: 'Referred guest discount',
   gstPercentage: 'GST',
+  serviceChargeType: 'Service charge type',
+  serviceChargeValue: 'Service charge',
   purchasePointsPercentage: 'Cashback',
   referralPointsPercentage: 'Referring partner reward',
   achariyaReferralPointsPercentage: 'Referring partner reward (Achariya)',
@@ -103,7 +106,8 @@ const FIELD_LABELS: Record<string, string> = {
   canEditOffers: 'Outlet can edit offers',
 };
 
-type FormState = Record<SlabKey, string>;
+type FormState = Record<SlabKey, string> & { serviceChargeType: ServiceChargeType; serviceCharge: string };
+type ErrorKey = SlabKey | 'serviceCharge';
 
 /** The rate each field resolves to at this outlet (its override, or the programme value). */
 function currentValue(view: OutletSettingsView, field: OfferField): number {
@@ -112,8 +116,15 @@ function currentValue(view: OutletSettingsView, field: OfferField): number {
   return view.effectiveRewards[field as keyof OutletSettingsView['effectiveRewards']];
 }
 
-const toForm = (view: OutletSettingsView): FormState =>
-  Object.fromEntries(SLABS.map((s) => [s.key, String(currentValue(view, s.fields[0]))])) as FormState;
+const toForm = (view: OutletSettingsView): FormState => ({
+  ...(Object.fromEntries(SLABS.map((s) => [s.key, String(currentValue(view, s.fields[0]))])) as Record<SlabKey, string>),
+  // Older servers send no service charge: none.
+  serviceChargeType: view.offers.serviceChargeType ?? 'PERCENTAGE',
+  serviceCharge: String(view.offers.serviceChargeValue ?? 0),
+});
+
+const serviceChargeChanged = (form: FormState, initial: FormState) =>
+  form.serviceChargeType !== initial.serviceChargeType || form.serviceCharge !== initial.serviceCharge;
 
 /** A slab that writes two fields whose saved values differ (e.g. set separately by the Super Admin earlier). */
 function splitNote(view: OutletSettingsView, slab: Slab): string | null {
@@ -125,6 +136,9 @@ function splitNote(view: OutletSettingsView, slab: Slab): string | null {
 const cleanNumber = (t: string) => t.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
 
 function changeValue(field: string, value: string | null): string {
+  if (field === 'serviceChargeType') return value === 'FIXED' ? 'Fixed ₹' : 'Percentage';
+  // A % or a ₹ amount, by the type saved with it.
+  if (field === 'serviceChargeValue') return value ?? '0';
   if (value === null) return field === 'gstPercentage' ? '0%' : 'programme default';
   if (value === 'true') return 'On';
   if (value === 'false') return 'Off';
@@ -209,15 +223,126 @@ function SlabRow({
 }
 
 /**
- * How a first bill comes out with the slabs as typed: discount off the product total, then GST
- * on the rest. Illustration only (same rounding as the server); real bills are always calculated
- * by the server.
+ * The service charge slab: % of the discounted amount or a fixed ₹ per bill, then the value.
+ * 0 = none (no line on the bill).
  */
-function ExampleBill({ discount, gst }: { discount: number; gst: number }) {
+function ServiceChargeRow({
+  type,
+  value,
+  error,
+  editable,
+  onChangeType,
+  onChange,
+}: {
+  type: ServiceChargeType;
+  value: string;
+  error?: string;
+  editable: boolean;
+  onChangeType: (type: ServiceChargeType) => void;
+  onChange: (value: string) => void;
+}) {
+  const [focused, setFocused] = useState(false);
+  const fixed = type === 'FIXED';
+  return (
+    <View style={styles.slab}>
+      <View style={styles.slabMain}>
+        <View style={styles.slabIcon}>
+          <Ionicons name="restaurant-outline" size={18} color={colors.gold} />
+        </View>
+        <View style={styles.slabText}>
+          <Txt variant="bodyMedium">Service charge</Txt>
+          <Txt variant="caption" tone="muted">
+            {fixed ? 'A fixed amount on every bill, added before GST. 0 for none' : 'Of the bill after the discount, added before GST. 0 for none'}
+          </Txt>
+        </View>
+        <View style={[styles.slabInput, focused && styles.slabInputFocused, !!error && styles.slabInputError]}>
+          {fixed && (
+            <Txt variant="bodyMedium" tone="secondary">
+              ₹
+            </Txt>
+          )}
+          <TextInput
+            value={value}
+            onChangeText={(t) => onChange(cleanNumber(t))}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            keyboardType="decimal-pad"
+            placeholder="0"
+            placeholderTextColor={colors.textMuted}
+            selectionColor={colors.gold}
+            cursorColor={colors.gold}
+            editable={editable}
+            maxLength={fixed ? 8 : 5}
+            style={styles.slabValue}
+            accessibilityLabel={fixed ? 'Service charge in rupees' : 'Service charge percentage'}
+          />
+          {!fixed && (
+            <Txt variant="bodyMedium" tone="secondary">
+              %
+            </Txt>
+          )}
+        </View>
+      </View>
+      <View style={styles.chargeTypes}>
+        {(['PERCENTAGE', 'FIXED'] as const).map((option) => {
+          const active = option === type;
+          return (
+            <Pressable
+              key={option}
+              disabled={!editable}
+              onPress={() => {
+                if (!active) {
+                  Haptics.selectionAsync();
+                  onChangeType(option);
+                }
+              }}
+              style={[styles.chargeType, active && styles.chargeTypeActive]}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: active, disabled: !editable }}
+            >
+              <Txt variant="smallMedium" tone={active ? 'gold' : 'secondary'}>
+                {option === 'PERCENTAGE' ? 'Percentage (%)' : 'Fixed amount (₹)'}
+              </Txt>
+            </Pressable>
+          );
+        })}
+      </View>
+      {error ? (
+        <Txt variant="caption" tone="danger" style={styles.slabHelper}>
+          {error}
+        </Txt>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * How a first bill comes out with the slabs as typed: discount off the product total, the service
+ * charge on the rest, then GST on both. Illustration only (same rounding as the server); real bills
+ * are always calculated by the server.
+ */
+function ExampleBill({
+  discount,
+  gst,
+  serviceChargeType,
+  serviceCharge,
+}: {
+  discount: number;
+  gst: number;
+  serviceChargeType: ServiceChargeType;
+  serviceCharge: number;
+}) {
   const subtotal = 1000;
   const afterDiscount = Math.round(subtotal - (subtotal * Math.min(discount, 50)) / 100);
-  const gstAmount = Math.round(afterDiscount * gst) / 100;
-  const exact = afterDiscount + gstAmount;
+  const serviceAmount =
+    serviceCharge > 0
+      ? serviceChargeType === 'FIXED'
+        ? Math.round(serviceCharge * 100) / 100
+        : Math.round(afterDiscount * serviceCharge) / 100
+      : 0;
+  const gstBase = afterDiscount + serviceAmount;
+  const gstAmount = Math.round(gstBase * gst) / 100;
+  const exact = gstBase + gstAmount;
   const netTotal = Math.round(exact);
   const roundOff = Math.round((netTotal - exact) * 100) / 100;
   return (
@@ -227,7 +352,13 @@ function ExampleBill({ discount, gst }: { discount: number; gst: number }) {
       </Txt>
       <InfoRow label="Product total" value={formatINR(subtotal)} />
       <InfoRow label={`Discount (${formatPercent(discount)})`} value={`− ${formatINR(subtotal - afterDiscount)}`} tone="success" />
-      <InfoRow label={`GST (${formatPercent(gst)}) on ${formatINR(afterDiscount)}`} value={`+ ${formatINR(gstAmount)}`} />
+      {serviceAmount > 0 && (
+        <InfoRow
+          label={serviceChargeType === 'FIXED' ? 'Service charge' : `Service charge (${formatPercent(serviceCharge)})`}
+          value={`+ ${formatINR(serviceAmount)}`}
+        />
+      )}
+      <InfoRow label={`GST (${formatPercent(gst)}) on ${formatINR(gstBase)}`} value={`+ ${formatINR(gstAmount)}`} />
       {roundOff !== 0 && <InfoRow label="Round off" value={`${roundOff > 0 ? '+' : '−'} ${formatINR(Math.abs(roundOff))}`} />}
       <View style={styles.exampleTotal}>
         <Txt variant="bodyMedium" style={styles.exampleTotalLabel}>
@@ -248,7 +379,7 @@ export default function SlabsScreen() {
   });
 
   const [form, setForm] = useState<FormState | null>(null);
-  const [errors, setErrors] = useState<Partial<Record<SlabKey, string>>>({});
+  const [errors, setErrors] = useState<Partial<Record<ErrorKey, string>>>({});
   const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
 
   useEffect(() => {
@@ -293,12 +424,14 @@ export default function SlabsScreen() {
 
   const view = query.data;
   const initial = toForm(view);
-  const dirty = SLABS.some((s) => form[s.key] !== initial[s.key]);
+  // A server that predates service charges sends no service charge fields and would reject them on save.
+  const serviceChargeSupported = view.offers.serviceChargeType !== undefined;
+  const dirty = SLABS.some((s) => form[s.key] !== initial[s.key]) || serviceChargeChanged(form, initial);
 
   const onSave = () => {
     setMessage(null);
-    const errs: Partial<Record<SlabKey, string>> = {};
-    const payload: Record<string, number> = {};
+    const errs: Partial<Record<ErrorKey, string>> = {};
+    const payload: Record<string, number | string> = {};
     for (const slab of SLABS) {
       // A slab is saved when its value changed, or when it would bring split rates back to one.
       if (form[slab.key] === initial[slab.key] && !splitNote(view, slab)) continue;
@@ -308,10 +441,23 @@ export default function SlabsScreen() {
       }
       for (const field of slab.fields) payload[field] = Number(form[slab.key]);
     }
+    // The service charge type and value are always saved together.
+    if (serviceChargeChanged(form, initial)) {
+      if (form.serviceCharge === '') errs.serviceCharge = 'Enter an amount (0 for none)';
+      else {
+        payload.serviceChargeType = form.serviceChargeType;
+        payload.serviceChargeValue = Number(form.serviceCharge);
+      }
+    }
     const parsed = outletOffersUpdateSchema.safeParse(payload);
     if (!parsed.success) {
       for (const issue of parsed.error.issues) {
-        const slab = SLABS.find((s) => s.fields.includes(issue.path[0] as OfferField));
+        const field = issue.path[0];
+        if (field === 'serviceChargeType' || field === 'serviceChargeValue') {
+          errs.serviceCharge ??= issue.message;
+          continue;
+        }
+        const slab = SLABS.find((s) => s.fields.includes(field as OfferField));
         if (slab) errs[slab.key] ??= issue.message;
       }
     }
@@ -354,7 +500,7 @@ export default function SlabsScreen() {
         <View style={styles.flex}>
           <Txt variant="title">Slabs</Txt>
           <Txt variant="small" tone="secondary">
-            Discounts, cashback and GST for this outlet
+            Discounts, cashback, service charge and GST for this outlet
           </Txt>
         </View>
         <BrandLogo size={36} />
@@ -369,13 +515,42 @@ export default function SlabsScreen() {
         <SectionLabel label="Referral bills" />
         {renderSlabs(REFERRAL_SLABS)}
 
-        <SectionLabel label="Tax" />
-        {renderSlabs(TAX_SLABS)}
+        <SectionLabel label={serviceChargeSupported ? 'Service charge and tax' : 'Tax'} />
+        <Panel style={styles.section}>
+          {serviceChargeSupported && (
+            <ServiceChargeRow
+              type={form.serviceChargeType}
+              value={form.serviceCharge}
+              error={errors.serviceCharge}
+              editable={!save.isPending}
+              onChangeType={(serviceChargeType) => setForm({ ...form, serviceChargeType })}
+              onChange={(serviceCharge) => setForm({ ...form, serviceCharge })}
+            />
+          )}
+          {TAX_SLABS.map((slab, i) => (
+            <View key={slab.key}>
+              {(serviceChargeSupported || i > 0) && <Divider />}
+              <SlabRow
+                slab={slab}
+                value={form[slab.key]}
+                error={errors[slab.key]}
+                note={splitNote(view, slab)}
+                editable={!save.isPending}
+                onChange={(value) => setForm({ ...form, [slab.key]: value })}
+              />
+            </View>
+          ))}
+        </Panel>
 
-        <ExampleBill discount={Number(form.firstBill) || 0} gst={Number(form.gst) || 0} />
+        <ExampleBill
+          discount={Number(form.firstBill) || 0}
+          gst={Number(form.gst) || 0}
+          serviceChargeType={form.serviceChargeType}
+          serviceCharge={Number(form.serviceCharge) || 0}
+        />
 
         <Txt variant="caption" tone="muted" style={styles.note}>
-          Partners see this outlet as “{view.summary.label}”. A discount is never more than half the bill. Changes apply to the next bill.
+          Partners see this outlet as “{view.summary.label}”. A discount is never more than half the bill.{serviceChargeSupported ? " A partner's first bill here earns no cashback." : ''} Changes apply to the next bill.
         </Txt>
 
         <Button label="Save slabs" onPress={onSave} loading={save.isPending} disabled={!dirty && !SLABS.some((s) => splitNote(view, s))} />
@@ -444,6 +619,15 @@ const styles = StyleSheet.create({
     fontSize: 17,
   },
   slabHelper: { marginTop: space.xs, marginLeft: 36 + space.sm },
+  chargeTypes: { flexDirection: 'row', gap: space.xs, marginTop: space.sm, marginLeft: 36 + space.sm },
+  chargeType: {
+    paddingVertical: space.xs,
+    paddingHorizontal: space.sm,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+  },
+  chargeTypeActive: { borderColor: colors.gold, backgroundColor: colors.goldSoft },
   exampleTitle: { marginBottom: space.xs },
   exampleTotal: {
     flexDirection: 'row',

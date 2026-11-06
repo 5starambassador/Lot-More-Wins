@@ -498,6 +498,9 @@ export interface Outlet extends Timestamps {
   offer?: OutletOfferSummary;
 }
 
+/** PERCENTAGE: a % of the discounted amount. FIXED: a fixed ₹ amount on every bill. */
+export type ServiceChargeType = 'PERCENTAGE' | 'FIXED';
+
 /** An outlet's own offer settings. A null discount uses the programme setting of the same type. */
 export interface OutletOfferSettings {
   /** Non-Achariya partners' first purchase. */
@@ -506,8 +509,12 @@ export interface OutletOfferSettings {
   repeatDiscount: number | null;
   /** A referred friend's purchase with a partner's referral QR. */
   referralDiscount: number | null;
-  /** Charged on the discounted amount. */
+  /** Charged on the discounted amount plus the service charge. */
   gstPercentage: number;
+  /** Service charge added to the discounted amount before GST: a % of it, or a fixed ₹ per bill. */
+  serviceChargeType: ServiceChargeType;
+  /** The % or the ₹ amount, by serviceChargeType; 0 = no service charge. */
+  serviceChargeValue: number;
   /** Reward overrides; null = the programme setting. */
   purchasePointsPercentage: number | null;
   referralPointsPercentage: number | null;
@@ -590,6 +597,8 @@ export interface UpdateOutletOffersPayload {
   repeatDiscount?: number | null;
   referralDiscount?: number | null;
   gstPercentage?: number;
+  serviceChargeType?: ServiceChargeType;
+  serviceChargeValue?: number;
   purchasePointsPercentage?: number | null;
   referralPointsPercentage?: number | null;
   achariyaReferralPointsPercentage?: number | null;
@@ -697,8 +706,11 @@ export interface ScanResult {
   transactionType: BillTransactionType;
   partner: ScannedPartner;
   discount: DiscountBasis;
-  /** This outlet's GST %, charged on the discounted amount. */
+  /** This outlet's GST %, charged on the discounted amount plus the service charge. */
   gstPercentage: number;
+  /** This outlet's service charge (0 = none). Missing from older servers. */
+  serviceChargeType?: ServiceChargeType;
+  serviceChargeValue?: number;
   /** Bills here credit the cash reward wallet. */
   givesCashReward: boolean;
   /** Pricing version the scan was evaluated with (later of the programme settings and the outlet's offers). */
@@ -765,7 +777,11 @@ export interface BillCalculation {
   discountAmount: number;
   /** Amount after discount, before GST (whole rupees). */
   taxableAmount: number;
-  /** The outlet's GST %, charged on the taxable amount; 0 = no GST. */
+  /** The outlet's service charge on this bill: a % of the taxable amount or a fixed ₹; 0 = none. */
+  serviceChargeType: ServiceChargeType;
+  serviceChargeValue: number;
+  serviceChargeAmount: number;
+  /** The outlet's GST %, charged on the taxable amount plus the service charge; 0 = no GST. */
   gstPercentage: number;
   gstAmount: number;
   /** WALLET_REDEEM only: wallet points spent and their rupee worth (at most half the bill); 0 otherwise. */
@@ -776,7 +792,7 @@ export interface BillCalculation {
    * before round-off.
    */
   roundOffAmount: number;
-  /** Final payable by the customer, whole rupees: taxableAmount + gstAmount − walletRedeemAmount + roundOffAmount. */
+  /** Final payable by the customer, whole rupees: taxableAmount + serviceChargeAmount + gstAmount − walletRedeemAmount + roundOffAmount. */
   finalAmount: number;
   /** Classification of the partner whose QR was scanned (first-time discount and referral points follow it). */
   partnerCategory: PartnerCategory;
@@ -958,8 +974,10 @@ export interface PartnerTransactionBill {
   discountAmount: number;
   birthdayBonusPercentage: number;
   referralRewardPercentage: number;
-  /** After discount, before GST. */
+  /** After discount, before service charge and GST. */
   taxableAmount: number;
+  /** 0 = no service charge. */
+  serviceChargeAmount: number;
   gstPercentage: number;
   gstAmount: number;
   walletRedeemPoints: number;
@@ -1014,6 +1032,30 @@ export interface PartnerTransactionsPage {
   items: PartnerTransaction[];
   /** More transactions match than were returned: ask again with a larger limit. */
   hasMore: boolean;
+}
+
+/** A bill a guest closed at an outlet with this partner's referral QR. */
+export interface PartnerReferralBill {
+  id: ID;
+  bill: PartnerTransactionBill;
+  /** What the bill added to this partner's wallet. */
+  rewards: PartnerTransactionReward[];
+  /** Masked for the partner, whose guests' contact details are not disclosed to them; in full for admins. */
+  guestMobile: string | null;
+  guestEmail: string | null;
+}
+
+export interface PartnerReferralHistory {
+  summary: {
+    /** Bills closed at any outlet with this partner's referral QR. Shares are not counted. */
+    completedBills: number;
+    /** Sum of those bills' amounts, before discount. */
+    totalBillValue: number;
+    /** Different people among them: the same mobile or the same email is one person. */
+    uniqueGuests: number;
+  };
+  bills: PartnerReferralBill[];
+  meta: PaginationMeta;
 }
 
 export interface PartnerTransactionsQuery {
@@ -1112,8 +1154,11 @@ export interface RedeemScanResult {
   maxPoints: number;
   maxRupees: number;
   pointsRatio: { points: number; rupees: number };
-  /** This outlet's GST %, charged on the bill. */
+  /** This outlet's GST %, charged on the bill plus the service charge. */
   gstPercentage: number;
+  /** This outlet's service charge (0 = none). */
+  serviceChargeType?: ServiceChargeType;
+  serviceChargeValue?: number;
   expiresAt: string;
   /** Pricing version for the bill preview / create calls. */
   settingsVersion: string;
@@ -1579,6 +1624,33 @@ export interface AdminPartnerActivityQuery extends AdminDateRangeQuery {
   limit?: number;
   outletId?: string;
   kind?: AdminPartnerActivityKind;
+}
+
+/** One partner on the Diwali launch referral leaderboard. */
+export interface DiwaliLeaderboardRow {
+  rank: number;
+  partnerId: ID;
+  name: string;
+  partnerCode: string;
+  mobile: string;
+  email: string;
+  /** Bills closed at outlets with the partner's referral QR. */
+  successfulReferrals: number;
+  /** Different people among those bills. */
+  uniqueGuests: number;
+  /** Sum of those bills' amounts, before discount. The board is ranked by this. */
+  totalBillValue: number;
+  /** Has reached the minimum referrals. */
+  qualified: boolean;
+}
+
+export interface DiwaliLeaderboard {
+  rows: DiwaliLeaderboardRow[];
+  meta: PaginationMeta;
+  summary: { partners: number; qualified: number; referralBills: number; totalBillValue: number };
+  minimumReferrals: number;
+  /** IST calendar date, YYYY-MM-DD: bills after it do not count. */
+  lastDate: string;
 }
 
 export interface AdminPartnerActivityPage {

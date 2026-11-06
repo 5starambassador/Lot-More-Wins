@@ -60,6 +60,16 @@ export function useNotifications() {
   });
 }
 
+/** Referral totals and bills, loaded a page at a time. Keyed under 'wallet': a referral bill changes the wallet too. */
+export function useReferralHistory() {
+  return useInfiniteQuery({
+    queryKey: ['wallet', 'referral-history'],
+    initialPageParam: 1,
+    queryFn: async ({ pageParam }) => (await apiClient.getPartnerReferralHistory(pageParam)).data,
+    getNextPageParam: (last) => (last.meta.hasNextPage ? last.meta.page + 1 : undefined),
+  });
+}
+
 /** Public outlet names for the registration "Referred by" list (no session yet). */
 export function useOutletOptions(enabled = true) {
   return useQuery({

@@ -3,11 +3,11 @@
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { Eye, EyeOff, KeyRound, Store } from 'lucide-react';
-import type { AdminOutlet } from '@lotmorewins/types';
-import { MAX_OUTLET_IMAGES, normalizeIndianMobile } from '@lotmorewins/validation';
+import type { AdminOutlet, ServiceChargeType } from '@lotmorewins/types';
+import { MAX_OUTLET_IMAGES, MAX_SERVICE_CHARGE_PERCENT, MAX_SERVICE_CHARGE_RUPEES, normalizeIndianMobile } from '@lotmorewins/validation';
 import { Button, buttonClass } from '@/components/ui/button';
 import { Alert } from '@/components/ui/feedback';
-import { Input } from '@/components/ui/input';
+import { Input, Select } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
 import { Panel } from '@/components/ui/panel';
 import { cn } from '@/lib/utils';
@@ -30,6 +30,9 @@ export interface OutletFormValues {
   repeatDiscount: string;
   referralDiscount: string;
   gstPercentage: string;
+  /** Service charge: a % of the discounted amount or a fixed ₹ per bill; '' or 0 = none. */
+  serviceChargeType: ServiceChargeType;
+  serviceChargeValue: string;
   purchasePointsPercentage: string;
   referralPointsPercentage: string;
   achariyaReferralPointsPercentage: string;
@@ -70,6 +73,8 @@ export function offerPayload(values: OutletFormValues) {
     repeatDiscount: discount(values.repeatDiscount),
     referralDiscount: discount(values.referralDiscount),
     gstPercentage: values.gstPercentage.trim() === '' ? 0 : Number(values.gstPercentage),
+    serviceChargeType: values.serviceChargeType,
+    serviceChargeValue: values.serviceChargeValue.trim() === '' ? 0 : Number(values.serviceChargeValue),
     purchasePointsPercentage: discount(values.purchasePointsPercentage),
     referralPointsPercentage: discount(values.referralPointsPercentage),
     achariyaReferralPointsPercentage: discount(values.achariyaReferralPointsPercentage),
@@ -97,6 +102,8 @@ export function emptyOutletForm(outlet?: AdminOutlet): OutletFormValues {
     repeatDiscount: pct(outlet?.offers.repeatDiscount),
     referralDiscount: pct(outlet?.offers.referralDiscount),
     gstPercentage: outlet ? String(outlet.offers.gstPercentage) : '0',
+    serviceChargeType: outlet?.offers.serviceChargeType ?? 'PERCENTAGE',
+    serviceChargeValue: outlet ? String(outlet.offers.serviceChargeValue ?? 0) : '0',
     purchasePointsPercentage: pct(outlet?.offers.purchasePointsPercentage),
     referralPointsPercentage: pct(outlet?.offers.referralPointsPercentage),
     achariyaReferralPointsPercentage: pct(outlet?.offers.achariyaReferralPointsPercentage),
@@ -221,6 +228,19 @@ export function OutletForm({
       if (values[key].trim() && !validPercent(values[key])) e[key] = 'Enter 0–100 with up to 2 decimals, or leave blank.';
     }
     if (values.gstPercentage.trim() && !validPercent(values.gstPercentage, 50)) e.gstPercentage = 'Enter 0–50 with up to 2 decimals.';
+    const charge = values.serviceChargeValue.trim();
+    if (charge) {
+      const ok =
+        values.serviceChargeType === 'PERCENTAGE'
+          ? validPercent(charge, MAX_SERVICE_CHARGE_PERCENT)
+          : /^\d{1,5}(\.\d{1,2})?$/.test(charge) && Number(charge) <= MAX_SERVICE_CHARGE_RUPEES;
+      if (!ok) {
+        e.serviceChargeValue =
+          values.serviceChargeType === 'PERCENTAGE'
+            ? `Enter 0–${MAX_SERVICE_CHARGE_PERCENT} with up to 2 decimals.`
+            : `Enter ₹0–${MAX_SERVICE_CHARGE_RUPEES} with up to 2 decimals.`;
+      }
+    }
     return e;
   }, [values, mode, resetting]);
 
@@ -291,8 +311,8 @@ export function OutletForm({
         </FormSection>
 
         <FormSection
-          title="Offers & GST"
-          description="Leave a discount or rate blank to use the programme setting. A discount is at most 50% (a bill is never reduced by more than half). The first-time discount applies to a partner's first bill at this outlet. GST is charged on the discounted amount. Points and cashback go into the partner's wallet. Every change is logged."
+          title="Offers, service charge & GST"
+          description="Leave a discount or rate blank to use the programme setting. A discount is at most 50% (a bill is never reduced by more than half). The first-time discount applies to a partner's first bill at this outlet, and that bill earns no purchase points or cashback; repeat bills do. The service charge is added to the discounted amount, then GST is charged on both. Points and cashback go into the partner's wallet. Every change is logged."
         >
           <div className="grid gap-4 sm:grid-cols-2">
             {DISCOUNT_FIELDS.map(({ key, label }) => (
@@ -325,6 +345,42 @@ export function OutletForm({
                 aria-invalid={!!show('gstPercentage')}
               />
             </Field>
+            <Field
+              label="Service charge"
+              htmlFor="serviceChargeValue"
+              error={show('serviceChargeValue')}
+              hint={
+                values.serviceChargeType === 'PERCENTAGE'
+                  ? '% of the discounted amount, added before GST. 0 = none.'
+                  : 'Fixed ₹ on every bill, added before GST. 0 = none.'
+              }
+            >
+              <div className="flex gap-2">
+                <div className="w-28 shrink-0">
+                  <Select
+                    id="serviceChargeType"
+                    name="serviceChargeType"
+                    aria-label="Service charge type"
+                    value={values.serviceChargeType}
+                    onChange={(e) => set('serviceChargeType', e.target.value as ServiceChargeType)}
+                  >
+                    <option value="PERCENTAGE">%</option>
+                    <option value="FIXED">₹ fixed</option>
+                  </Select>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <Input
+                    id="serviceChargeValue"
+                    name="serviceChargeValue"
+                    inputMode="decimal"
+                    value={values.serviceChargeValue}
+                    onChange={(e) => set('serviceChargeValue', e.target.value)}
+                    placeholder="0"
+                    aria-invalid={!!show('serviceChargeValue')}
+                  />
+                </div>
+              </div>
+            </Field>
             {REWARD_FIELDS.filter((f) => !f.cashback || values.givesCashReward).map(({ key, label }) => (
               <Field
                 key={key}
@@ -353,7 +409,7 @@ export function OutletForm({
                 onChange={(on) => set('givesCashReward', on)}
               />
               <p className="text-xs leading-relaxed text-stone-500">
-                The Outlet Admin can also change these discounts, rates and GST from the Outlet Admin app. Every change is in the outlet&apos;s change log.
+                The Outlet Admin can also change these discounts, rates, service charge and GST from the Outlet Admin app. Every change is in the outlet&apos;s change log.
               </p>
             </div>
           </div>

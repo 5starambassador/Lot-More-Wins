@@ -19,6 +19,17 @@ function RoundOffLine({ calc }: { calc: BillCalculation | BillRecord }) {
   return <InfoRow label="Round off" value={`${roundOff > 0 ? '+' : '−'} ${formatINR(Math.abs(roundOff))}`} />;
 }
 
+/** The service charge on this bill (absent from older servers); no line when the outlet has none. */
+const serviceChargeOf = (calc: BillCalculation | BillRecord) => calc.serviceChargeAmount ?? 0;
+
+function ServiceChargeLine({ calc }: { calc: BillCalculation | BillRecord }) {
+  const amount = serviceChargeOf(calc);
+  if (amount <= 0) return null;
+  const label =
+    calc.serviceChargeType === 'PERCENTAGE' ? `Service charge (${formatPercent(calc.serviceChargeValue)})` : 'Service charge';
+  return <InfoRow label={label} value={`+ ${formatINR(amount)}`} />;
+}
+
 /** GST with its working (e.g. 5% of ₹159.00 = ₹7.95), then the round-off. */
 function GstLines({ calc, base, showRoundOff = true }: { calc: BillCalculation | BillRecord; base: number; showRoundOff?: boolean }) {
   return (
@@ -38,12 +49,13 @@ function GstLines({ calc, base, showRoundOff = true }: { calc: BillCalculation |
   );
 }
 
-/** Redeem bill: GST on the bill, then up to half of the bill paid from the partner's wallet. No discount, no rewards. */
+/** Redeem bill: service charge and GST on the bill, then up to half of the bill paid from the partner's wallet. No discount, no rewards. */
 function RedeemBreakdown({ calc }: { calc: BillCalculation | BillRecord }) {
   return (
     <View>
       <InfoRow label="Bill amount" value={formatINR(calc.billAmount)} />
-      <GstLines calc={calc} base={calc.billAmount} showRoundOff={false} />
+      <ServiceChargeLine calc={calc} />
+      <GstLines calc={calc} base={calc.billAmount + serviceChargeOf(calc)} showRoundOff={false} />
       <InfoRow label="Paid from partner wallet" value={`− ${formatINR(calc.walletRedeemAmount)}`} tone="success" />
       <RoundOffLine calc={calc} />
       <Txt variant="caption" tone="muted">
@@ -69,7 +81,7 @@ function offerLabel(calc: BillCalculation | BillRecord): string {
 
 /**
  * Server-calculated bill, laid out like a till receipt: the product total, the discount taken off
- * it, GST on the discounted amount, then the net total. Every figure comes from the server.
+ * it, the service charge (when the outlet has one) and GST on the discounted amount, then the net total. Every figure comes from the server.
  * The points and cashback the bill earns are not shown to outlet staff (the partner sees them in their wallet).
  */
 export function Breakdown({ calc }: { calc: BillCalculation | BillRecord }) {
@@ -99,7 +111,8 @@ export function Breakdown({ calc }: { calc: BillCalculation | BillRecord }) {
         </Txt>
       )}
       <InfoRow label="After discount" value={formatINR(calc.taxableAmount)} />
-      <GstLines calc={calc} base={calc.taxableAmount} />
+      <ServiceChargeLine calc={calc} />
+      <GstLines calc={calc} base={calc.taxableAmount + serviceChargeOf(calc)} />
       <View style={styles.netTotal}>
         <Txt variant="bodyMedium" style={styles.netLabel}>
           Net total
@@ -110,6 +123,22 @@ export function Breakdown({ calc }: { calc: BillCalculation | BillRecord }) {
       </View>
     </View>
   );
+}
+
+/** How the bill is worked out at this outlet; the service charge is mentioned only when it has one. */
+function amountHint(scan: ScanResult): string {
+  const value = scan.serviceChargeValue ?? 0;
+  const service =
+    value > 0
+      ? scan.serviceChargeType === 'FIXED'
+        ? `a ${formatINR(value)} service charge`
+        : `a ${formatPercent(value)} service charge`
+      : null;
+  const gst = scan.gstPercentage > 0 ? `${formatPercent(scan.gstPercentage)} GST` : null;
+  if (service && gst) return `The discount comes off this total, then ${service} and ${gst} are added.`;
+  if (service) return `The discount comes off this total, then ${service} is added. This outlet charges no GST.`;
+  if (gst) return `The discount comes off this total, then ${gst} is added to the discounted amount.`;
+  return 'The discount comes off this total. This outlet charges no GST.';
 }
 
 export function AmountStep({
@@ -254,11 +283,7 @@ export function AmountStep({
         autoFocus
         style={styles.amountInput}
         accessory={previewing ? <ActivityIndicator color={colors.gold} style={styles.spinner} /> : null}
-        hint={
-          scan.gstPercentage > 0
-            ? `The discount comes off this total, then ${formatPercent(scan.gstPercentage)} GST is added to the discounted amount.`
-            : 'The discount comes off this total. This outlet charges no GST.'
-        }
+        hint={amountHint(scan)}
       />
 
       {notice && <Notice tone="warning" message={notice} onDismiss={() => setNotice(null)} />}

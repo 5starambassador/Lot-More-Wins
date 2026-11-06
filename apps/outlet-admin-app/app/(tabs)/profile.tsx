@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
@@ -16,12 +16,11 @@ import { colors, fonts, radius, space } from '../../theme/tokens';
 
 const MAX_IMAGES = MAX_OUTLET_IMAGES;
 
+/**
+ * Opens the system photo picker, which needs no storage or media permission (as in the Partner
+ * App): the app never asks for photo library access, so Play needs no photo permission declaration.
+ */
 async function pickAndUpload(square: boolean): Promise<string | null> {
-  const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (!permission.granted) {
-    Alert.alert('Photos access needed', 'Allow photo library access to choose outlet images.');
-    return null;
-  }
   const picked = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ['images'],
     allowsEditing: square,

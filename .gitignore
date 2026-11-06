@@ -52,3 +52,6 @@ Thumbs.db
 
 # Local APK copies (over GitHub's 100 MB file limit)
 /apk-builds/
+
+# Built APK and AAB files (too large for GitHub)
+/_bundle-builds/

@@ -10,7 +10,7 @@ import type {
   ReferredCustomerInput,
   ScanResult,
 } from '@lotmorewins/types';
-import type { OutletEffectiveDiscounts, OutletEffectiveRewards, PartnerCategory } from '@lotmorewins/types';
+import type { OutletEffectiveDiscounts, OutletEffectiveRewards, PartnerCategory, ServiceChargeType } from '@lotmorewins/types';
 import { MAX_BILL_REDUCTION_PERCENT } from '@lotmorewins/validation';
 import prisma from './prisma';
 import { HttpError } from './auth';
@@ -125,11 +125,14 @@ async function isFirstTimeCustomer(db: Db, mobile: string, outletId: string) {
 // Settings -> money and points (the only place this mapping happens)
 // ============================================================================
 
-/** What the bill's outlet contributes: its discounts and rewards (overrides resolved), GST and cash reward. */
+/** What the bill's outlet contributes: its discounts and rewards (overrides resolved), service charge, GST and cash reward. */
 export interface OutletBillTerms {
   discounts: OutletEffectiveDiscounts;
   rewards: OutletEffectiveRewards;
   gstPercentage: number;
+  /** PERCENTAGE: serviceChargeValue % of the discounted amount. FIXED: serviceChargeValue ₹ per bill. */
+  serviceChargeType: ServiceChargeType;
+  serviceChargeValue: number;
   givesCashReward: boolean;
   /** The outlet's offer settings version (offersUpdatedAt). */
   version: string;
@@ -142,17 +145,21 @@ export function outletBillTerms(settings: ConfiguredProgramSettings, outlet: Out
     discounts: effectiveDiscounts(settings, outlet),
     rewards: effectiveRewards(settings, outlet),
     gstPercentage: outlet.gstPercentage.toNumber(),
+    serviceChargeType: outlet.serviceChargeType,
+    serviceChargeValue: outlet.serviceChargeValue.toNumber(),
     givesCashReward: outlet.givesCashReward,
     version: outlet.offersUpdatedAt.toISOString(),
   };
 }
 
-/** Programme discounts only, no GST and no cash reward: how every bill was calculated before outlet offers. */
+/** Programme discounts only, no service charge, GST or cash reward: how every bill was calculated before outlet offers. */
 export function programmeBillTerms(settings: ConfiguredProgramSettings): OutletBillTerms {
   return {
     discounts: programmeDiscounts(settings),
     rewards: programmeRewards(settings),
     gstPercentage: 0,
+    serviceChargeType: 'PERCENTAGE',
+    serviceChargeValue: 0,
     givesCashReward: false,
     version: settings.updatedAt,
   };
@@ -233,12 +240,29 @@ const roundMoney = (d: Prisma.Decimal) => d.toDecimalPlaces(2, Decimal.ROUND_HAL
 const roundOffRupees = (d: Prisma.Decimal) => d.toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
 
 /**
+ * The outlet's service charge on an amount (the discounted amount; the bill on a redeem bill), to
+ * the paisa: a % of it, or the fixed ₹ amount on every bill. 0 when the outlet has none.
+ */
+export function serviceChargeOn(
+  amount: Prisma.Decimal,
+  outlet: Pick<OutletBillTerms, 'serviceChargeType' | 'serviceChargeValue'>
+): Prisma.Decimal {
+  if (!(outlet.serviceChargeValue > 0)) return new Decimal(0);
+  return outlet.serviceChargeType === 'FIXED'
+    ? roundMoney(new Decimal(outlet.serviceChargeValue))
+    : roundMoney(amount.mul(outlet.serviceChargeValue).div(100));
+}
+
+/**
  * Pure calculation of a bill from the saved settings and the outlet's terms (programme values,
  * no GST and no cash reward when no outlet is given).
- * taxable = bill − discount, in whole rupees; GST = taxable × outlet GST %, to the paisa;
- * payable = taxable + GST, rounded off to whole rupees (the difference is the bill's round-off).
+ * taxable = bill − discount, in whole rupees; service charge = taxable × outlet % (or the outlet's
+ * fixed ₹), to the paisa; GST = (taxable + service charge) × outlet GST %, to the paisa;
+ * payable = taxable + service charge + GST, rounded off to whole rupees (the difference is the round-off).
  * points = base × percentage ÷ 100 × (ratio points ÷ ratio rupees), cash reward = base × percentage ÷ 100,
- * where base is the bill or the taxable amount according to settings.pointsBasis (never GST).
+ * where base is the bill or the taxable amount according to settings.pointsBasis (never service charge or GST).
+ * A partner's own first bill at an outlet (direct QR, first-time discount) earns no cashback: no
+ * purchase points and no purchase cash reward, whatever the outlet's cashback. Repeat bills earn it.
  */
 export function calculateBill(
   settings: ConfiguredProgramSettings,
@@ -260,11 +284,13 @@ export function calculateBill(
   // the discount is what remains, so discount + taxable amount always equals the bill.
   const taxableAmount = amount.minus(amount.mul(discountPercentage).div(100)).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
   const discountAmount = amount.minus(taxableAmount);
-  // GST is charged on the discounted amount, to the paisa (₹90 at 5% → ₹4.50, payable ₹94.50).
-  // With GST 0 the payable is the whole-rupee discounted amount, exactly as before GST existed.
-  const gstAmount = roundMoney(taxableAmount.mul(outlet.gstPercentage).div(100));
+  // The service charge is added to the discounted amount (a % of it, or the fixed ₹), then GST is
+  // charged on both, to the paisa (₹90 + 10% service ₹9 = ₹99, 5% GST ₹4.95, payable ₹104).
+  // With both 0 the payable is the whole-rupee discounted amount, exactly as before GST existed.
+  const serviceChargeAmount = serviceChargeOn(taxableAmount, outlet);
+  const gstAmount = roundMoney(taxableAmount.plus(serviceChargeAmount).mul(outlet.gstPercentage).div(100));
   // The payable is always rounded off to whole rupees (₹166.95 → ₹167, ₹166.40 → ₹166).
-  const exactAmount = taxableAmount.plus(gstAmount);
+  const exactAmount = taxableAmount.plus(serviceChargeAmount).plus(gstAmount);
   const finalAmount = roundOffRupees(exactAmount);
   const rewards = outlet.rewards;
 
@@ -274,8 +300,12 @@ export function calculateBill(
   const cashFor = (percentage: number) => roundMoney(pointsBase.mul(percentage).div(100));
 
   const isReferral = ctx.qrType === 'REFERRAL';
+  // The partner's own first bill here already gets the first-time discount: no cashback on it.
+  const cashbackAllowed = isReferral || !ctx.isFirstTime;
+  const purchasePointsPercentage = cashbackAllowed ? rewards.purchasePointsPercentage : 0;
   const referralPointsPercentage = isReferral ? referralPointsPercentageFor(rewards, category) : 0;
-  const cashRewardPurchasePercentage = outlet.givesCashReward ? rewards.cashRewardPurchasePercentage : 0;
+  const cashRewardPurchasePercentage =
+    outlet.givesCashReward && cashbackAllowed ? rewards.cashRewardPurchasePercentage : 0;
   const cashRewardReferralPercentage = outlet.givesCashReward && isReferral ? rewards.cashRewardReferralPercentage : 0;
   const purchasePointsRecipient: PurchasePointsRecipient = !isReferral
     ? 'PARTNER'
@@ -292,6 +322,9 @@ export function calculateBill(
     referralRewardPercentage,
     discountAmount: discountAmount.toNumber(),
     taxableAmount: taxableAmount.toNumber(),
+    serviceChargeType: outlet.serviceChargeType,
+    serviceChargeValue: outlet.serviceChargeValue,
+    serviceChargeAmount: serviceChargeAmount.toNumber(),
     gstPercentage: outlet.gstPercentage,
     gstAmount: gstAmount.toNumber(),
     walletRedeemPoints: 0,
@@ -302,8 +335,8 @@ export function calculateBill(
     pointsBasis: settings.pointsBasis,
     pointsBaseAmount: pointsBase.toNumber(),
     pointsRatio: { ...settings.pointsToRupees },
-    purchasePointsPercentage: rewards.purchasePointsPercentage,
-    purchasePoints: pointsFor(rewards.purchasePointsPercentage).toNumber(),
+    purchasePointsPercentage,
+    purchasePoints: pointsFor(purchasePointsPercentage).toNumber(),
     purchasePointsRecipient,
     referralPointsPercentage,
     referralPoints: isReferral ? pointsFor(referralPointsPercentage).toNumber() : 0,
@@ -317,8 +350,8 @@ export function calculateBill(
 }
 
 /**
- * Pure calculation of a redeem bill (WALLET_REDEEM): no discount and no rewards. GST is charged on
- * the bill as usual; the wallet then pays for up to half the bill (MAX_BILL_REDUCTION_PERCENT),
+ * Pure calculation of a redeem bill (WALLET_REDEEM): no discount and no rewards. The service charge
+ * and GST are added to the bill as usual (GST on the bill plus the service charge); the wallet then pays for up to half the bill (MAX_BILL_REDUCTION_PERCENT),
  * never more than the redeem QR is worth or the live balance. The customer pays the rest.
  * Whatever the QR was worth beyond that is never taken, so it simply stays in the wallet.
  * `requestedRupees` (old Outlet Admin apps, which ask for an amount) caps the wallet part further.
@@ -336,7 +369,8 @@ export function calculateRedeemBill(
 ): BillCalculation {
   const ratio = settings.pointsToRupees;
   const amount = new Decimal(billAmount).toDecimalPlaces(2);
-  const gstAmount = roundMoney(amount.mul(outlet.gstPercentage).div(100));
+  const serviceChargeAmount = serviceChargeOn(amount, outlet);
+  const gstAmount = roundMoney(amount.plus(serviceChargeAmount).mul(outlet.gstPercentage).div(100));
   const usablePoints = Decimal.max(0, Decimal.min(wallet.qrMaxPoints, wallet.balancePoints));
   const halfBill = amount.mul(MAX_BILL_REDUCTION_PERCENT).div(100).toDecimalPlaces(2, Decimal.ROUND_DOWN);
   const rupees = Decimal.min(rupeeValueOf(usablePoints, ratio), halfBill, wallet.requestedRupees ?? halfBill);
@@ -347,7 +381,7 @@ export function calculateRedeemBill(
   );
 
   // The customer pays the rest, rounded off to whole rupees like every bill.
-  const exactAmount = amount.plus(gstAmount).minus(rupees);
+  const exactAmount = amount.plus(serviceChargeAmount).plus(gstAmount).minus(rupees);
 
   return {
     transactionType: 'WALLET_REDEEM',
@@ -358,6 +392,9 @@ export function calculateRedeemBill(
     referralRewardPercentage: 0,
     discountAmount: 0,
     taxableAmount: amount.toNumber(),
+    serviceChargeType: outlet.serviceChargeType,
+    serviceChargeValue: outlet.serviceChargeValue,
+    serviceChargeAmount: serviceChargeAmount.toNumber(),
     gstPercentage: outlet.gstPercentage,
     gstAmount: gstAmount.toNumber(),
     walletRedeemPoints: points.toNumber(),
@@ -467,6 +504,8 @@ export async function scanQr(outlet: OutletRow, rawValue: string): Promise<ScanR
     },
     discount: { isFirstTime, ...discount },
     gstPercentage: terms.gstPercentage,
+    serviceChargeType: terms.serviceChargeType,
+    serviceChargeValue: terms.serviceChargeValue,
     givesCashReward: terms.givesCashReward,
     settingsVersion: pricingVersion(settings.updatedAt, terms.version),
   };
@@ -551,11 +590,13 @@ export function taxableAmountOf(bill: Pick<BillWithRelations, 'taxableAmount' | 
   return bill.taxableAmount ?? bill.finalAmount;
 }
 
-/** What the bill's round-off added (or took off): payable − (taxable + GST − wallet). 0 on bills from before round-off. */
+/** What the bill's round-off added (or took off): payable − (taxable + service charge + GST − wallet). 0 on bills from before round-off. */
 export function roundOffOf(
-  bill: Pick<BillWithRelations, 'taxableAmount' | 'finalAmount' | 'gstAmount' | 'walletRedeemAmount'>
+  bill: Pick<BillWithRelations, 'taxableAmount' | 'finalAmount' | 'serviceChargeAmount' | 'gstAmount' | 'walletRedeemAmount'>
 ): Prisma.Decimal {
-  return bill.finalAmount.minus(taxableAmountOf(bill).plus(bill.gstAmount).minus(bill.walletRedeemAmount));
+  return bill.finalAmount.minus(
+    taxableAmountOf(bill).plus(bill.serviceChargeAmount).plus(bill.gstAmount).minus(bill.walletRedeemAmount)
+  );
 }
 
 /** A cash reward a bill credited (in rupees), for its notifications. */
@@ -580,6 +621,9 @@ export function serializeBill(bill: BillWithRelations): BillRecord {
     referralRewardPercentage: bill.referralRewardPercentage.toNumber(),
     discountAmount: bill.discountAmount.toNumber(),
     taxableAmount: taxableAmountOf(bill).toNumber(),
+    serviceChargeType: bill.serviceChargeType,
+    serviceChargeValue: bill.serviceChargeValue.toNumber(),
+    serviceChargeAmount: bill.serviceChargeAmount.toNumber(),
     gstPercentage: bill.gstPercentage.toNumber(),
     gstAmount: bill.gstAmount.toNumber(),
     walletRedeemPoints: bill.walletRedeemPoints.toNumber(),
@@ -758,6 +802,9 @@ export async function createBill(
             referralRewardReferrals: calc.referralRewardPercentage > 0 ? settings.referralRewardGoal : 0,
             discountAmount: calc.discountAmount,
             taxableAmount: calc.taxableAmount,
+            serviceChargeType: calc.serviceChargeType,
+            serviceChargeValue: calc.serviceChargeValue,
+            serviceChargeAmount: calc.serviceChargeAmount,
             gstPercentage: calc.gstPercentage,
             gstAmount: calc.gstAmount,
             finalAmount: calc.finalAmount,

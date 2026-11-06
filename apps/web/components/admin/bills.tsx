@@ -216,6 +216,14 @@ export function BillDrawer({ bill, onClose, onDelete }: { bill: BillRecord | nul
             <p className="text-xs text-stone-500">After discount</p>
             <p className="tabular font-medium text-stone-900">{formatINR(bill.taxableAmount)}</p>
           </div>
+          {bill.serviceChargeAmount > 0 && (
+            <div>
+              <p className="text-xs text-stone-500">
+                Service charge{bill.serviceChargeType === 'PERCENTAGE' ? ` (${formatNumber(bill.serviceChargeValue)}%)` : ''}
+              </p>
+              <p className="tabular font-medium text-stone-900">+ {formatINR(bill.serviceChargeAmount)}</p>
+            </div>
+          )}
           <div>
             <p className="text-xs text-stone-500">GST ({formatNumber(bill.gstPercentage)}%)</p>
             <p className="tabular font-medium text-stone-900">+ {formatINR(bill.gstAmount)}</p>

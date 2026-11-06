@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { programSettingsUpdateSchema } from '@lotmorewins/validation';
 import { requireAdmin } from '@/lib/auth';
 import { getProgramSettings, updateProgramSettings } from '@/lib/settings';
-import { handleRouteError, ok, readJson, validationError } from '@/lib/api-response';
+import { fail, handleRouteError, ok, readJson, validationError } from '@/lib/api-response';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +22,14 @@ export async function PUT(req: NextRequest) {
     const admin = await requireAdmin(req, 'settings');
     const parsed = programSettingsUpdateSchema.safeParse(await readJson(req));
     if (!parsed.success) return validationError(parsed.error);
+    // A store choice opens its link from the download page, so it cannot be saved without one.
+    const { androidAppLinkType, androidAppUrl, iosAppLinkType, iosAppUrl } = parsed.data;
+    if (androidAppLinkType === 'STORE' && androidAppUrl === null) {
+      return fail(422, 'Add the Google Play link, or choose the web version for Android.', 'STORE_LINK_REQUIRED');
+    }
+    if (iosAppLinkType === 'STORE' && iosAppUrl === null) {
+      return fail(422, 'Add the App Store link, or choose the web version for iPhone.', 'STORE_LINK_REQUIRED');
+    }
     return ok(await updateProgramSettings(parsed.data, admin.id), 200, 'Settings saved');
   } catch (error) {
     return handleRouteError(error, 'PUT /api/admin/settings');

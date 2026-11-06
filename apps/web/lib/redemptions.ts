@@ -165,6 +165,8 @@ export async function scanRedeemQr(outlet: OutletRow, rawValue: string): Promise
     maxRupees: rupeeValueOf(worth, settings.pointsToRupees).toNumber(),
     pointsRatio: { ...settings.pointsToRupees },
     gstPercentage: terms.gstPercentage,
+    serviceChargeType: terms.serviceChargeType,
+    serviceChargeValue: terms.serviceChargeValue,
     expiresAt: expiresAt.toISOString(),
     settingsVersion: pricingVersion(settings.updatedAt, terms.version),
   };
@@ -298,6 +300,9 @@ export async function createRedeemBill(
             discountPercentage: 0,
             discountAmount: 0,
             taxableAmount: calc.taxableAmount,
+            serviceChargeType: calc.serviceChargeType,
+            serviceChargeValue: calc.serviceChargeValue,
+            serviceChargeAmount: calc.serviceChargeAmount,
             gstPercentage: calc.gstPercentage,
             gstAmount: calc.gstAmount,
             walletRedeemPoints: calc.walletRedeemPoints,

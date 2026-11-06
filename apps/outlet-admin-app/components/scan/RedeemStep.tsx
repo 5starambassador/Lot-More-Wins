@@ -192,7 +192,15 @@ export function RedeemStep({
         autoFocus
         style={styles.amountInput}
         accessory={previewing ? <ActivityIndicator color={colors.gold} style={styles.spinner} /> : null}
-        hint={`The customer’s total bill${scan.gstPercentage > 0 ? ` before ${formatPercent(scan.gstPercentage)} GST` : ''}. The server works out the wallet part: up to half the bill.`}
+        hint={`The customer’s total bill${
+          (scan.serviceChargeValue ?? 0) > 0 && scan.gstPercentage > 0
+            ? ` before service charge and ${formatPercent(scan.gstPercentage)} GST`
+            : (scan.serviceChargeValue ?? 0) > 0
+              ? ' before service charge'
+              : scan.gstPercentage > 0
+                ? ` before ${formatPercent(scan.gstPercentage)} GST`
+                : ''
+        }. The server works out the wallet part: up to half the bill.`}
       />
 
       {notice && <Notice tone="warning" message={notice} onDismiss={() => setNotice(null)} />}

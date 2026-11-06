@@ -215,7 +215,7 @@ const FIELDS: {
   {
     key: 'androidAppLinkType',
     label: 'Android link type',
-    format: (v) => (v === 'STORE' ? 'Google Play Store' : 'Direct APK download'),
+    format: (v) => (v === 'STORE' ? 'Google Play Store' : 'Web version (install steps)'),
   },
   {
     key: 'iosAppUrl',
@@ -225,7 +225,7 @@ const FIELDS: {
   {
     key: 'iosAppLinkType',
     label: 'iOS link type',
-    format: (v) => (v === 'STORE' ? 'Apple App Store' : 'Web app / direct link'),
+    format: (v) => (v === 'STORE' ? 'Apple App Store' : 'Web version (install steps)'),
   },
   {
     key: 'inviteImageUrl',
@@ -425,6 +425,16 @@ export default function SettingsPage() {
 
   const save = async () => {
     if (!values) return;
+    if (values.androidAppLinkType === 'STORE' && !values.androidAppUrl.trim()) {
+      setSaveError('Add the Google Play link, or choose the web version for Android.');
+      setReviewing(false);
+      return;
+    }
+    if (values.iosAppLinkType === 'STORE' && !values.iosAppUrl.trim()) {
+      setSaveError('Add the App Store link, or choose the web version for iPhone.');
+      setReviewing(false);
+      return;
+    }
     setSaving(true);
     setSaveError(null);
     try {
@@ -961,7 +971,7 @@ export default function SettingsPage() {
             <Panel id="downloads" className="scroll-mt-24">
               <PanelHeader
                 title="App downloads"
-                description="Where partners download the Partner App on each platform. The landing page download buttons and the Android update popup use these links."
+                description="What the Android and iOS buttons on lotmorewins.com/download do. Web version shows the steps to install partner.lotmorewins.com on the home screen; a store opens the link below. The app's update popup also opens the link below."
               />
               <div className="grid gap-6 px-5 py-5 lg:grid-cols-2">
                 {(
@@ -971,16 +981,16 @@ export default function SettingsPage() {
                       icon: Smartphone,
                       url: 'androidAppUrl',
                       type: 'androidAppLinkType',
+                      linkLabel: 'Google Play link',
                       placeholder: 'https://play.google.com/store/apps/details?id=com.lotmorewins.partner',
-                      hint: 'Leave empty if not available yet. Google Drive and Dropbox share links are turned into a direct APK download automatically.',
                       direct: {
-                        label: 'Direct APK download',
-                        hint: 'A link to the .apk file',
-                        icon: Download,
+                        label: 'Web version',
+                        hint: 'The button shows the steps to install it from Chrome',
+                        icon: Globe,
                       },
                       store: {
                         label: 'Google Play Store',
-                        hint: 'The app listing on Google Play',
+                        hint: 'The button opens the Google Play link',
                         icon: Store,
                       },
                     },
@@ -989,50 +999,57 @@ export default function SettingsPage() {
                       icon: Smartphone,
                       url: 'iosAppUrl',
                       type: 'iosAppLinkType',
-                      placeholder: 'https://apps.apple.com/… or the Partner App web address',
-                      hint: 'Leave empty if not available yet.',
+                      linkLabel: 'App Store link',
+                      placeholder: 'https://apps.apple.com/app/…',
                       direct: {
-                        label: 'Web app / direct link',
-                        hint: 'iPhones cannot install APKs: e.g. the web version to add to the Home Screen',
+                        label: 'Web version',
+                        hint: 'The button shows the steps to add it from Safari',
                         icon: Globe,
                       },
                       store: {
                         label: 'Apple App Store',
-                        hint: 'The app listing on the App Store',
+                        hint: 'The button opens the App Store link',
                         icon: Store,
                       },
                     },
                   ] as const
-                ).map((p) => (
-                  <div key={p.platform} className="space-y-4 rounded-md border border-stone-150 p-4">
-                    <p className="flex items-center gap-2 text-[13px] font-semibold text-stone-900">
-                      <p.icon className="h-4 w-4 text-gold-600" /> {p.platform}
-                    </p>
-                    <Field label="Download link" htmlFor={p.url} hint={p.hint}>
-                      <Input
-                        id={p.url}
-                        type="url"
-                        inputMode="url"
-                        icon={Link2}
-                        placeholder={p.placeholder}
-                        value={values[p.url]}
-                        onChange={(e) => set(p.url)(e.target.value)}
-                        className={cn(changed(p.url) && 'border-gold-400 bg-gold-50/50')}
-                      />
-                    </Field>
-                    <Field label="This link is">
-                      <ChoiceCards<AppLinkType>
-                        name={`${p.platform} link type`}
-                        value={values[p.type]}
-                        onChange={set(p.type) as (v: AppLinkType) => void}
-                        options={[
-                          { value: 'DIRECT', ...p.direct },
-                          { value: 'STORE', ...p.store },
-                        ]}
-                      />
-                    </Field>
-                  </div>
-                ))}
+                ).map((p) => {
+                  const isStore = values[p.type] === 'STORE';
+                  return (
+                    <div key={p.platform} className="space-y-4 rounded-md border border-stone-150 p-4">
+                      <p className="flex items-center gap-2 text-[13px] font-semibold text-stone-900">
+                        <p.icon className="h-4 w-4 text-gold-600" /> {p.platform}
+                      </p>
+                      <Field label="Download button opens">
+                        <ChoiceCards<AppLinkType>
+                          name={`${p.platform} download`}
+                          value={values[p.type]}
+                          onChange={set(p.type) as (v: AppLinkType) => void}
+                          options={[
+                            { value: 'DIRECT', ...p.direct },
+                            { value: 'STORE', ...p.store },
+                          ]}
+                        />
+                      </Field>
+                      <Field
+                        label={p.linkLabel}
+                        htmlFor={p.url}
+                        hint={isStore ? 'Required: the download button opens this link.' : 'Not used while the web version is chosen. You can keep it saved for later.'}
+                      >
+                        <Input
+                          id={p.url}
+                          type="url"
+                          inputMode="url"
+                          icon={Link2}
+                          placeholder={p.placeholder}
+                          value={values[p.url]}
+                          onChange={(e) => set(p.url)(e.target.value)}
+                          className={cn(changed(p.url) && 'border-gold-400 bg-gold-50/50')}
+                        />
+                      </Field>
+                    </div>
+                  );
+                })}
               </div>
             </Panel>
 
