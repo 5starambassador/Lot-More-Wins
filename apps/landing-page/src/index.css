@@ -101,6 +101,13 @@
     mask-image: radial-gradient(circle, #000 14%, transparent 46%);
   }
 
+  /* A spotlight falling from the top of the gift stage, widening and fading towards the floor. */
+  .gift-beam {
+    background: linear-gradient(180deg, rgba(255, 233, 168, 0.75) 0%, rgba(245, 197, 66, 0.28) 45%, transparent 92%);
+    clip-path: polygon(41% 0, 59% 0, 100% 100%, 0 100%);
+    filter: blur(14px);
+  }
+
   /* Gold dashed connectors whose dashes travel in the direction of the flow. */
   .flow-line {
     height: 2px;
@@ -143,6 +150,32 @@
   }
   .animate-twinkle {
     animation: twinkle 2.8s ease-in-out infinite;
+  }
+  .animate-beam {
+    animation: beam 4s ease-in-out infinite;
+  }
+  .animate-fill {
+    animation: fill linear both;
+    transform-origin: left;
+  }
+}
+
+@keyframes beam {
+  0%,
+  100% {
+    opacity: 0.75;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
   }
 }
 
