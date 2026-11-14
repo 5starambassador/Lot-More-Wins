@@ -1,13 +1,13 @@
 import type { ScheduledGreeting } from './scheduled-greeting';
 
 /**
- * Weekend-offer pushes (14–15 Nov 2026): one at 20:20 IST on 14 Nov, then ten on 15 Nov from
+ * Weekend-offer pushes (14–15 Nov 2026): one at 20:25 IST on 14 Nov, then ten on 15 Nov from
  * 08:00 to 20:00 IST, every 80 minutes. Partners are in Puducherry, Cuddalore and Villupuram,
  * so every time is IST. Each has its own Vercel cron in vercel.json (UTC = IST − 5:30) and a
  * marker row, so it sends exactly once whichever sender (cron or the backup runner) gets there first.
  */
 export const OFFER_PUSH_SLOTS: { at: string; title: string; body: string }[] = [
-  { at: '2026-11-14T20:20', title: '🔥 Tonight & Tomorrow: 50% OFF + FREE Ice Cream! 🍦', body: 'Weekend offer (14–15 Nov): 50% OFF on bills above ₹1,000 or ₹300 OFF above ₹700 at TDG & Hope Café. Leave a Google Review for a FREE ice cream! 🎁' },
+  { at: '2026-11-14T20:25', title: '🔥 Tonight & Tomorrow: 50% OFF + FREE Ice Cream! 🍦', body: 'Weekend offer (14–15 Nov): 50% OFF on bills above ₹1,000 or ₹300 OFF above ₹700 at TDG & Hope Café. Leave a Google Review for a FREE ice cream! 🎁' },
   { at: '2026-11-15T08:00', title: '☀️ Last Day: 50% OFF + FREE Ice Cream! 🍦', body: 'Today only (15 Nov): 50% OFF on bills above ₹1,000 or ₹300 OFF above ₹700 at TDG & Hope Café. Leave a Google Review for a FREE ice cream! 🎁' },
   { at: '2026-11-15T09:20', title: '🥐 Breakfast Deal: 50% OFF + FREE Ice Cream!', body: 'The weekend offer ends today: 50% OFF on bills above ₹1,000 or ₹300 OFF above ₹700 at TDG & Hope Café. Google Review = FREE ice cream! 🍦' },
   { at: '2026-11-15T10:40', title: '🔥 Weekend Offer: 50% OFF + FREE Ice Cream! 🍦', body: 'Last day (15 Nov)! Bills above ₹1,000 get 50% OFF, above ₹700 get ₹300 OFF at TDG & Hope Café. Review us on Google for a FREE ice cream! 🎁' },
