@@ -26,6 +26,7 @@ const ICONS: Record<PartnerNotificationType, IconName> = {
   PAYOUT_FAILED: 'alert-circle-outline',
   WALLET_TRANSFER_IN: 'arrow-down-outline',
   WALLET_TRANSFER_OUT: 'paper-plane-outline',
+  OFFER: 'gift-outline',
 };
 
 /** Notifications about the wallet (receipts, rewards, payouts) open the Wallet page. */
@@ -43,16 +44,18 @@ const OPENS_WALLET: ReadonlySet<PartnerNotificationType> = new Set([
   'WALLET_TRANSFER_OUT',
 ]);
 
-function NotificationRow({ item, onOpenWallet }: { item: PartnerNotification; onOpenWallet: () => void }) {
-  const opensWallet = OPENS_WALLET.has(item.type);
+function NotificationRow({ item, onOpen }: { item: PartnerNotification; onOpen: (item: PartnerNotification) => void }) {
+  // Offers open their full message; wallet notifications open the Wallet page.
+  const opensPage = item.type === 'OFFER';
+  const opensWallet = opensPage || OPENS_WALLET.has(item.type);
   return (
     <Pressable
       style={({ pressed }) => [styles.row, pressed && opensWallet && styles.pressed]}
       disabled={!opensWallet}
-      onPress={onOpenWallet}
+      onPress={() => onOpen(item)}
       accessibilityRole={opensWallet ? 'button' : undefined}
       accessibilityLabel={`${item.title}. ${item.body}`}
-      accessibilityHint={opensWallet ? 'Opens your wallet' : undefined}
+      accessibilityHint={opensPage ? 'Opens the full message' : opensWallet ? 'Opens your wallet' : undefined}
     >
       <View style={[styles.icon, !item.read && styles.iconUnread]}>
         <Ionicons name={ICONS[item.type] ?? 'notifications-outline'} size={18} color={colors.gold} />
@@ -129,7 +132,14 @@ export default function NotificationsScreen() {
           ListFooterComponent={notifications.isFetchingNextPage ? <ActivityIndicator color={colors.gold} style={styles.more} /> : null}
           keyExtractor={(n) => n.id}
           contentContainerStyle={[styles.pad, styles.grow]}
-          renderItem={({ item }) => <NotificationRow item={item} onOpenWallet={() => router.navigate('/wallet')} />}
+          renderItem={({ item }) => (
+            <NotificationRow
+              item={item}
+              onOpen={(n) =>
+                n.type === 'OFFER' ? router.push({ pathname: '/notification/[id]', params: { id: n.id } }) : router.navigate('/wallet')
+              }
+            />
+          )}
           ItemSeparatorComponent={() => <Divider inset={40 + space.md} />}
           refreshControl={
             <RefreshControl

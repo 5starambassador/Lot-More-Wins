@@ -58,6 +58,7 @@ export default function RootLayout() {
             <Stack.Screen name="transaction/[id]" />
             <Stack.Screen name="referral-history" />
             <Stack.Screen name="notifications" />
+            <Stack.Screen name="notification/[id]" />
             <Stack.Screen name="(auth)" />
           </Stack>
         </QueryClientProvider>

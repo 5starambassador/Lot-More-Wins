@@ -3,6 +3,7 @@ import type { BillCalculation, PartnerNotification, PartnerNotificationPage, Pro
 import prisma from './prisma';
 import { rupeeValueOf } from './points';
 import { sendPush } from './push';
+import { HttpError } from './auth';
 import { getProgramSettings } from './settings';
 
 /**
@@ -332,6 +333,13 @@ export async function pushNotification(notification: Notification): Promise<void
   }
 }
 
+/** One of the partner's own notifications, for its detail page. */
+export async function getPartnerNotification(partnerId: string, id: string): Promise<PartnerNotification> {
+  const [row, display] = await Promise.all([prisma.notification.findFirst({ where: { id, partnerId } }), getProgramSettings()]);
+  if (!row) throw new HttpError(404, 'Notification not found', 'NOTIFICATION_NOT_FOUND');
+  return serialize(row, display);
+}
+
 function serialize(stored: Notification, display: Display): PartnerNotification {
   const n = present(stored, display);
   return {
@@ -339,6 +347,7 @@ function serialize(stored: Notification, display: Display): PartnerNotification 
     type: n.type,
     title: n.title,
     body: n.body,
+    detail: n.detail,
     points: n.points?.toNumber() ?? null,
     amount: n.amount?.toNumber() ?? null,
     expiresAt: n.expiresAt?.toISOString() ?? null,

@@ -20,6 +20,9 @@ export const OFFER_PUSH_SLOTS: { at: string; title: string; body: string }[] = [
   { at: '2026-11-15T20:00', title: '🚨 Final Call: 50% OFF + FREE Ice Cream! 🍦', body: 'Last chance tonight! 50% OFF on bills above ₹1,000 or ₹300 OFF above ₹700 at TDG & Hope Café. Leave a Google Review for a FREE ice cream! 🎁' },
 ];
 
+/** The full offer, shown on the notification's own page in the app (same text as the WhatsApp template). */
+export const OFFER_DETAIL = "🔥 *WARM GREETINGS FROM LOT MORE WINS!* 🙏✨\n\nDear LMW Partner,\n\n🎁 *EXCLUSIVE OFFERS FOR THIS WEEKEND(14th Nov & 15th Nov)*\n\n✅ *50% OFF* on bills above ₹1,000\n✅ *₹300 OFF* on bills above ₹700\n\n🍦 *BONUS TREAT!*\nShare your experience by giving us a Google Review and get a *FREE ICE CREAM!* \n\n📍 *VISIT OUR OUTLETS*\n\n1️⃣ *TDG*\nShop 1 & 2, R.S.345/3, ECR Road, Vanur Taluk, Near Jamiyath Nagar, Kottakuppam, Tamil Nadu – 605104.\n\n2️⃣ *HOPE CAFÉ – WHITE TOWN*\n4, Rue Suffren Street, White Town, Puducherry – 605001.\n\n3️⃣ *HOPE CAFÉ – AUROVILLE*\nAuroville Road, Kuilapalayam, Bommayapalayam, Tamil Nadu – 605101.\n\n💰 *CLAIM YOUR ELIGIBLE BENEFITS THROUGH LOT MORE WINS!*\n\nDon't miss out on this exciting opportunity to enjoy more while spending less!\n\nThank you for your love and support. We look forward to serving you again!\n\n❤️ *LOT MORE WINS*\n*Eat More. Enjoy More. Win More!*\n\nWith Love,\n*TEAM LOT MORE WINS*";
+
 /** Slot 0 is tonight (14 Nov); slots 1–10 are 15 Nov. */
 export function offerPushSlot(slot: number): ScheduledGreeting | null {
   const s = Number.isInteger(slot) ? OFFER_PUSH_SLOTS[slot] : undefined;
@@ -29,6 +32,7 @@ export function offerPushSlot(slot: number): ScheduledGreeting | null {
     marker: `offer-push-${s.at}`,
     title: s.title,
     body: s.body,
+    detail: OFFER_DETAIL,
     sendFrom: new Date(at - 5 * 60_000).toISOString(),
     // A cron may fire late in its hour; the marker still keeps it to one send.
     sendUntil: new Date(at + 70 * 60_000).toISOString(),

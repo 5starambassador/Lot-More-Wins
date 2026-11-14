@@ -55,6 +55,7 @@ import type {
   PartnerTransactionsQuery,
   PartnerHome,
   PartnerOffers,
+  PartnerNotification,
   PartnerNotificationPage,
   PushTokenPayload,
   RedeemQr,
@@ -331,6 +332,10 @@ export class ApiClient {
 
   public getPartnerNotifications(page = 1, limit = 30): Promise<ApiResponse<PartnerNotificationPage>> {
     return this.get<ApiResponse<PartnerNotificationPage>>('/partner/notifications', { params: { page, limit } });
+  }
+
+  public getPartnerNotification(id: string): Promise<ApiResponse<PartnerNotification>> {
+    return this.get<ApiResponse<PartnerNotification>>(`/partner/notifications/${encodeURIComponent(id)}`);
   }
 
   public markPartnerNotificationsRead(): Promise<ApiResponse<{ updated: number }>> {

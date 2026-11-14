@@ -1401,13 +1401,17 @@ export type PartnerNotificationType =
   | 'PAYOUT_PAID'
   | 'PAYOUT_FAILED'
   | 'WALLET_TRANSFER_IN'
-  | 'WALLET_TRANSFER_OUT';
+  | 'WALLET_TRANSFER_OUT'
+  /** An offer or announcement; the full message is in `detail`. */
+  | 'OFFER';
 
 export interface PartnerNotification {
   id: ID;
   type: PartnerNotificationType;
   title: string;
   body: string;
+  /** Full message of an OFFER notification (WhatsApp-style *bold*). Missing from older servers. */
+  detail?: string | null;
   points: number | null;
   /** Rupee amount for cash reward and payout notifications. */
   amount: number | null;

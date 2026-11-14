@@ -666,6 +666,8 @@ enum NotificationType {
   PAYOUT_FAILED
   WALLET_TRANSFER_IN
   WALLET_TRANSFER_OUT
+  /// An offer or announcement from Lot More Wins; the full message is in detail.
+  OFFER
 }
 
 /// Partner activity feed, also delivered as a push notification.
@@ -675,6 +677,8 @@ model Notification {
   type      NotificationType
   title     String
   body      String
+  /// Full message of an OFFER notification, shown on its own page (WhatsApp-style *bold*).
+  detail    String?
   points    Decimal?         @db.Decimal(14, 2)
   /// Rupee amount (cash reward or payout) the notification is about.
   amount    Decimal?         @db.Decimal(12, 2)
