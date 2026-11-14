@@ -2,6 +2,8 @@ import type {
   ApiResponse,
   HealthCheckResponse,
   WalletTransferOtpPayload,
+  CreateRedeemQrPayload,
+  PartnerLatestBill,
   WalletTransferOtpResponse,
   WalletTransferPayload,
   WalletTransferRecipient,
@@ -638,8 +640,14 @@ export class ApiClient {
     return this.get<ApiResponse<PartnerTransaction>>(`/partner/transactions/${encodeURIComponent(id)}`);
   }
 
-  public createRedeemQr(): Promise<ApiResponse<RedeemQr>> {
-    return this.post<ApiResponse<RedeemQr>>('/partner/wallet/redeem-qr');
+  /** A redeem QR; with an outlet it works at that outlet only. */
+  public createRedeemQr(payload?: CreateRedeemQrPayload): Promise<ApiResponse<RedeemQr>> {
+    return this.post<ApiResponse<RedeemQr>>('/partner/wallet/redeem-qr', payload);
+  }
+
+  /** The partner's newest own bill (discount or redeem QR), or null. */
+  public getPartnerLatestBill(): Promise<ApiResponse<PartnerLatestBill | null>> {
+    return this.get<ApiResponse<PartnerLatestBill | null>>('/partner/bills/latest');
   }
 
   /** The partner registered with this mobile number, to confirm before sending points. */

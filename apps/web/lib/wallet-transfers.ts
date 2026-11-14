@@ -38,7 +38,15 @@ async function recipientByMobile(senderId: string, mobile: string) {
   return recipient;
 }
 
+/** Sending to a partner is part of the wallet, which the Super Admin can pause as a whole. */
+export function assertWalletEnabled(settings: { walletEnabled: boolean }) {
+  if (!settings.walletEnabled) {
+    throw new HttpError(422, 'The wallet is temporarily not available', 'WALLET_DISABLED');
+  }
+}
+
 export async function findTransferRecipient(senderId: string, mobile: string): Promise<WalletTransferRecipient> {
+  assertWalletEnabled(await getProgramSettings());
   const recipient = await recipientByMobile(senderId, mobile);
   return { name: recipient.name, partnerCode: recipient.partnerCode, mobile: recipient.mobile };
 }
@@ -61,6 +69,7 @@ export async function requestTransferOtp(senderId: string, mobile: string, point
   const sender = await activeSender(senderId);
   await recipientByMobile(senderId, mobile);
   const [balance, settings] = await Promise.all([availablePoints(prisma, senderId), getProgramSettings()]);
+  assertWalletEnabled(settings);
   if (new Decimal(points).gt(balance)) {
     throw new HttpError(422, 'Your wallet does not have enough for this amount', 'INSUFFICIENT_POINTS', {
       balancePoints: balance.toNumber(),
@@ -133,6 +142,7 @@ export async function sendWalletTransfer(
         // Serialize spends of the sender's wallet so the balance cannot be spent twice.
         await lockWallet(tx, senderId);
         const settings = await getProgramSettings(tx);
+        assertWalletEnabled(settings);
         const ratio = settings.pointsToRupees;
         const points = new Decimal(input.points).toDecimalPlaces(2);
         assertWithinTransferLimit(points, await availablePoints(tx, senderId), ratio);

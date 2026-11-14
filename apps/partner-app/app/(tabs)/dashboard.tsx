@@ -3,10 +3,9 @@ import { AppState, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, 
 import { useFocusEffect, useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
-import type { Outlet } from '@lotmorewins/types';
 import * as Haptics from '../../lib/haptics';
-import { Avatar, Badge, Glass, ListSkeleton, Screen, SectionLabel, StateView, Txt } from '../../components/ui';
-import { OutletLogo } from '../../components/outlets/OutletLogo';
+import { Avatar, Glass, ListSkeleton, Screen, SectionLabel, StateView, Txt } from '../../components/ui';
+import { OutletGrid } from '../../components/outlets/OutletGrid';
 import { BrandLogo, Wordmark } from '../../components/brand/Brand';
 import { WelcomeGift } from '../../components/home/WelcomeGift';
 import { UpdatePopup } from '../../components/home/UpdatePopup';
@@ -40,28 +39,6 @@ function QrButton({ icon, title, caption, onPress }: { icon: IconName; title: st
         </Txt>
         <Ionicons name="arrow-forward" size={14} color={colors.textMuted} />
       </View>
-    </Glass>
-  );
-}
-
-function OutletButton({ outlet, onPress }: { outlet: Outlet; onPress: () => void }) {
-  return (
-    <Glass onPress={onPress} accessibilityLabel={outlet.name} style={styles.outlet}>
-      <OutletLogo outlet={outlet} size={48} />
-      <View style={styles.flex}>
-        <Txt variant="bodyMedium" numberOfLines={1}>
-          {outlet.name}
-        </Txt>
-        {outlet.offer ? (
-          <View style={styles.offerRow}>
-            <Txt variant="caption" tone="gold">
-              {outlet.offer.label}
-            </Txt>
-            {outlet.offer.givesCashReward ? <Badge label="Cash reward" tone="success" /> : null}
-          </View>
-        ) : null}
-      </View>
-      <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
     </Glass>
   );
 }
@@ -227,15 +204,7 @@ export default function HomeScreen() {
               onAction={() => outlets.refetch()}
             />
           ) : outlets.data && outlets.data.length > 0 ? (
-            <View style={styles.outletList}>
-              {outlets.data.map((outlet) => (
-                <OutletButton
-                  key={outlet.id}
-                  outlet={outlet}
-                  onPress={() => router.push({ pathname: '/outlet/[id]', params: { id: outlet.id } })}
-                />
-              ))}
-            </View>
+            <OutletGrid outlets={outlets.data} onOpen={(outlet) => router.push({ pathname: '/outlet/[id]', params: { id: outlet.id } })} />
           ) : (
             <StateView icon="storefront-outline" title="No outlets yet" message="Participating outlets will appear here as they join." />
           )}
@@ -318,8 +287,5 @@ const styles = StyleSheet.create({
   qrTitle: { marginTop: space.sm, flex: 1 },
   qrCaption: { flexDirection: 'row', alignItems: 'center', gap: space.xxs },
   outlets: { marginTop: space.xxl },
-  outletList: { gap: space.sm },
   extras: { marginTop: space.xxl, gap: space.lg },
-  outlet: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm, paddingHorizontal: space.md },
-  offerRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space.xs, marginTop: 2 },
 });

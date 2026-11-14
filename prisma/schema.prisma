@@ -203,6 +203,12 @@ enum ServiceChargeType {
   FIXED
 }
 
+/// How an outlet's partner discounts work: PERCENTAGE = % slabs; FIXED = ₹ caps, the amount picked per bill.
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
 enum OutletStatus {
   ACTIVE
   INACTIVE
@@ -293,6 +299,8 @@ model ProgramSetting {
   payoutWeekday                    Int              @default(1) @map("payout_weekday")
   /// Outlet-scanned redeem QR for spending points. Off: hidden in the apps and refused by the API.
   redeemQrEnabled                  Boolean          @default(false) @map("redeem_qr_enabled")
+  /// The whole Partner App wallet (redeem QR and sending to a partner). Off: both are paused.
+  walletEnabled                    Boolean          @default(true) @map("wallet_enabled")
   updatedBy                        String?          @map("updated_by")
   createdAt                        DateTime         @default(now()) @map("created_at")
   updatedAt                        DateTime         @updatedAt @map("updated_at")
@@ -325,28 +333,49 @@ model Outlet {
   status      OutletStatus @default(ACTIVE)
 
   // Offer settings. A null discount falls back to the programme setting of the same type.
-  firstTimeDiscount         Decimal? @map("first_time_discount") @db.Decimal(5, 2)
-  achariyaFirstTimeDiscount Decimal? @map("achariya_first_time_discount") @db.Decimal(5, 2)
-  repeatDiscount            Decimal? @map("repeat_discount") @db.Decimal(5, 2)
-  referralDiscount          Decimal? @map("referral_discount") @db.Decimal(5, 2)
+  firstTimeDiscount                Decimal?          @map("first_time_discount") @db.Decimal(5, 2)
+  achariyaFirstTimeDiscount        Decimal?          @map("achariya_first_time_discount") @db.Decimal(5, 2)
+  repeatDiscount                   Decimal?          @map("repeat_discount") @db.Decimal(5, 2)
+  referralDiscount                 Decimal?          @map("referral_discount") @db.Decimal(5, 2)
+  /// Each slab is a % (the fields above and below) or a flat ₹ amount (the flat fields), chosen per
+  /// slab. A flat discount is the most the Outlet Admin may give on a bill (picked per bill, never
+  /// more than half the bill); a flat reward is the ₹ worth credited per bill (never more than the bill).
+  firstTimeDiscountType            DiscountType      @default(PERCENTAGE) @map("first_time_discount_type")
+  repeatDiscountType               DiscountType      @default(PERCENTAGE) @map("repeat_discount_type")
+  referralDiscountType             DiscountType      @default(PERCENTAGE) @map("referral_discount_type")
+  purchasePointsType               DiscountType      @default(PERCENTAGE) @map("purchase_points_type")
+  referralPointsType               DiscountType      @default(PERCENTAGE) @map("referral_points_type")
+  cashRewardPurchaseType           DiscountType      @default(PERCENTAGE) @map("cash_reward_purchase_type")
+  cashRewardReferralType           DiscountType      @default(PERCENTAGE) @map("cash_reward_referral_type")
+  flatFirstTimeDiscount            Decimal           @default(0) @map("flat_first_time_discount") @db.Decimal(10, 2)
+  flatRepeatDiscount               Decimal           @default(0) @map("flat_repeat_discount") @db.Decimal(10, 2)
+  flatReferralDiscount             Decimal           @default(0) @map("flat_referral_discount") @db.Decimal(10, 2)
+  flatPurchasePoints               Decimal           @default(0) @map("flat_purchase_points") @db.Decimal(10, 2)
+  flatReferralPoints               Decimal           @default(0) @map("flat_referral_points") @db.Decimal(10, 2)
+  flatCashRewardPurchase           Decimal           @default(0) @map("flat_cash_reward_purchase") @db.Decimal(10, 2)
+  flatCashRewardReferral           Decimal           @default(0) @map("flat_cash_reward_referral") @db.Decimal(10, 2)
+  /// Bills below this amount get no discount (0 = no minimum).
+  minBillAmount                    Decimal           @default(0) @map("min_bill_amount") @db.Decimal(12, 2)
+  /// Partners may pay part of a bill here with a wallet redeem QR.
+  walletRedemptionEnabled          Boolean           @default(true) @map("wallet_redemption_enabled")
   /// GST charged on the discounted amount. 0 = no GST line on the bill.
-  gstPercentage             Decimal  @default(0) @map("gst_percentage") @db.Decimal(5, 2)
+  gstPercentage                    Decimal           @default(0) @map("gst_percentage") @db.Decimal(5, 2)
   /// Service charge added to the discounted amount before GST: a % of it, or a fixed ₹ per bill.
   /// 0 = no service charge line on the bill.
-  serviceChargeType         ServiceChargeType @default(PERCENTAGE) @map("service_charge_type")
-  serviceChargeValue        Decimal  @default(0) @map("service_charge_value") @db.Decimal(10, 2)
+  serviceChargeType                ServiceChargeType @default(PERCENTAGE) @map("service_charge_type")
+  serviceChargeValue               Decimal           @default(0) @map("service_charge_value") @db.Decimal(10, 2)
   /// Bills here credit the cash reward (purchase and referral) into the wallet on top of points.
-  givesCashReward           Boolean  @default(false) @map("gives_cash_reward")
+  givesCashReward                  Boolean           @default(false) @map("gives_cash_reward")
   // Reward overrides. Null falls back to the programme setting of the same name.
-  purchasePointsPercentage         Decimal? @map("purchase_points_percentage") @db.Decimal(5, 2)
-  referralPointsPercentage         Decimal? @map("referral_points_percentage") @db.Decimal(5, 2)
-  achariyaReferralPointsPercentage Decimal? @map("achariya_referral_points_percentage") @db.Decimal(5, 2)
-  cashRewardPurchasePercentage     Decimal? @map("cash_reward_purchase_percentage") @db.Decimal(5, 2)
-  cashRewardReferralPercentage     Decimal? @map("cash_reward_referral_percentage") @db.Decimal(5, 2)
+  purchasePointsPercentage         Decimal?          @map("purchase_points_percentage") @db.Decimal(5, 2)
+  referralPointsPercentage         Decimal?          @map("referral_points_percentage") @db.Decimal(5, 2)
+  achariyaReferralPointsPercentage Decimal?          @map("achariya_referral_points_percentage") @db.Decimal(5, 2)
+  cashRewardPurchasePercentage     Decimal?          @map("cash_reward_purchase_percentage") @db.Decimal(5, 2)
+  cashRewardReferralPercentage     Decimal?          @map("cash_reward_referral_percentage") @db.Decimal(5, 2)
   /// The Outlet Admin may change the discounts and GST above from the Outlet Admin app.
-  canEditOffers             Boolean  @default(false) @map("can_edit_offers")
+  canEditOffers                    Boolean           @default(false) @map("can_edit_offers")
   /// Version of the offer settings above; bumped on every change and snapshotted on each bill.
-  offersUpdatedAt           DateTime @default(now()) @map("offers_updated_at")
+  offersUpdatedAt                  DateTime          @default(now()) @map("offers_updated_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -476,6 +505,10 @@ model Bill {
   /// Successful referrals this bill's reward used up (the goal at the time); 0 when no reward was used.
   referralRewardReferrals  Int                 @default(0) @map("referral_reward_referrals")
   discountAmount           Decimal             @map("discount_amount") @db.Decimal(12, 2)
+  /// FIXED: the discount was a ₹ amount chosen at billing (discountPercentage is then that amount as a %).
+  discountType             DiscountType        @default(PERCENTAGE) @map("discount_type")
+  /// Under the outlet's minimum bill: no discount, and the bill does not use up first-time status.
+  belowMinimumBill         Boolean             @default(false) @map("below_minimum_bill")
   /// Amount after discount, before GST (whole rupees). Null on bills from before GST: equal to finalAmount there.
   taxableAmount            Decimal?            @map("taxable_amount") @db.Decimal(12, 2)
   /// The outlet's service charge on this bill (a % or a fixed ₹ per bill) and what it came to; 0 = none.

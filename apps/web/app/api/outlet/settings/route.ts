@@ -14,6 +14,7 @@ import {
   programmeDiscounts,
   programmeRewards,
   serializeOfferSettings,
+  summaryFlat,
 } from '@/lib/outlet-offers';
 import { handleRouteError, ok, readJson, validationError } from '@/lib/api-response';
 
@@ -28,7 +29,7 @@ async function view(outlet: OutletRow): Promise<OutletSettingsView> {
     programmeDiscounts: programmeDiscounts(settings),
     effectiveRewards: effectiveRewards(settings, outlet),
     programmeRewards: programmeRewards(settings),
-    summary: offerSummary(effective, outlet.givesCashReward),
+    summary: offerSummary(effective, outlet.givesCashReward, null, summaryFlat(outlet)),
     changes,
   };
 }

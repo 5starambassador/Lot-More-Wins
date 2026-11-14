@@ -5,10 +5,12 @@ import { Suspense, use, useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRight, Coins, Power } from 'lucide-react';
 import type { BillRecord, BillTransactionType, UpdateOutletPayload } from '@lotmorewins/types';
+import { OUTLET_SLABS } from '@lotmorewins/validation';
 import { BillDrawer, BillsTable } from '@/components/admin/bills';
 import {
   DISCOUNT_FIELDS,
   REWARD_FIELDS,
+  SLAB_INFO,
   OutletForm,
   OutletLogo,
   emptyOutletForm,
@@ -40,6 +42,11 @@ const TYPES = ['DIRECT_PARTNER', 'REFERRAL', 'WALLET_REDEEM'] as const;
 const OFFER_FIELD_LABEL: Record<string, string> = {
   ...Object.fromEntries(DISCOUNT_FIELDS.map(({ key, label }) => [key, `${label} discount`])),
   ...Object.fromEntries(REWARD_FIELDS.map(({ key, label }) => [key, `${label} rate`])),
+  ...Object.fromEntries(OUTLET_SLABS.map((s) => [s.typeField, `${SLAB_INFO[s.key].label} type`])),
+  ...Object.fromEntries(OUTLET_SLABS.map((s) => [s.flatField, `${SLAB_INFO[s.key].label} (flat ₹)`])),
+  discountType: 'Discount type',
+  minBillAmount: 'Minimum bill for a discount',
+  walletRedemptionEnabled: 'Wallet redemption',
   gstPercentage: 'GST',
   serviceChargeType: 'Service charge type',
   serviceChargeValue: 'Service charge',
@@ -53,6 +60,9 @@ function offerValue(field: string, value: string | null): string {
   if (value === 'true') return 'On';
   if (value === 'false') return 'Off';
   if (field === 'serviceChargeType') return value === 'FIXED' ? 'Fixed ₹' : 'Percentage';
+  if (field === 'discountType' || field.endsWith('Type')) return value === 'FIXED' ? 'Flat ₹' : 'Percentage';
+  if (field.startsWith('flat') || field === 'minBillAmount') return `₹${value}`;
+  if (field === 'walletRedemptionEnabled') return value === 'true' ? 'On' : 'Off';
   // A % or a ₹ amount, by the type saved with it.
   if (field === 'serviceChargeValue') return value;
   return field === 'givesCashReward' || field === 'canEditOffers' ? value : `${value}%`;
@@ -438,11 +448,38 @@ function OutletDetailView({ id }: { id: string }) {
             />
             <div className="grid grid-cols-2 gap-px overflow-hidden bg-stone-150 md:grid-cols-5">
               {[
-                ...DISCOUNT_FIELDS.map(({ key, label }) => ({
-                  label,
-                  value: `${outlet.effectiveDiscounts[key]}%`,
-                  note: outlet.offers[key] === null ? 'Programme setting' : 'Outlet override',
-                })),
+                ...OUTLET_SLABS.filter((slab) => !SLAB_INFO[slab.key].cashback || outlet.offers.givesCashReward).flatMap((slab) =>
+                  outlet.offers[slab.typeField] === 'FIXED'
+                    ? [
+                        {
+                          label: SLAB_INFO[slab.key].label,
+                          value: `${slab.kind === 'discount' ? 'Up to ' : ''}${formatINR(outlet.offers[slab.flatField] ?? 0)}`,
+                          note: slab.kind === 'discount' ? 'Flat ₹, picked per bill' : 'Flat ₹ per bill',
+                        },
+                      ]
+                    : slab.percentFields.map((key) => {
+                        const isReward = key in outlet.effectiveRewards;
+                        const effective = isReward
+                          ? outlet.effectiveRewards[key as keyof typeof outlet.effectiveRewards]
+                          : outlet.effectiveDiscounts[key as keyof typeof outlet.effectiveDiscounts];
+                        const label = [...DISCOUNT_FIELDS, ...REWARD_FIELDS].find((f) => f.key === key)?.label ?? key;
+                        return {
+                          label,
+                          value: `${effective}%`,
+                          note: outlet.offers[key] === null ? 'Programme setting' : 'Outlet override',
+                        };
+                      })
+                ),
+                {
+                  label: 'Minimum bill',
+                  value: (outlet.offers.minBillAmount ?? 0) > 0 ? formatINR(outlet.offers.minBillAmount ?? 0) : 'None',
+                  note: 'Below it, no discount',
+                },
+                {
+                  label: 'Wallet redemption',
+                  value: outlet.offers.walletRedemptionEnabled === false ? 'Off' : 'On',
+                  note: 'Redeem QR at this outlet',
+                },
                 {
                   label: 'GST',
                   value: `${outlet.offers.gstPercentage}%`,
@@ -461,11 +498,6 @@ function OutletDetailView({ id }: { id: string }) {
                         : 'Of the discounted amount'
                       : 'None',
                 },
-                ...REWARD_FIELDS.filter((f) => !f.cashback || outlet.offers.givesCashReward).map(({ key, label }) => ({
-                  label,
-                  value: `${outlet.effectiveRewards[key]}%`,
-                  note: outlet.offers[key] === null ? 'Programme setting' : 'Outlet override',
-                })),
               ].map((m) => (
                 <div key={m.label} className="bg-white px-5 py-4">
                   <p className="text-xs text-stone-500">{m.label}</p>

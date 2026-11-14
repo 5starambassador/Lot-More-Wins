@@ -310,6 +310,7 @@ export const programSettingsUpdateSchema = z
       .max(6, 'Payout day must be a weekday')
       .optional(),
     redeemQrEnabled: z.boolean({ invalid_type_error: 'Redeem QR must be on or off' }).optional(),
+    walletEnabled: z.boolean({ invalid_type_error: 'Wallet must be on or off' }).optional(),
   })
   .strict();
 
@@ -383,6 +384,53 @@ export const serviceChargeValueSchema = z
   .max(MAX_SERVICE_CHARGE_RUPEES, `A service charge cannot exceed ₹${MAX_SERVICE_CHARGE_RUPEES}`)
   .refine(hasAtMostTwoDecimals, 'Service charge can have at most 2 decimal places');
 
+/** A flat (₹) partner discount slab is at most this; the bill caps it at half the bill anyway. */
+export const MAX_FLAT_DISCOUNT_RUPEES = 100000;
+
+export const discountTypeSchema = z.enum(['PERCENTAGE', 'FIXED'], {
+  errorMap: () => ({ message: 'Discount must be a percentage or a flat amount' }),
+});
+
+/** A flat ₹ discount: a slab cap, or the amount picked on one bill. Whole rupees. */
+export const flatDiscountSchema = z
+  .number({ invalid_type_error: 'Discount must be a number' })
+  .finite()
+  .int('Discount must be in whole rupees')
+  .min(0, 'Discount cannot be negative')
+  .max(MAX_FLAT_DISCOUNT_RUPEES, `A discount cannot exceed ₹${MAX_FLAT_DISCOUNT_RUPEES}`);
+
+/** A flat ₹ reward slab (credited per bill, never more than the bill). */
+export const flatRewardSchema = z
+  .number({ invalid_type_error: 'Reward must be a number' })
+  .finite()
+  .min(0, 'Reward cannot be negative')
+  .max(MAX_FLAT_DISCOUNT_RUPEES, `A reward cannot exceed ₹${MAX_FLAT_DISCOUNT_RUPEES}`)
+  .refine(hasAtMostTwoDecimals, 'Reward can have at most 2 decimal places');
+
+/** Bills below this get no discount at the outlet; 0 = no minimum. */
+export const MAX_MIN_BILL_RUPEES = 1_000_000;
+export const minBillAmountSchema = z
+  .number({ invalid_type_error: 'Minimum bill must be a number' })
+  .finite()
+  .min(0, 'Minimum bill cannot be negative')
+  .max(MAX_MIN_BILL_RUPEES, `Minimum bill cannot exceed ₹${MAX_MIN_BILL_RUPEES}`)
+  .refine(hasAtMostTwoDecimals, 'Minimum bill can have at most 2 decimal places');
+
+/**
+ * The outlet slabs that can each be a % or a flat ₹ amount: the % fields it writes (two for slabs
+ * with an Achariya rate), its type field and its flat ₹ field. A flat discount is a cap the Outlet
+ * Admin picks under on each bill; a flat reward is credited per bill.
+ */
+export const OUTLET_SLABS = [
+  { key: 'firstTimeDiscount', kind: 'discount', percentFields: ['firstTimeDiscount', 'achariyaFirstTimeDiscount'], typeField: 'firstTimeDiscountType', flatField: 'flatFirstTimeDiscount' },
+  { key: 'repeatDiscount', kind: 'discount', percentFields: ['repeatDiscount'], typeField: 'repeatDiscountType', flatField: 'flatRepeatDiscount' },
+  { key: 'referralDiscount', kind: 'discount', percentFields: ['referralDiscount'], typeField: 'referralDiscountType', flatField: 'flatReferralDiscount' },
+  { key: 'purchasePoints', kind: 'reward', percentFields: ['purchasePointsPercentage'], typeField: 'purchasePointsType', flatField: 'flatPurchasePoints' },
+  { key: 'referralPoints', kind: 'reward', percentFields: ['referralPointsPercentage', 'achariyaReferralPointsPercentage'], typeField: 'referralPointsType', flatField: 'flatReferralPoints' },
+  { key: 'cashRewardPurchase', kind: 'reward', percentFields: ['cashRewardPurchasePercentage'], typeField: 'cashRewardPurchaseType', flatField: 'flatCashRewardPurchase' },
+  { key: 'cashRewardReferral', kind: 'reward', percentFields: ['cashRewardReferralPercentage'], typeField: 'cashRewardReferralType', flatField: 'flatCashRewardReferral' },
+] as const;
+
 /** The error for a service charge value under its type, or null when it is allowed. */
 export function serviceChargeError(type: 'PERCENTAGE' | 'FIXED', value: number): string | null {
   if (type === 'PERCENTAGE' && value > MAX_SERVICE_CHARGE_PERCENT) {
@@ -404,6 +452,24 @@ const outletOfferFields = {
   achariyaFirstTimeDiscount: discountOverrideSchema,
   repeatDiscount: discountOverrideSchema,
   referralDiscount: discountOverrideSchema,
+  /** @deprecated Older builds: sets all three discount slabs' types. */
+  discountType: discountTypeSchema,
+  firstTimeDiscountType: discountTypeSchema,
+  repeatDiscountType: discountTypeSchema,
+  referralDiscountType: discountTypeSchema,
+  purchasePointsType: discountTypeSchema,
+  referralPointsType: discountTypeSchema,
+  cashRewardPurchaseType: discountTypeSchema,
+  cashRewardReferralType: discountTypeSchema,
+  flatFirstTimeDiscount: flatDiscountSchema,
+  flatRepeatDiscount: flatDiscountSchema,
+  flatReferralDiscount: flatDiscountSchema,
+  flatPurchasePoints: flatRewardSchema,
+  flatReferralPoints: flatRewardSchema,
+  flatCashRewardPurchase: flatRewardSchema,
+  flatCashRewardReferral: flatRewardSchema,
+  minBillAmount: minBillAmountSchema,
+  walletRedemptionEnabled: z.boolean({ invalid_type_error: 'Wallet redemption must be on or off' }),
   gstPercentage: percentageSchema.refine((v) => v <= 50, 'GST cannot exceed 50%'),
   serviceChargeType: serviceChargeTypeSchema,
   serviceChargeValue: serviceChargeValueSchema,
@@ -429,6 +495,22 @@ export const OUTLET_OFFER_FIELDS = [
   'achariyaFirstTimeDiscount',
   'repeatDiscount',
   'referralDiscount',
+  'firstTimeDiscountType',
+  'repeatDiscountType',
+  'referralDiscountType',
+  'purchasePointsType',
+  'referralPointsType',
+  'cashRewardPurchaseType',
+  'cashRewardReferralType',
+  'flatFirstTimeDiscount',
+  'flatRepeatDiscount',
+  'flatReferralDiscount',
+  'flatPurchasePoints',
+  'flatReferralPoints',
+  'flatCashRewardPurchase',
+  'flatCashRewardReferral',
+  'minBillAmount',
+  'walletRedemptionEnabled',
   'gstPercentage',
   'serviceChargeType',
   'serviceChargeValue',
@@ -452,20 +534,9 @@ export const outletCreateSchema = z
     logoUrl: outletProfileFields.logoUrl.optional(),
     images: outletProfileFields.images.optional(),
     status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
-    firstTimeDiscount: outletOfferFields.firstTimeDiscount.optional(),
-    achariyaFirstTimeDiscount: outletOfferFields.achariyaFirstTimeDiscount.optional(),
-    repeatDiscount: outletOfferFields.repeatDiscount.optional(),
-    referralDiscount: outletOfferFields.referralDiscount.optional(),
-    gstPercentage: outletOfferFields.gstPercentage.optional(),
-    serviceChargeType: outletOfferFields.serviceChargeType.optional(),
-    serviceChargeValue: outletOfferFields.serviceChargeValue.optional(),
-    purchasePointsPercentage: outletOfferFields.purchasePointsPercentage.optional(),
-    referralPointsPercentage: outletOfferFields.referralPointsPercentage.optional(),
-    achariyaReferralPointsPercentage: outletOfferFields.achariyaReferralPointsPercentage.optional(),
-    cashRewardPurchasePercentage: outletOfferFields.cashRewardPurchasePercentage.optional(),
-    cashRewardReferralPercentage: outletOfferFields.cashRewardReferralPercentage.optional(),
-    givesCashReward: outletOfferAdminFields.givesCashReward.optional(),
-    canEditOffers: outletOfferAdminFields.canEditOffers.optional(),
+    // Every offer field is optional on create: omitted keeps the default.
+    ...z.object(outletOfferFields).partial().shape,
+    ...z.object(outletOfferAdminFields).partial().shape,
     adminEmail: emailSchema,
     adminPassword: outletPasswordSchema,
   })
@@ -572,6 +643,8 @@ export const billPreviewSchema = z
     qrCode: qrCodeInputSchema,
     billAmount: billAmountSchema,
     customer: referredCustomerSchema.optional(),
+    /** FIXED-discount outlets: the ₹ discount picked for this bill; the server caps it. */
+    flatDiscount: flatDiscountSchema.optional(),
   })
   .strict();
 
@@ -866,5 +939,12 @@ export const pushTokenSchema = z
       .trim()
       .regex(/^(Expo|Exponent)PushToken\[[^\]]+\]$/, 'Invalid push token'),
     platform: z.enum(['ios', 'android', 'web']).optional(),
+  })
+  .strict();
+
+/** POST /partner/wallet/redeem-qr: the outlet to redeem at (older apps send no body: any outlet). */
+export const redeemQrCreateSchema = z
+  .object({
+    outletId: z.string().uuid('Choose an outlet to redeem at').optional(),
   })
   .strict();

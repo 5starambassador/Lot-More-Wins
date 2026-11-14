@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ApiClientError } from '@lotmorewins/api-client';
-import { billAmountSchema } from '@lotmorewins/validation';
+import { MAX_BILL_REDUCTION_PERCENT, billAmountSchema } from '@lotmorewins/validation';
 import type { BillCalculation, BillRecord, ReferredCustomerInput, ScanResult } from '@lotmorewins/types';
 import * as Haptics from '../../lib/haptics';
 import { Button, Divider, Field, IconMark, InfoRow, Notice, Panel, Txt } from '../ui';
@@ -94,12 +94,17 @@ export function Breakdown({ calc }: { calc: BillCalculation | BillRecord }) {
       <View style={styles.offerRow}>
         <Ionicons name="pricetag" size={14} color={colors.gold} />
         <Txt variant="smallMedium" tone="gold" style={styles.offerLabel}>
-          {offerLabel(calc)} ({formatPercent(calc.discountPercentage)} OFF)
+          {offerLabel(calc)} ({calc.discountType === 'FIXED' ? 'flat' : `${formatPercent(calc.discountPercentage)} OFF`})
         </Txt>
         <Txt variant="bodyMedium" tone="gold" selectable>
           − {formatINR(calc.discountAmount)}
         </Txt>
       </View>
+      {calc.belowMinimumBill ? (
+        <Txt variant="caption" tone="muted">
+          Below this outlet's {formatINR(calc.minBillAmount ?? 0)} minimum bill: no discount
+        </Txt>
+      ) : null}
       {reward && (
         <Txt variant="caption" tone="gold">
           {reward}
@@ -123,6 +128,13 @@ export function Breakdown({ calc }: { calc: BillCalculation | BillRecord }) {
       </View>
     </View>
   );
+}
+
+/** FIXED outlets: the most ₹ off this bill (the slab, and never more than half the bill). */
+function maxFlatDiscount(scan: ScanResult, amount: number | null): number {
+  const cap = scan.flatDiscountCap ?? 0;
+  if (amount === null) return cap;
+  return Math.max(0, Math.min(cap, Math.floor((amount * MAX_BILL_REDUCTION_PERCENT) / 100)));
 }
 
 /** How the bill is worked out at this outlet; the service charge is mentioned only when it has one. */
@@ -158,9 +170,14 @@ export function AmountStep({
   onCancel: () => void;
   onSignedOut: () => void;
 }) {
+  const isFixed = scan.discountType === 'FIXED';
   const [amountText, setAmountText] = useState('');
   const [amountError, setAmountError] = useState<string | null>(null);
+  // FIXED outlets: the ₹ discount picked for this bill; starts at the full slab.
+  const [discountText, setDiscountText] = useState(() => String(scan.flatDiscountCap ?? 0));
   const [preview, setPreview] = useState<BillCalculation | null>(null);
+  // The amount and discount the shown preview was calculated for.
+  const [previewFor, setPreviewFor] = useState<{ amount: number; discount: number | undefined } | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -172,12 +189,31 @@ export function AmountStep({
 
   const amount = Number(amountText);
   const validAmount = amountText !== '' && billAmountSchema.safeParse(amount).success;
-  const previewMatches = !!preview && validAmount && preview.billAmount === Number(amount.toFixed(2));
+  const maxDiscount = maxFlatDiscount(scan, validAmount ? amount : null);
+  // Under the outlet's minimum bill there is no discount, so there is nothing to pick.
+  const minBill = scan.minBillAmount ?? 0;
+  const belowMinimum = minBill > 0 && validAmount && amount < minBill;
+  const flatDiscount = isFixed ? (discountText === '' ? 0 : Number(discountText)) : undefined;
+  const discountError =
+    isFixed && flatDiscount !== undefined && flatDiscount > maxDiscount
+      ? validAmount && maxDiscount < (scan.flatDiscountCap ?? 0)
+        ? `Up to ${formatINR(maxDiscount)} on this bill (half the bill)`
+        : `Up to ${formatINR(maxDiscount)} at this outlet`
+      : null;
+  const previewMatches =
+    !!preview &&
+    validAmount &&
+    !discountError &&
+    !!previewFor &&
+    previewFor.amount === Number(amount.toFixed(2)) &&
+    previewFor.discount === flatDiscount;
 
   // Live, debounced server preview as the amount is typed (the phone never calculates).
   useEffect(() => {
     setPreview(null);
+    setPreviewFor(null);
     idempotencyKey.current = null;
+    if (discountError) return;
     if (!amountText) {
       setAmountError(null);
       return;
@@ -196,9 +232,11 @@ export function AmountStep({
           qrCode,
           billAmount: parsed.data,
           customer,
+          ...(flatDiscount !== undefined && { flatDiscount }),
         });
         if (seq !== requestSeq.current) return;
         setPreview(res.data);
+        setPreviewFor({ amount: Number(parsed.data.toFixed(2)), discount: flatDiscount });
         idempotencyKey.current = newIdempotencyKey();
         setError(null);
       } catch (err) {
@@ -211,7 +249,7 @@ export function AmountStep({
     }, PREVIEW_DEBOUNCE_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [amountText, qrCode, customer]);
+  }, [amountText, discountText, discountError, qrCode, customer]);
 
   const complete = async () => {
     if (!preview || !previewMatches || !idempotencyKey.current || submitting) return;
@@ -225,6 +263,7 @@ export function AmountStep({
         customer,
         idempotencyKey: idempotencyKey.current,
         settingsVersion: preview.settingsVersion,
+        ...(flatDiscount !== undefined && { flatDiscount }),
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onCompleted(res.data.bill, res.data.replayed);
@@ -283,8 +322,48 @@ export function AmountStep({
         autoFocus
         style={styles.amountInput}
         accessory={previewing ? <ActivityIndicator color={colors.gold} style={styles.spinner} /> : null}
-        hint={amountHint(scan)}
+        hint={minBill > 0 ? `${amountHint(scan)} Bills under ${formatINR(minBill)} get no discount.` : amountHint(scan)}
       />
+
+      {belowMinimum && (
+        <Notice tone="warning" message={`This bill is under the outlet's ${formatINR(minBill)} minimum, so it gets no discount.`} />
+      )}
+
+      {isFixed && !belowMinimum && (
+        <View style={styles.flatBlock}>
+          <Field
+            label="Discount for this bill"
+            prefix="₹"
+            value={discountText}
+            onChangeText={(t) => setDiscountText(t.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, ''))}
+            error={discountError}
+            keyboardType="number-pad"
+            placeholder="0"
+            editable={!submitting}
+            maxLength={6}
+            hint={`Any amount from ₹0 to ${formatINR(maxDiscount)}. Comes off the product total.`}
+          />
+          <View style={styles.chips}>
+            {[0.25, 0.5, 1].map((share) => {
+              const value = Math.floor(maxDiscount * share);
+              const active = discountText === String(value);
+              return (
+                <Button
+                  key={share}
+                  label={share === 1 ? `Max ${formatINR(value)}` : formatINR(value)}
+                  variant={active ? 'secondary' : 'ghost'}
+                  compact
+                  disabled={submitting}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setDiscountText(String(value));
+                  }}
+                />
+              );
+            })}
+          </View>
+        </View>
+      )}
 
       {notice && <Notice tone="warning" message={notice} onDismiss={() => setNotice(null)} />}
       {error && <Notice tone="error" message={error} onDismiss={() => setError(null)} />}
@@ -322,6 +401,8 @@ const styles = StyleSheet.create({
   },
   amountInput: { fontFamily: fonts.semibold, fontSize: 24, height: 60 },
   spinner: { marginRight: space.md },
+  flatBlock: { marginBottom: space.md },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, marginTop: -space.xs },
   section: { marginBottom: space.lg },
   placeholder: {
     borderWidth: 1,

@@ -1,16 +1,19 @@
 import { Prisma } from '@prisma/client';
 import type { Outlet as OutletRow, OfferChangeActor } from '@prisma/client';
 import type {
+  DiscountType,
   OutletEffectiveDiscounts,
   OutletEffectiveRewards,
   OutletOfferChangeRecord,
   OutletOfferFieldsPayload,
   OutletOfferSettings,
   OutletOfferSummary,
+  OutletFlatValues,
+  OutletSlabTypes,
   PartnerCategory,
   ProgramSettings,
 } from '@lotmorewins/types';
-import { OUTLET_OFFER_FIELDS, serviceChargeError } from '@lotmorewins/validation';
+import { OUTLET_OFFER_FIELDS, OUTLET_SLABS, serviceChargeError } from '@lotmorewins/validation';
 import prisma from './prisma';
 import { HttpError } from './auth';
 
@@ -24,24 +27,8 @@ import { HttpError } from './auth';
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
-type OfferRow = Pick<
-  OutletRow,
-  | 'firstTimeDiscount'
-  | 'achariyaFirstTimeDiscount'
-  | 'repeatDiscount'
-  | 'referralDiscount'
-  | 'gstPercentage'
-  | 'serviceChargeType'
-  | 'serviceChargeValue'
-  | 'purchasePointsPercentage'
-  | 'referralPointsPercentage'
-  | 'achariyaReferralPointsPercentage'
-  | 'cashRewardPurchasePercentage'
-  | 'cashRewardReferralPercentage'
-  | 'givesCashReward'
-  | 'canEditOffers'
-  | 'offersUpdatedAt'
->;
+/** Offer settings are read from full outlet rows. */
+type OfferRow = OutletRow;
 type ProgrammeDiscounts = Pick<ProgramSettings, 'firstTimeDiscount' | 'achariyaFirstTimeDiscount' | 'repeatDiscount' | 'referralDiscount'>;
 type ProgrammeRewards = Pick<ProgramSettings, keyof OutletEffectiveRewards>;
 
@@ -53,6 +40,27 @@ export function serializeOfferSettings(outlet: OfferRow): OutletOfferSettings {
     achariyaFirstTimeDiscount: num(outlet.achariyaFirstTimeDiscount),
     repeatDiscount: num(outlet.repeatDiscount),
     referralDiscount: num(outlet.referralDiscount),
+    firstTimeDiscountType: outlet.firstTimeDiscountType,
+    repeatDiscountType: outlet.repeatDiscountType,
+    referralDiscountType: outlet.referralDiscountType,
+    purchasePointsType: outlet.purchasePointsType,
+    referralPointsType: outlet.referralPointsType,
+    cashRewardPurchaseType: outlet.cashRewardPurchaseType,
+    cashRewardReferralType: outlet.cashRewardReferralType,
+    flatFirstTimeDiscount: outlet.flatFirstTimeDiscount.toNumber(),
+    flatRepeatDiscount: outlet.flatRepeatDiscount.toNumber(),
+    flatReferralDiscount: outlet.flatReferralDiscount.toNumber(),
+    flatPurchasePoints: outlet.flatPurchasePoints.toNumber(),
+    flatReferralPoints: outlet.flatReferralPoints.toNumber(),
+    flatCashRewardPurchase: outlet.flatCashRewardPurchase.toNumber(),
+    flatCashRewardReferral: outlet.flatCashRewardReferral.toNumber(),
+    minBillAmount: outlet.minBillAmount.toNumber(),
+    walletRedemptionEnabled: outlet.walletRedemptionEnabled,
+    // Older Outlet Admin builds read one type: flat only when every discount slab is.
+    discountType:
+      outlet.firstTimeDiscountType === 'FIXED' && outlet.repeatDiscountType === 'FIXED' && outlet.referralDiscountType === 'FIXED'
+        ? 'FIXED'
+        : 'PERCENTAGE',
     gstPercentage: outlet.gstPercentage.toNumber(),
     serviceChargeType: outlet.serviceChargeType,
     serviceChargeValue: outlet.serviceChargeValue.toNumber(),
@@ -108,6 +116,33 @@ export function effectiveRewards(settings: ProgrammeRewards, outlet: OfferRow): 
 }
 
 const formatPercent = (value: number) => Number(value.toFixed(2)).toString();
+const formatRupees = (value: number) => Number(value.toFixed(2)).toLocaleString('en-IN');
+
+/** Each slab's type at the outlet (% or flat ₹). */
+export function slabTypes(outlet: OfferRow): OutletSlabTypes {
+  return Object.fromEntries(OUTLET_SLABS.map((s) => [s.key, outlet[s.typeField]])) as OutletSlabTypes;
+}
+
+/** Each slab's flat ₹ amount at the outlet (used while its type is FIXED). */
+export function flatValues(outlet: OfferRow): OutletFlatValues {
+  return Object.fromEntries(OUTLET_SLABS.map((s) => [s.key, outlet[s.flatField].toNumber()])) as OutletFlatValues;
+}
+
+export const PERCENT_SLAB_TYPES: OutletSlabTypes = Object.fromEntries(
+  OUTLET_SLABS.map((s) => [s.key, 'PERCENTAGE' as DiscountType])
+) as OutletSlabTypes;
+export const NO_FLAT_VALUES: OutletFlatValues = Object.fromEntries(OUTLET_SLABS.map((s) => [s.key, 0])) as OutletFlatValues;
+
+/** What offerSummary needs to know about the outlet's slab types. */
+export interface OfferSummaryFlat {
+  types: OutletSlabTypes;
+  flat: OutletFlatValues;
+}
+
+/** The slab part of offerSummary's input, from an outlet row. */
+export function summaryFlat(outlet: OfferRow): OfferSummaryFlat {
+  return { types: slabTypes(outlet), flat: flatValues(outlet) };
+}
 
 /**
  * "Up to X% discount" with the highest discount type, even when every type is the same: what a
@@ -118,26 +153,46 @@ const formatPercent = (value: number) => Number(value.toFixed(2)).toString();
 export function offerSummary(
   discounts: OutletEffectiveDiscounts,
   givesCashReward: boolean,
-  category: PartnerCategory | null = null
+  category: PartnerCategory | null = null,
+  flat: OfferSummaryFlat | null = null
 ): OutletOfferSummary {
+  const types = flat?.types ?? PERCENT_SLAB_TYPES;
+  const amounts = flat?.flat ?? NO_FLAT_VALUES;
   const firstTime =
     category === 'ACHARIYA'
       ? [discounts.achariyaFirstTimeDiscount]
       : category === 'NON_ACHARIYA'
         ? [discounts.firstTimeDiscount]
         : [discounts.firstTimeDiscount, discounts.achariyaFirstTimeDiscount];
-  const values = [...firstTime, discounts.repeatDiscount, discounts.referralDiscount];
-  const maxDiscount = Math.max(...values);
-  const isFlat = values.every((v) => v === maxDiscount);
+  const percents: number[] = [];
+  const rupees: number[] = [];
+  const add = (type: DiscountType, pct: number[], flatAmount: number) =>
+    type === 'FIXED' ? rupees.push(flatAmount) : percents.push(...pct);
+  add(types.firstTimeDiscount, firstTime, amounts.firstTimeDiscount);
+  add(types.repeatDiscount, [discounts.repeatDiscount], amounts.repeatDiscount);
+  add(types.referralDiscount, [discounts.referralDiscount], amounts.referralDiscount);
+  const maxDiscount = percents.length ? Math.max(...percents) : 0;
+  const maxFlat = rupees.length ? Math.max(...rupees) : 0;
+  // The headline is the % unless only the flat slabs give anything.
+  const headlineFlat = maxDiscount <= 0 && maxFlat > 0;
+  const pctText = `${formatPercent(maxDiscount)}%`;
+  const flatText = `₹${formatRupees(maxFlat)}`;
   return {
+    // Older apps print maxDiscount as a %, so flat slabs never count in it.
     maxDiscount,
-    isFlat,
-    label: `Up to ${formatPercent(maxDiscount)}% discount`,
+    isFlat: rupees.length === 0 && percents.every((v) => v === maxDiscount),
+    discountType: headlineFlat ? 'FIXED' : 'PERCENTAGE',
+    maxFlatDiscount: maxFlat,
+    badge: `Upto ${headlineFlat ? flatText : pctText}`,
+    label:
+      maxDiscount > 0 && maxFlat > 0
+        ? `Up to ${pctText} or ${flatText} discount`
+        : `Up to ${headlineFlat ? flatText : pctText} discount`,
     givesCashReward,
   };
 }
 
-/** Highest discount over the active outlets ("Get up to X%"); null when there is no active outlet. */
+/** Highest % discount over the active outlets ("Get up to X%"); flat ₹ outlets count as 0. Null when there is no active outlet. */
 export async function maxActiveOutletDiscount(
   settings: ProgrammeDiscounts,
   category: PartnerCategory | null = null,
@@ -145,7 +200,9 @@ export async function maxActiveOutletDiscount(
 ): Promise<number | null> {
   const outlets = await db.outlet.findMany({ where: { status: 'ACTIVE' } });
   if (outlets.length === 0) return null;
-  return Math.max(...outlets.map((o) => offerSummary(effectiveDiscounts(settings, o), o.givesCashReward, category).maxDiscount));
+  return Math.max(
+    ...outlets.map((o) => offerSummary(effectiveDiscounts(settings, o), o.givesCashReward, category, summaryFlat(o)).maxDiscount)
+  );
 }
 
 // ============================================================================
@@ -167,11 +224,19 @@ function asText(value: Prisma.Decimal | number | boolean | string | null | undef
   return new Prisma.Decimal(value).toDecimalPlaces(2).toString();
 }
 
+/** Every offer field a payload may carry (the stored ones and the older single discount type). */
+export const OFFER_PAYLOAD_KEYS: ReadonlySet<string> = new Set<string>([...OUTLET_OFFER_FIELDS, 'discountType']);
+
 /** Only the offer fields of a create / update payload. */
 export function pickOfferFields(input: OutletOfferFieldsPayload): OutletOfferFieldsPayload {
   const picked: Record<string, unknown> = {};
-  for (const field of OUTLET_OFFER_FIELDS) if (input[field] !== undefined) picked[field] = input[field];
+  for (const [field, value] of Object.entries(input)) if (OFFER_PAYLOAD_KEYS.has(field) && value !== undefined) picked[field] = value;
   return picked as OutletOfferFieldsPayload;
+}
+
+/** Everything but the offer fields (the profile fields an update writes directly). */
+export function withoutOfferFields<T extends object>(input: T): Partial<T> {
+  return Object.fromEntries(Object.entries(input).filter(([field]) => !OFFER_PAYLOAD_KEYS.has(field))) as Partial<T>;
 }
 
 /**
@@ -196,6 +261,16 @@ export async function applyOfferChanges(
   const chargeValue = input.serviceChargeValue ?? current.serviceChargeValue.toNumber();
   const chargeError = serviceChargeError(chargeType, chargeValue);
   if (chargeError) throw new HttpError(422, chargeError, 'VALIDATION_ERROR');
+
+  // Older Outlet Admin builds send one discount type for every discount slab.
+  if (input.discountType !== undefined) {
+    input = {
+      ...input,
+      firstTimeDiscountType: input.firstTimeDiscountType ?? input.discountType,
+      repeatDiscountType: input.repeatDiscountType ?? input.discountType,
+      referralDiscountType: input.referralDiscountType ?? input.discountType,
+    };
+  }
 
   const data: Prisma.OutletUpdateInput = {};
   const changes: Prisma.OutletOfferChangeCreateManyInput[] = [];

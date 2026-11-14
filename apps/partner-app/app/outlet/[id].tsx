@@ -15,6 +15,7 @@ import { ImageViewer } from '../../components/outlets/ImageViewer';
 import { HeroSlider } from '../../components/outlets/HeroSlider';
 import { describeError, useHome, useOutlets } from '../../lib/queries';
 import { formatPercent } from '../../lib/format';
+import { formatRupees, isFixed, offerFigure } from '../../lib/offer';
 import { canvasFill, colors, GUTTER, radius, space } from '../../theme/tokens';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -80,7 +81,19 @@ function QuickAction({ icon, label, onPress }: { icon: IconName; label: string; 
   );
 }
 
-function DetailRow({ icon, label, value, last = false }: { icon: IconName; label: string; value: string; last?: boolean }) {
+function DetailRow({
+  icon,
+  label,
+  value,
+  last = false,
+  tone,
+}: {
+  icon: IconName;
+  label: string;
+  value: string;
+  last?: boolean;
+  tone?: 'gold' | 'muted';
+}) {
   return (
     <View style={[styles.detail, !last && styles.detailDivider]}>
       <View style={styles.detailIcon}>
@@ -90,7 +103,7 @@ function DetailRow({ icon, label, value, last = false }: { icon: IconName; label
         <Txt variant="caption" tone="muted">
           {label}
         </Txt>
-        <Txt variant="body" selectable>
+        <Txt variant="body" tone={tone} selectable>
           {value}
         </Txt>
       </View>
@@ -141,13 +154,17 @@ export default function OutletDetailScreen() {
   const offers = home.data?.offers;
   // This outlet's own offer from the server; the programme discount before outlet offers existed.
   const offer = outlet.offer;
-  const discount = offer
-    ? offer.maxDiscount
-    : offers
-      ? offers.firstTimeAvailable && offers.firstTimeDiscount > 0
-        ? offers.firstTimeDiscount
-        : offers.repeatDiscount
-      : 0;
+  // "₹500" at a FIXED outlet (its maxDiscount is 0 there), "20%" otherwise; null when there is none.
+  const programmeDiscount = offers
+    ? offers.firstTimeAvailable && offers.firstTimeDiscount > 0
+      ? offers.firstTimeDiscount
+      : offers.repeatDiscount
+    : 0;
+  const discount = offer ? offerFigure(offer) : programmeDiscount > 0 ? formatPercent(programmeDiscount) : null;
+  const fixed = isFixed(offer?.discountType);
+  // Older servers send neither: no minimum, redemption on.
+  const minBill = outlet.minBillAmount ?? 0;
+  const redeemable = outlet.walletRedemptionEnabled !== false;
 
   return (
     <View style={styles.root}>
@@ -192,15 +209,21 @@ export default function OutletDetailScreen() {
           {directions ? <QuickAction icon="navigate" label="Directions" onPress={() => open(directions)} /> : null}
         </Animated.View>
 
-        {discount > 0 ? (
+        {discount ? (
           <Animated.View entering={FadeInDown.delay(120).duration(400)} style={styles.pad}>
-            <View style={styles.offer}>
+            <Glass rounded={radius.lg} style={styles.offer}>
               <View style={styles.offerFigure}>
-                <Txt variant="heading" tone="onGold">
-                  {formatPercent(discount)}
-                </Txt>
                 <Txt variant="caption" tone="onGold">
-                  up to
+                  Upto
+                </Txt>
+                <Txt
+                  variant="heading"
+                  tone="onGold"
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  style={fixed ? styles.offerFigureFlat : undefined}
+                >
+                  {discount}
                 </Txt>
               </View>
               <View style={styles.flex}>
@@ -219,9 +242,28 @@ export default function OutletDetailScreen() {
                 compact
                 onPress={() => router.push({ pathname: '/qr/[type]', params: { type: 'discount' } })}
               />
-            </View>
+            </Glass>
           </Animated.View>
         ) : null}
+
+        <Animated.View entering={FadeInDown.delay(140).duration(400)} style={[styles.pad, styles.section]}>
+          <SectionLabel label="Offer rules" />
+          <Glass rounded={radius.lg} style={styles.card}>
+            <DetailRow
+              icon="receipt-outline"
+              label="Minimum bill to get the discount"
+              value={minBill > 0 ? `${formatRupees(minBill)} and above` : 'No minimum: every bill gets the discount'}
+              tone={minBill > 0 ? 'gold' : undefined}
+            />
+            <DetailRow
+              icon={redeemable ? 'wallet-outline' : 'lock-closed-outline'}
+              label="Wallet redemption"
+              value={redeemable ? 'Available: pay part of your bill from your wallet' : 'Not available at this outlet'}
+              tone={redeemable ? 'gold' : 'muted'}
+              last
+            />
+          </Glass>
+        </Animated.View>
 
         <Animated.View entering={FadeInDown.delay(160).duration(400)} style={[styles.pad, styles.section]}>
           <SectionLabel label="Contact details" />
@@ -350,19 +392,19 @@ const styles = StyleSheet.create({
     gap: space.md,
     marginTop: space.md,
     padding: space.md,
-    borderRadius: radius.lg,
-    borderWidth: 1,
     borderColor: colors.goldLine,
-    backgroundColor: colors.maroonSoft,
   },
   offerFigure: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    paddingHorizontal: 6,
     backgroundColor: colors.gold,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // A rupee figure ("₹1,500") is wider than a percentage; start smaller so it fits the disc.
+  offerFigureFlat: { fontSize: 15, lineHeight: 20 },
   section: { marginTop: space.xxl },
   card: { paddingHorizontal: space.md },
   detail: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.md },

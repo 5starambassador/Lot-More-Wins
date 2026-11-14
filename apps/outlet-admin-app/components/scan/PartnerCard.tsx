@@ -1,7 +1,7 @@
 import { StyleSheet, View } from 'react-native';
 import type { ScanResult } from '@lotmorewins/types';
 import { Badge, Divider, IconMark, InfoRow, Panel, Txt } from '../ui';
-import { birthdayBonusLabel, formatPercent, referralRewardLabel } from '../../lib/format';
+import { birthdayBonusLabel, formatINR, formatPercent, referralRewardLabel } from '../../lib/format';
 import { colors, radius, space } from '../../theme/tokens';
 
 /** Partner resolved by the server from the scanned QR, with the discount the settings give them. */
@@ -26,7 +26,10 @@ export function PartnerCard({ scan, compact = false }: { scan: ScanResult; compa
         ? 'First redemption'
         : 'Register bonus already used';
   const bonus = birthdayBonusLabel(discount.birthdayBonusPercentage);
-  const discountHint = bonus ? `${baseHint} · ${bonus}` : baseHint;
+  // FIXED outlets: the slab is the most ₹ off; the amount is picked with the bill amount.
+  const isFixed = scan.discountType === 'FIXED';
+  const flatHint = isFixed ? 'Pick the amount with the bill' : null;
+  const discountHint = [baseHint, flatHint, bonus].filter(Boolean).join(' · ');
 
   return (
     <Panel style={styles.card}>
@@ -63,7 +66,7 @@ export function PartnerCard({ scan, compact = false }: { scan: ScanResult; compa
         </View>
         <View style={styles.pct}>
           <Txt variant="title" tone="onGold">
-            {formatPercent(discount.discountPercentage)}
+            {isFixed ? `Up to ${formatINR(scan.flatDiscountCap ?? 0)}` : formatPercent(discount.discountPercentage)}
           </Txt>
         </View>
       </View>

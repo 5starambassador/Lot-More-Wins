@@ -70,6 +70,7 @@ interface FormState {
   /** 0 = Sunday … 6 = Saturday */
   payoutWeekday: string;
   redeemQr: 'on' | 'off';
+  wallet: 'on' | 'off';
 }
 
 function toForm(s: ProgramSettings): FormState {
@@ -106,6 +107,7 @@ function toForm(s: ProgramSettings): FormState {
     payoutMin: String(s.payoutMinimumAmount),
     payoutWeekday: String(s.payoutWeekday),
     redeemQr: s.redeemQrEnabled ? 'on' : 'off',
+    wallet: s.walletEnabled === false ? 'off' : 'on',
   };
 }
 
@@ -159,6 +161,11 @@ const FIELDS: {
   { key: 'achReferralPoints', label: 'Referral points (Achariya)', unit: '%' },
   { key: 'cashPurchase', label: 'Cashback · Purchase', unit: '%' },
   { key: 'cashReferral', label: 'Cashback · Referral', unit: '%' },
+  {
+    key: 'wallet',
+    label: 'Wallet (redeem QR and sending to a partner)',
+    format: (v) => (v === 'on' ? 'On' : 'Off'),
+  },
   {
     key: 'redeemQr',
     label: 'Redeem QR (pay part of a bill from the wallet)',
@@ -473,6 +480,7 @@ export default function SettingsPage() {
         payoutMinimumAmount: Number(values.payoutMin),
         payoutWeekday: Number(values.payoutWeekday),
         redeemQrEnabled: values.redeemQr === 'on',
+        walletEnabled: values.wallet === 'on',
       });
       setData(() => res.data);
       setForm(null);
@@ -830,6 +838,29 @@ export default function SettingsPage() {
 
                 {/* Weekly UPI payouts (and their minimum balance and day) are hidden: payouts ended
                     when the cash reward wallet merged into the one wallet. */}
+
+                <Field
+                  label="Wallet redemption"
+                  hint="The whole Partner App wallet. Off: Generate redeem QR and Send to a partner show “temporarily not available” with a link to the Personal Discount QR, and the server refuses redeem QRs and transfers. Balances and history stay as they are."
+                >
+                  <ChoiceCards<'on' | 'off'>
+                    name="Wallet redemption"
+                    value={values.wallet}
+                    onChange={set('wallet') as (v: 'on' | 'off') => void}
+                    options={[
+                      {
+                        value: 'on',
+                        label: 'On',
+                        hint: 'Partners can redeem and send from their wallet',
+                      },
+                      {
+                        value: 'off',
+                        label: 'Off',
+                        hint: 'Wallet paused: no redeem QR, no sending',
+                      },
+                    ]}
+                  />
+                </Field>
 
                 <Field
                   label="Redeem QR"

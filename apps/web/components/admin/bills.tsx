@@ -111,7 +111,7 @@ export function BillsTable({
                     ) : (
                       <>
                         <span className="text-stone-700">{formatINR(bill.discountAmount)}</span>
-                        <span className="block text-[11px] text-stone-400">{formatNumber(bill.discountPercentage)}%</span>
+                        <span className="block text-[11px] text-stone-400">{bill.discountType === 'FIXED' ? 'Flat' : `${formatNumber(bill.discountPercentage)}%`}</span>
                       </>
                     )}
                   </TD>
@@ -208,7 +208,7 @@ export function BillDrawer({ bill, onClose, onDelete }: { bill: BillRecord | nul
             </div>
           ) : (
             <div>
-              <p className="text-xs text-stone-500">Discount ({formatNumber(bill.discountPercentage)}%)</p>
+              <p className="text-xs text-stone-500">{bill.discountType === 'FIXED' ? 'Discount (flat)' : `Discount (${formatNumber(bill.discountPercentage)}%)`}</p>
               <p className="tabular font-medium text-maroon-700">− {formatINR(bill.discountAmount)}</p>
             </div>
           )}

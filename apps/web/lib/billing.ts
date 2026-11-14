@@ -10,7 +10,15 @@ import type {
   ReferredCustomerInput,
   ScanResult,
 } from '@lotmorewins/types';
-import type { OutletEffectiveDiscounts, OutletEffectiveRewards, PartnerCategory, ServiceChargeType } from '@lotmorewins/types';
+import type {
+  DiscountType,
+  OutletEffectiveDiscounts,
+  OutletEffectiveRewards,
+  OutletFlatValues,
+  OutletSlabTypes,
+  PartnerCategory,
+  ServiceChargeType,
+} from '@lotmorewins/types';
 import { MAX_BILL_REDUCTION_PERCENT } from '@lotmorewins/validation';
 import prisma from './prisma';
 import { HttpError } from './auth';
@@ -18,7 +26,16 @@ import { requireConfiguredSettings, type ConfiguredProgramSettings } from './set
 import { birthdayBonusFor } from './partners';
 import { billNotificationRows, referralRewardNotificationRow } from './partner-notifications';
 import { referralProgress } from './referral-rewards';
-import { effectiveDiscounts, effectiveRewards, programmeDiscounts, programmeRewards } from './outlet-offers';
+import {
+  effectiveDiscounts,
+  effectiveRewards,
+  flatValues,
+  NO_FLAT_VALUES,
+  PERCENT_SLAB_TYPES,
+  programmeDiscounts,
+  programmeRewards,
+  slabTypes,
+} from './outlet-offers';
 import { rupeeValueOf } from './points';
 
 /**
@@ -107,7 +124,8 @@ export async function isFirstTimeDirect(
   if (!firstTimeWindowOpen(partner, validityDays)) return false;
   return (
     (await db.bill.count({
-      where: { partnerId: partner.id, outletId, transactionType: 'DIRECT_PARTNER' },
+        // A bill under the outlet's minimum got no discount, so it does not use up first-time status.
+      where: { partnerId: partner.id, outletId, transactionType: 'DIRECT_PARTNER', belowMinimumBill: false },
     })) === 0
   );
 }
@@ -118,7 +136,7 @@ function pointsExpiry(validityDays: number): Date | null {
 }
 
 async function isFirstTimeCustomer(db: Db, mobile: string, outletId: string) {
-  return (await db.bill.count({ where: { outletId, customer: { mobile } } })) === 0;
+  return (await db.bill.count({ where: { outletId, customer: { mobile }, belowMinimumBill: false } })) === 0;
 }
 
 // ============================================================================
@@ -127,7 +145,12 @@ async function isFirstTimeCustomer(db: Db, mobile: string, outletId: string) {
 
 /** What the bill's outlet contributes: its discounts and rewards (overrides resolved), service charge, GST and cash reward. */
 export interface OutletBillTerms {
+  /** Each slab's type: PERCENTAGE uses discounts / rewards, FIXED uses its ₹ amount in `flat`. */
+  types: OutletSlabTypes;
   discounts: OutletEffectiveDiscounts;
+  flat: OutletFlatValues;
+  /** Bills below this get no discount; 0 = no minimum. */
+  minBillAmount: number;
   rewards: OutletEffectiveRewards;
   gstPercentage: number;
   /** PERCENTAGE: serviceChargeValue % of the discounted amount. FIXED: serviceChargeValue ₹ per bill. */
@@ -142,7 +165,10 @@ type OutletOfferRow = Parameters<typeof effectiveDiscounts>[1];
 
 export function outletBillTerms(settings: ConfiguredProgramSettings, outlet: OutletOfferRow): OutletBillTerms {
   return {
+    types: slabTypes(outlet),
     discounts: effectiveDiscounts(settings, outlet),
+    flat: flatValues(outlet),
+    minBillAmount: outlet.minBillAmount.toNumber(),
     rewards: effectiveRewards(settings, outlet),
     gstPercentage: outlet.gstPercentage.toNumber(),
     serviceChargeType: outlet.serviceChargeType,
@@ -155,7 +181,10 @@ export function outletBillTerms(settings: ConfiguredProgramSettings, outlet: Out
 /** Programme discounts only, no service charge, GST or cash reward: how every bill was calculated before outlet offers. */
 export function programmeBillTerms(settings: ConfiguredProgramSettings): OutletBillTerms {
   return {
+    types: PERCENT_SLAB_TYPES,
     discounts: programmeDiscounts(settings),
+    flat: NO_FLAT_VALUES,
+    minBillAmount: 0,
     rewards: programmeRewards(settings),
     gstPercentage: 0,
     serviceChargeType: 'PERCENTAGE',
@@ -184,6 +213,25 @@ export function discountPercentageFor(
   if (qrType === 'REFERRAL') return discounts.referralDiscount;
   if (!isFirstTime) return discounts.repeatDiscount;
   return category === 'ACHARIYA' ? discounts.achariyaFirstTimeDiscount : discounts.firstTimeDiscount;
+}
+
+/** The discount slab a bill uses: the referred guest's, the first bill's or the repeat bill's. */
+export function discountSlabFor(
+  qrType: QRCode['type'],
+  isFirstTime: boolean
+): 'referralDiscount' | 'firstTimeDiscount' | 'repeatDiscount' {
+  if (qrType === 'REFERRAL') return 'referralDiscount';
+  return isFirstTime ? 'firstTimeDiscount' : 'repeatDiscount';
+}
+
+/** A FIXED discount slab: the most ₹ off this kind of bill (one amount for every partner category). */
+export function flatDiscountCapFor(flat: OutletFlatValues, qrType: QRCode['type'], isFirstTime: boolean): number {
+  return flat[discountSlabFor(qrType, isFirstTime)];
+}
+
+/** The outlet's minimum bill applies: this bill gets no discount. */
+export function isBelowMinimum(amount: Prisma.Decimal, minBillAmount: number): boolean {
+  return minBillAmount > 0 && amount.lt(minBillAmount);
 }
 
 /** Referral points % (at this outlet) of the referring partner's classification. */
@@ -219,6 +267,50 @@ export function discountWithBonus(
     discountPercentage: base.plus(bonus).toNumber(),
     birthdayBonusPercentage: bonus.toNumber(),
     referralRewardPercentage: useReward ? base.toNumber() : 0,
+  };
+}
+
+interface FlatDiscountResult {
+  discountPercentage: number;
+  birthdayBonusPercentage: number;
+  referralRewardPercentage: number;
+  /** The picked ₹ discount after the slab and half-bill caps (0 when the referral reward replaced it). */
+  flatAmount: number;
+  /** Total ₹ off the bill before the discounted amount is rounded to whole rupees. */
+  discountRupees: Prisma.Decimal;
+}
+
+/**
+ * The FIXED-outlet version of discountWithBonus, in rupees. The picked amount is held to the slab
+ * (the full slab when none was picked) and to half the bill. The programme extras stay percentages
+ * of the bill, on the partner's own (direct QR) bill only: a waiting referral reward replaces the
+ * picked amount when it is worth more, and the birthday bonus is added on top. The total never
+ * exceeds half the bill. The percentages returned are of the bill.
+ */
+export function flatDiscountWithBonus(
+  amount: Prisma.Decimal,
+  cap: number,
+  picked: number | undefined,
+  ctx: Pick<BillContext, 'qrType' | 'birthdayBonus' | 'referralReward'>
+): FlatDiscountResult {
+  const isDirect = ctx.qrType === 'DEFAULT_DISCOUNT';
+  const half = amount.mul(MAX_REDUCTION).div(100);
+  const pct = (rupees: Prisma.Decimal) =>
+    amount.gt(0) ? rupees.div(amount).mul(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber() : 0;
+  const usual = Decimal.min(new Decimal(Math.max(0, picked ?? cap)), new Decimal(cap), half);
+  const reward = amount.mul(ctx.referralReward).div(100);
+  const useReward = isDirect && usual.lt(reward);
+  const base = Decimal.min(useReward ? reward : usual, half);
+  const bonus = isDirect
+    ? Decimal.max(0, Decimal.min(amount.mul(ctx.birthdayBonus).div(100), half.minus(base)))
+    : new Decimal(0);
+  const total = base.plus(bonus);
+  return {
+    discountPercentage: pct(total),
+    birthdayBonusPercentage: pct(bonus),
+    referralRewardPercentage: useReward ? Decimal.min(new Decimal(ctx.referralReward), MAX_REDUCTION).toNumber() : 0,
+    flatAmount: useReward ? 0 : usual.toNumber(),
+    discountRupees: total,
   };
 }
 
@@ -268,21 +360,27 @@ export function calculateBill(
   settings: ConfiguredProgramSettings,
   ctx: BillContext,
   billAmount: number,
-  outlet: OutletBillTerms = programmeBillTerms(settings)
+  outlet: OutletBillTerms = programmeBillTerms(settings),
+  /** FIXED outlets: the ₹ discount the Outlet Admin picked; undefined = the full slab. */
+  flatDiscount?: number
 ): BillCalculation {
   const category = ctx.partnerCategory ?? 'NON_ACHARIYA';
-  const { discountPercentage, birthdayBonusPercentage, referralRewardPercentage } = discountWithBonus(
-    outlet.discounts,
-    ctx.qrType,
-    ctx.isFirstTime,
-    ctx.birthdayBonus,
-    ctx.referralReward,
-    category
-  );
   const amount = new Decimal(billAmount).toDecimalPlaces(2);
+  const discountType = outlet.types[discountSlabFor(ctx.qrType, ctx.isFirstTime)];
+  // Under the outlet's minimum bill there is no discount at all (no birthday bonus, no referral reward used).
+  const belowMinimumBill = isBelowMinimum(amount, outlet.minBillAmount);
+  const isFixed = discountType === 'FIXED';
+  const flatCap = isFixed ? flatDiscountCapFor(outlet.flat, ctx.qrType, ctx.isFirstTime) : 0;
+  const flat = isFixed && !belowMinimumBill ? flatDiscountWithBonus(amount, flatCap, flatDiscount, ctx) : null;
+  const { discountPercentage, birthdayBonusPercentage, referralRewardPercentage } = belowMinimumBill
+    ? { discountPercentage: 0, birthdayBonusPercentage: 0, referralRewardPercentage: 0 }
+    : (flat ??
+      discountWithBonus(outlet.discounts, ctx.qrType, ctx.isFirstTime, ctx.birthdayBonus, ctx.referralReward, category));
   // The discounted amount is whole rupees, rounded half-up (₹330.70 → ₹331, ₹330.40 → ₹330);
   // the discount is what remains, so discount + taxable amount always equals the bill.
-  const taxableAmount = amount.minus(amount.mul(discountPercentage).div(100)).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+  const taxableAmount = (
+    flat ? amount.minus(flat.discountRupees) : amount.minus(amount.mul(discountPercentage).div(100))
+  ).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
   const discountAmount = amount.minus(taxableAmount);
   // The service charge is added to the discounted amount (a % of it, or the fixed ₹), then GST is
   // charged on both, to the paisa (₹90 + 10% service ₹9 = ₹99, 5% GST ₹4.95, payable ₹104).
@@ -296,17 +394,38 @@ export function calculateBill(
 
   const pointsBase = settings.pointsBasis === 'BILL_AMOUNT' ? amount : taxableAmount;
   const pointsPerRupee = new Decimal(settings.pointsToRupees.points).div(settings.pointsToRupees.rupees);
-  const pointsFor = (percentage: number) => roundMoney(pointsBase.mul(percentage).div(100).mul(pointsPerRupee));
-  const cashFor = (percentage: number) => roundMoney(pointsBase.mul(percentage).div(100));
+  /**
+   * A reward slab on this bill, in rupees and as a % of the points base: a % of the base, or the
+   * flat ₹ amount (never more than the base). The % of a flat reward is what the bill stores.
+   */
+  const reward = (given: boolean, type: DiscountType, percentage: number, flatRupees: number) => {
+    if (!given) return { percentage: 0, rupees: new Decimal(0) };
+    if (type !== 'FIXED') return { percentage, rupees: pointsBase.mul(percentage).div(100) };
+    const rupees = Decimal.max(0, Decimal.min(new Decimal(flatRupees), pointsBase));
+    const pct = pointsBase.gt(0) ? rupees.div(pointsBase).mul(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber() : 0;
+    return { percentage: pct, rupees };
+  };
+  const pointsOf = (r: { rupees: Prisma.Decimal }) => roundMoney(r.rupees.mul(pointsPerRupee));
 
   const isReferral = ctx.qrType === 'REFERRAL';
-  // The partner's own first bill here already gets the first-time discount: no cashback on it.
-  const cashbackAllowed = isReferral || !ctx.isFirstTime;
-  const purchasePointsPercentage = cashbackAllowed ? rewards.purchasePointsPercentage : 0;
-  const referralPointsPercentage = isReferral ? referralPointsPercentageFor(rewards, category) : 0;
-  const cashRewardPurchasePercentage =
-    outlet.givesCashReward && cashbackAllowed ? rewards.cashRewardPurchasePercentage : 0;
-  const cashRewardReferralPercentage = outlet.givesCashReward && isReferral ? rewards.cashRewardReferralPercentage : 0;
+  // The partner's own first bill here already gets the first-time discount: no cashback on it
+  // (a first bill under the minimum gets no discount, so it does earn cashback).
+  const cashbackAllowed = isReferral || !ctx.isFirstTime || belowMinimumBill;
+  const types = outlet.types;
+  const purchase = reward(cashbackAllowed, types.purchasePoints, rewards.purchasePointsPercentage, outlet.flat.purchasePoints);
+  const referral = reward(isReferral, types.referralPoints, referralPointsPercentageFor(rewards, category), outlet.flat.referralPoints);
+  const cashPurchase = reward(
+    outlet.givesCashReward && cashbackAllowed,
+    types.cashRewardPurchase,
+    rewards.cashRewardPurchasePercentage,
+    outlet.flat.cashRewardPurchase
+  );
+  const cashReferral = reward(
+    outlet.givesCashReward && isReferral,
+    types.cashRewardReferral,
+    rewards.cashRewardReferralPercentage,
+    outlet.flat.cashRewardReferral
+  );
   const purchasePointsRecipient: PurchasePointsRecipient = !isReferral
     ? 'PARTNER'
     : ctx.customerIsPartner
@@ -318,6 +437,11 @@ export function calculateBill(
     isFirstTime: ctx.isFirstTime,
     billAmount: amount.toNumber(),
     discountPercentage,
+    discountType,
+    flatDiscountCap: flatCap,
+    flatDiscountAmount: flat?.flatAmount ?? 0,
+    belowMinimumBill,
+    minBillAmount: outlet.minBillAmount,
     birthdayBonusPercentage,
     referralRewardPercentage,
     discountAmount: discountAmount.toNumber(),
@@ -335,15 +459,15 @@ export function calculateBill(
     pointsBasis: settings.pointsBasis,
     pointsBaseAmount: pointsBase.toNumber(),
     pointsRatio: { ...settings.pointsToRupees },
-    purchasePointsPercentage,
-    purchasePoints: pointsFor(purchasePointsPercentage).toNumber(),
+    purchasePointsPercentage: purchase.percentage,
+    purchasePoints: pointsOf(purchase).toNumber(),
     purchasePointsRecipient,
-    referralPointsPercentage,
-    referralPoints: isReferral ? pointsFor(referralPointsPercentage).toNumber() : 0,
-    cashRewardPurchasePercentage,
-    cashRewardPurchaseAmount: cashFor(cashRewardPurchasePercentage).toNumber(),
-    cashRewardReferralPercentage,
-    cashRewardReferralAmount: cashFor(cashRewardReferralPercentage).toNumber(),
+    referralPointsPercentage: referral.percentage,
+    referralPoints: pointsOf(referral).toNumber(),
+    cashRewardPurchasePercentage: cashPurchase.percentage,
+    cashRewardPurchaseAmount: roundMoney(cashPurchase.rupees).toNumber(),
+    cashRewardReferralPercentage: cashReferral.percentage,
+    cashRewardReferralAmount: roundMoney(cashReferral.rupees).toNumber(),
     settingsVersion: pricingVersion(settings.updatedAt, outlet.version),
     outletSettingsVersion: outlet.version,
   };
@@ -388,6 +512,11 @@ export function calculateRedeemBill(
     isFirstTime: false,
     billAmount: amount.toNumber(),
     discountPercentage: 0,
+    discountType: 'PERCENTAGE',
+    flatDiscountCap: 0,
+    flatDiscountAmount: 0,
+    belowMinimumBill: false,
+    minBillAmount: 0,
     birthdayBonusPercentage: 0,
     referralRewardPercentage: 0,
     discountAmount: 0,
@@ -483,6 +612,8 @@ export async function scanQr(outlet: OutletRow, rawValue: string): Promise<ScanR
   // The referral discount does not depend on first-time status; first-time status of a referred
   // customer is unknown until their mobile is entered.
   const isFirstTime = isDirect ? await isFirstTimeDirect(prisma, qr.partner, settings.firstTimeValidityDays, outlet.id) : null;
+  const discountType = terms.types[discountSlabFor(qr.type, isFirstTime ?? false)];
+  const isFixed = discountType === 'FIXED';
   const discount = discountWithBonus(
     terms.discounts,
     qr.type,
@@ -491,6 +622,14 @@ export async function scanQr(outlet: OutletRow, rawValue: string): Promise<ScanR
     isDirect ? await waitingReferralReward(prisma, settings, qr.partner.id) : 0,
     qr.partner.category
   );
+  // A FIXED outlet's discount is the ₹ amount picked at billing: the % basis shows only the extras.
+  const basis = isFixed
+    ? {
+        discountPercentage: discount.birthdayBonusPercentage + discount.referralRewardPercentage,
+        birthdayBonusPercentage: discount.birthdayBonusPercentage,
+        referralRewardPercentage: discount.referralRewardPercentage,
+      }
+    : discount;
 
   return {
     qrType: qr.type,
@@ -502,11 +641,14 @@ export async function scanQr(outlet: OutletRow, rawValue: string): Promise<ScanR
       mobile: qr.partner.mobile,
       email: qr.partner.email,
     },
-    discount: { isFirstTime, ...discount },
+    discount: { isFirstTime, ...basis },
     gstPercentage: terms.gstPercentage,
     serviceChargeType: terms.serviceChargeType,
     serviceChargeValue: terms.serviceChargeValue,
     givesCashReward: terms.givesCashReward,
+    discountType,
+    flatDiscountCap: isFixed ? flatDiscountCapFor(terms.flat, qr.type, isFirstTime ?? false) : 0,
+    minBillAmount: terms.minBillAmount,
     settingsVersion: pricingVersion(settings.updatedAt, terms.version),
   };
 }
@@ -539,6 +681,7 @@ export async function previewBill(
     qrCode: string;
     billAmount: number;
     customer?: ReferredCustomerInput;
+    flatDiscount?: number;
   }
 ): Promise<BillCalculation> {
   assertOutletCanTransact(outlet);
@@ -546,7 +689,7 @@ export async function previewBill(
   const qr = await resolveQr(prisma, input.qrCode);
   assertCustomerMatchesQr(qr, input.customer);
   const { ctx } = await buildContext(prisma, settings, qr, input.customer, outlet.id);
-  return calculateBill(settings, ctx, input.billAmount, outletBillTerms(settings, outlet));
+  return calculateBill(settings, ctx, input.billAmount, outletBillTerms(settings, outlet), input.flatDiscount);
 }
 
 const partnerSelect = {
@@ -617,6 +760,7 @@ export function serializeBill(bill: BillWithRelations): BillRecord {
     isFirstTime: bill.isFirstTime,
     billAmount: bill.billAmount.toNumber(),
     discountPercentage: bill.discountPercentage.toNumber(),
+    discountType: bill.discountType,
     birthdayBonusPercentage: bill.birthdayBonusPercentage.toNumber(),
     referralRewardPercentage: bill.referralRewardPercentage.toNumber(),
     discountAmount: bill.discountAmount.toNumber(),
@@ -689,6 +833,7 @@ export async function createBill(
     customer?: ReferredCustomerInput;
     idempotencyKey: string;
     settingsVersion?: string;
+    flatDiscount?: number;
   }
 ): Promise<{ bill: BillRecord; replayed: boolean }> {
   try {
@@ -753,7 +898,13 @@ export async function createBill(
         const settings = await requireConfiguredSettings(tx);
         // Calculate before creating the customer so first-time status reflects prior bills only.
         const { ctx, customerPartnerId } = await buildContext(tx, settings, qr, input.customer, outlet.id);
-        const calc = calculateBill(settings, ctx, input.billAmount, outletBillTerms(settings, currentOutlet));
+        const calc = calculateBill(
+          settings,
+          ctx,
+          input.billAmount,
+          outletBillTerms(settings, currentOutlet),
+          input.flatDiscount
+        );
 
         if (input.settingsVersion && input.settingsVersion !== calc.settingsVersion) {
           throw new HttpError(
@@ -796,6 +947,8 @@ export async function createBill(
             isFirstTime: calc.isFirstTime,
             billAmount: calc.billAmount,
             discountPercentage: calc.discountPercentage,
+            discountType: calc.discountType,
+            belowMinimumBill: calc.belowMinimumBill ?? false,
             birthdayBonusPercentage: calc.birthdayBonusPercentage,
             // Using the reward takes one goal's worth of referrals off the partner's progress.
             referralRewardPercentage: calc.referralRewardPercentage,

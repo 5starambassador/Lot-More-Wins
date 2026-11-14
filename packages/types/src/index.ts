@@ -373,6 +373,8 @@ export interface ProgramSettings {
   payoutWeekday: number;
   /** The redeem QR for spending points at an outlet. Off by default: the revised flow has no redemption step. */
   redeemQrEnabled: boolean;
+  /** The whole Partner App wallet: redeem QR and sending to a partner. Off pauses both. */
+  walletEnabled: boolean;
   /** false when no row exists yet and runtime defaults are being served */
   isPersisted: boolean;
   updatedAt: string | null;
@@ -386,7 +388,8 @@ type RevisedFlowSettingKey =
   | 'weeklyPayoutEnabled'
   | 'payoutMinimumAmount'
   | 'payoutWeekday'
-  | 'redeemQrEnabled';
+  | 'redeemQrEnabled'
+  | 'walletEnabled';
 
 /** Settings added after the first release are optional: omitted keeps the stored value. */
 export type UpdateProgramSettingsPayload = Omit<
@@ -496,10 +499,36 @@ export interface Outlet extends Timestamps {
   status: OutletStatus;
   /** The outlet's discount label for the Partner App ("Flat 5% discount", "Up to 20% discount"). */
   offer?: OutletOfferSummary;
+  /** Bills below this get no discount; 0 = no minimum. Missing from older servers. */
+  minBillAmount?: number;
+  /** Partners can pay part of a bill here with a wallet redeem QR. Missing from older servers (true). */
+  walletRedemptionEnabled?: boolean;
 }
 
 /** PERCENTAGE: a % of the discounted amount. FIXED: a fixed ₹ amount on every bill. */
 export type ServiceChargeType = 'PERCENTAGE' | 'FIXED';
+
+/**
+ * How one outlet slab works. PERCENTAGE: a % of the bill. FIXED: a ₹ amount. A flat discount is
+ * the most the outlet gives (the Outlet Admin picks the amount on each bill, 0 up to the slab and
+ * never more than half the bill); a flat reward is the ₹ worth credited per bill (never more than the bill).
+ */
+export type DiscountType = 'PERCENTAGE' | 'FIXED';
+
+/** The outlet slabs that can each be a % or a flat ₹ amount. */
+export type OutletSlabKey =
+  | 'firstTimeDiscount'
+  | 'repeatDiscount'
+  | 'referralDiscount'
+  | 'purchasePoints'
+  | 'referralPoints'
+  | 'cashRewardPurchase'
+  | 'cashRewardReferral';
+
+/** Each slab's type at an outlet. */
+export type OutletSlabTypes = Record<OutletSlabKey, DiscountType>;
+/** Each slab's flat ₹ amount at an outlet (used while its type is FIXED). */
+export type OutletFlatValues = Record<OutletSlabKey, number>;
 
 /** An outlet's own offer settings. A null discount uses the programme setting of the same type. */
 export interface OutletOfferSettings {
@@ -509,6 +538,36 @@ export interface OutletOfferSettings {
   repeatDiscount: number | null;
   /** A referred friend's purchase with a partner's referral QR. */
   referralDiscount: number | null;
+  /**
+   * Each slab's type (missing from older servers: PERCENTAGE). A FIXED slab uses its flat ₹ amount
+   * below in place of the % (the first-time slab is one ₹ amount for Achariya and Non-Achariya alike,
+   * and so is the referral points slab).
+   */
+  firstTimeDiscountType?: DiscountType;
+  repeatDiscountType?: DiscountType;
+  referralDiscountType?: DiscountType;
+  purchasePointsType?: DiscountType;
+  referralPointsType?: DiscountType;
+  cashRewardPurchaseType?: DiscountType;
+  cashRewardReferralType?: DiscountType;
+  /** Flat ₹: the most off a first bill, a repeat bill and a referred guest's bill (0 = none). */
+  flatFirstTimeDiscount?: number;
+  flatRepeatDiscount?: number;
+  flatReferralDiscount?: number;
+  /** Flat ₹ worth credited per bill: cashback (purchase points), referral points, cash rewards. */
+  flatPurchasePoints?: number;
+  flatReferralPoints?: number;
+  flatCashRewardPurchase?: number;
+  flatCashRewardReferral?: number;
+  /** Bills below this amount get no discount; 0 = no minimum. */
+  minBillAmount?: number;
+  /** Partners may pay part of a bill here with a wallet redeem QR. */
+  walletRedemptionEnabled?: boolean;
+  /**
+   * @deprecated Older builds: FIXED when every discount slab is flat. Use the per-slab types.
+   * Sending it sets all three discount slabs' types.
+   */
+  discountType?: DiscountType;
   /** Charged on the discounted amount plus the service charge. */
   gstPercentage: number;
   /** Service charge added to the discounted amount before GST: a % of it, or a fixed ₹ per bill. */
@@ -548,11 +607,23 @@ export interface OutletEffectiveRewards {
 }
 
 export interface OutletOfferSummary {
-  /** Highest discount the outlet gives (birthday bonus and referral reward aside). */
+  /**
+   * Highest % discount the outlet gives (birthday bonus and referral reward aside). 0 on a FIXED
+   * outlet, so older apps that print it as a % never show a rupee amount as one.
+   */
   maxDiscount: number;
+  /**
+   * The headline figure's kind: PERCENTAGE when any % discount slab gives something (or nothing is
+   * flat), FIXED when only flat ₹ slabs do. Missing from older servers (PERCENTAGE).
+   */
+  discountType?: DiscountType;
+  /** The highest flat ₹ discount slab; 0 when no slab is flat. */
+  maxFlatDiscount?: number;
+  /** Short tag for an outlet tile: "Upto 20%" or "Upto ₹500". Missing from older servers. */
+  badge?: string;
   /** Every discount type is the same percentage. */
   isFlat: boolean;
-  /** Always "Up to 20% discount" (never "Flat"): what a bill gets depends on the partner and the bill. */
+  /** "Up to 20% discount", "Up to ₹500 discount" or "Up to 20% or ₹500 discount": what a bill gets depends on the partner and the bill. */
   label: string;
   givesCashReward: boolean;
 }
@@ -604,6 +675,24 @@ export interface UpdateOutletOffersPayload {
   achariyaReferralPointsPercentage?: number | null;
   cashRewardPurchasePercentage?: number | null;
   cashRewardReferralPercentage?: number | null;
+  /** @deprecated Sets all three discount slabs' types; use the per-slab types. */
+  discountType?: DiscountType;
+  firstTimeDiscountType?: DiscountType;
+  repeatDiscountType?: DiscountType;
+  referralDiscountType?: DiscountType;
+  purchasePointsType?: DiscountType;
+  referralPointsType?: DiscountType;
+  cashRewardPurchaseType?: DiscountType;
+  cashRewardReferralType?: DiscountType;
+  flatFirstTimeDiscount?: number;
+  flatRepeatDiscount?: number;
+  flatReferralDiscount?: number;
+  flatPurchasePoints?: number;
+  flatReferralPoints?: number;
+  flatCashRewardPurchase?: number;
+  flatCashRewardReferral?: number;
+  minBillAmount?: number;
+  walletRedemptionEnabled?: boolean;
 }
 
 /** Super Admin outlet create / edit: the Outlet Admin fields plus the cash reward and edit permission. */
@@ -713,6 +802,18 @@ export interface ScanResult {
   serviceChargeValue?: number;
   /** Bills here credit the cash reward wallet. */
   givesCashReward: boolean;
+  /**
+   * This bill's discount slab (by QR and first-time status) is FIXED: the Outlet Admin picks the ₹
+   * discount for the bill (0 to flatDiscountCap). Missing from older servers.
+   */
+  discountType?: DiscountType;
+  /** Bills below this get no discount (0 = no minimum). Missing from older servers. */
+  minBillAmount?: number;
+  /**
+   * FIXED only: the most ₹ the outlet gives off this bill (its first-bill, repeat-bill or referred
+   * guest slab; for a referral QR the referred guest slab). The bill also caps it at half the bill.
+   */
+  flatDiscountCap?: number;
   /** Pricing version the scan was evaluated with (later of the programme settings and the outlet's offers). */
   settingsVersion: string;
 }
@@ -756,6 +857,11 @@ export interface BillPreviewPayload {
   qrCode: string;
   billAmount: number;
   customer?: ReferredCustomerInput;
+  /**
+   * FIXED-discount outlets: the ₹ discount the Outlet Admin chose for this bill (0 up to the slab).
+   * Left out, the bill gets the full slab. Ignored at PERCENTAGE outlets and on redeem QRs.
+   */
+  flatDiscount?: number;
 }
 
 export interface BillCreatePayload extends BillPreviewPayload {
@@ -768,8 +874,17 @@ export interface BillCalculation {
   transactionType: BillTransactionType;
   isFirstTime: boolean;
   billAmount: number;
-  /** Total discount, birthday bonus included. */
+  /** Total discount, birthday bonus included. At a FIXED outlet: the discount as a % of the bill. */
   discountPercentage: number;
+  /** PERCENTAGE: the discount came from the % slabs. FIXED: a ₹ amount chosen at billing. Missing on older servers. */
+  discountType?: DiscountType;
+  /** FIXED only: the slab cap for this bill and the ₹ discount chosen (after the half-bill cap); 0 otherwise. */
+  flatDiscountCap?: number;
+  flatDiscountAmount?: number;
+  /** The bill is below the outlet's minimum bill: no discount was given. */
+  belowMinimumBill?: boolean;
+  /** The outlet's minimum bill for a discount (0 = none). */
+  minBillAmount?: number;
   /** Part of discountPercentage that is the partner's birthday bonus; 0 on any other day. */
   birthdayBonusPercentage: number;
   /** Referral reward (special discount) used on this bill in place of the usual discount; 0 when none. */
@@ -935,6 +1050,8 @@ export interface PartnerWallet {
   transfers: WalletTransferRecord[];
   /** The redeem QR is turned on (Super Admin setting); the app hides it otherwise. */
   redeemEnabled: boolean;
+  /** The whole wallet (redeem QR and sending) is on. Off: the app shows "temporarily not available". Missing from older servers (on). */
+  walletEnabled?: boolean;
   /** A redeem QR is worth the whole balance (the outlet takes at most half the bill). */
   redeemMaxPoints: number;
   redeemMaxRupees: number;
@@ -971,6 +1088,8 @@ export interface PartnerTransactionBill {
   isFirstTime: boolean;
   billAmount: number;
   discountPercentage: number;
+  /** FIXED: a ₹ discount chosen at billing (show the amount, not the %). Missing on older servers. */
+  discountType?: DiscountType;
   discountAmount: number;
   birthdayBonusPercentage: number;
   referralRewardPercentage: number;
@@ -1143,6 +1262,24 @@ export interface RedeemQr {
   maxPoints: number;
   maxRupees: number;
   pointsRatio: { points: number; rupees: number };
+  /** The outlet this QR was generated for (only that outlet can scan it); null on QRs for any outlet. */
+  outlet?: { id: ID; name: string } | null;
+}
+
+/** POST /partner/wallet/redeem-qr body. Older apps send none (a QR for any outlet). */
+export interface CreateRedeemQrPayload {
+  /** The outlet the partner will redeem at; it must have wallet redemption on. */
+  outletId?: ID;
+}
+
+/** The partner's latest own bill (discount or redeem QR), for the QR pages to notice a completed bill. */
+export interface PartnerLatestBill {
+  id: ID;
+  billNumber: string;
+  outletName: string;
+  transactionType: BillTransactionType;
+  finalAmount: number;
+  createdAt: string;
 }
 
 /** What the Outlet Admin sees after scanning a redeem QR, before entering the bill. */
@@ -1248,6 +1385,8 @@ export interface PartnerHome {
   /** @deprecated UPI payouts ended. Always false. */
   upiMissing: boolean;
   redeemEnabled: boolean;
+  /** The whole wallet is on (Super Admin). Missing from older servers (on). */
+  walletEnabled?: boolean;
 }
 
 export type PartnerNotificationType =

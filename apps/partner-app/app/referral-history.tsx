@@ -7,6 +7,7 @@ import { Divider, ListSkeleton, SectionLabel, StateView, TopBar, Txt } from '../
 import { ENTRY_LOOK } from '../components/wallet/TransactionRow';
 import * as Haptics from '../lib/haptics';
 import { describeError, useReferralHistory } from '../lib/queries';
+import { billDiscountLabel } from '../lib/offer';
 import { formatDate, formatDateTimeFull, formatINR, formatPercent } from '../lib/format';
 import { useWalletFormat, type WalletFormat } from '../lib/wallet-display';
 import { canvasFill, colors, fonts, GUTTER, radius, space } from '../theme/tokens';
@@ -77,7 +78,7 @@ function ReferralBillRow({ item, format }: { item: PartnerReferralBill; format: 
           <Line label="Bill amount" value={formatINR(bill.billAmount)} />
           {bill.discountAmount > 0 ? (
             <>
-              <Line label={`Discount (${formatPercent(bill.discountPercentage)})`} value={`− ${formatINR(bill.discountAmount)}`} tone="success" />
+              <Line label={billDiscountLabel(bill)} value={`− ${formatINR(bill.discountAmount)}`} tone="success" />
               {bill.isFirstTime ? (
                 <Txt variant="caption" tone="gold">
                   First purchase at this outlet

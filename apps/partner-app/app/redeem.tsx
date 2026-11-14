@@ -4,6 +4,8 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import QRCodeSvg from 'react-native-qrcode-svg';
 import { useQueryClient } from '@tanstack/react-query';
+import { useLocalSearchParams } from 'expo-router';
+import { useReturnHomeOnBill } from '../lib/bill-watch';
 import type { RedeemQr } from '@lotmorewins/types';
 import apiClient from '../lib/api';
 import * as Haptics from '../lib/haptics';
@@ -27,6 +29,8 @@ function secondsLeft(expiresAt: string): number {
  */
 export default function RedeemScreen() {
   const queryClient = useQueryClient();
+  // The outlet chosen on the wallet page; the QR works only there. None (an old link): any outlet.
+  const { outletId, outletName } = useLocalSearchParams<{ outletId?: string; outletName?: string }>();
   const [qr, setQr] = useState<RedeemQr | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -37,7 +41,7 @@ export default function RedeemScreen() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiClient.createRedeemQr();
+      const res = await apiClient.createRedeemQr(outletId ? { outletId } : undefined);
       setQr(res.data);
       setRemaining(secondsLeft(res.data.expiresAt));
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -47,7 +51,7 @@ export default function RedeemScreen() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [outletId]);
 
   useEffect(() => {
     generate();
@@ -65,9 +69,13 @@ export default function RedeemScreen() {
     return () => clearInterval(timer);
   }, [expiresAt]);
 
+  // Once the outlet completes the bill with this QR, go back to Home.
+  useReturnHomeOnBill(!!qr);
+
   if (loading && !qr) return <FullScreenLoader />;
 
   const expired = !!qr && remaining <= 0;
+  const forOutlet = qr?.outlet?.name ?? outletName;
   const clock = `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`;
 
   return (
@@ -92,6 +100,14 @@ export default function RedeemScreen() {
             Show this to the outlet at billing, in place of your discount QR. Your wallet pays up to half of the bill; you pay the
             rest. Whatever is not used stays in your wallet.
           </Txt>
+          {forOutlet ? (
+            <View style={styles.outletTag}>
+              <Ionicons name="storefront-outline" size={14} color={colors.gold} />
+              <Txt variant="smallMedium" tone="gold">
+                For {forOutlet} only
+              </Txt>
+            </View>
+          ) : null}
 
           <View style={styles.plateWrap}>
             <View style={[styles.plate, expired && styles.plateExpired]}>
@@ -150,6 +166,19 @@ export default function RedeemScreen() {
 const styles = StyleSheet.create({
   body: { paddingHorizontal: GUTTER, paddingTop: space.sm },
   copy: { marginHorizontal: space.md },
+  outletTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    gap: 6,
+    marginTop: space.sm,
+    paddingHorizontal: space.sm,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.goldLine,
+    backgroundColor: colors.goldSoft,
+  },
   plateWrap: { alignSelf: 'center', marginTop: space.xl, alignItems: 'center', justifyContent: 'center' },
   plate: { backgroundColor: '#FBF7F0', padding: space.md, borderRadius: radius.md, borderWidth: 2, borderColor: colors.gold },
   plateExpired: { opacity: 0.15 },

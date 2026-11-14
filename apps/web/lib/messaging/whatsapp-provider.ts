@@ -163,7 +163,9 @@ export class WhatsAppProvider {
                         // A redeem bill has no discount: the template's discount line carries the wallet part.
                         options.walletRedeemAmount
                           ? `${inr(options.walletRedeemAmount)} paid from wallet`
-                          : `${inr(discountAmount)} (${pct(options.discountPercentage)})`,
+                          : options.discountType === 'FIXED'
+                            ? `${inr(discountAmount)} (flat)`
+                            : `${inr(discountAmount)} (${pct(options.discountPercentage)})`,
                         inr(options.taxableAmount),
                         `${inr(options.gstAmount)} (${pct(options.gstPercentage)})`,
                         inr(totalAmount),

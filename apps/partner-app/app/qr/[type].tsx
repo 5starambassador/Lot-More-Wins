@@ -11,6 +11,7 @@ import * as Haptics from '../../lib/haptics';
 import { Button, Notice, Screen, TopBar, Txt } from '../../components/ui';
 import { QrPanel } from '../../components/qr/QrPanel';
 import { useAuthStore } from '../../store/auth-store';
+import { useReturnHomeOnBill } from '../../lib/bill-watch';
 import { describeError, useHome } from '../../lib/queries';
 import { formatPercent } from '../../lib/format';
 import { useWalletFormat } from '../../lib/wallet-display';
@@ -60,6 +61,8 @@ export default function QrScreen() {
   // The personal discount QR is for the partner's own bills only: block screenshots and screen
   // recordings while it is on screen (Android, iOS 13+; browsers offer no way to do this).
   const blockCapture = page?.qrType === 'DEFAULT_DISCOUNT' && Platform.OS !== 'web';
+  // Once an outlet completes a bill with the Personal Discount QR, go back to Home.
+  useReturnHomeOnBill(page?.qrType === 'DEFAULT_DISCOUNT');
   useEffect(() => {
     if (!blockCapture) return;
     ScreenCapture.preventScreenCaptureAsync(CAPTURE_KEY).catch(() => {});

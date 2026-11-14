@@ -53,14 +53,38 @@ function scannedPartner(partner: Partner): ScannedPartner {
   };
 }
 
-/** The redeem QR is behind a Super Admin setting (off by default). 422, not 403: Outlet Admin apps sign out on 403s. */
-function assertRedeemEnabled(settings: { redeemQrEnabled: boolean }) {
+/**
+ * The redeem QR is behind two Super Admin settings: the redeem QR itself (off by default) and the
+ * whole wallet. 422, not 403: Outlet Admin apps sign out on 403s.
+ */
+function assertRedeemEnabled(settings: { redeemQrEnabled: boolean; walletEnabled: boolean }) {
+  if (!settings.walletEnabled) {
+    throw new HttpError(422, 'The wallet is temporarily not available', 'WALLET_DISABLED');
+  }
   if (!settings.redeemQrEnabled) {
     throw new HttpError(422, 'Wallet redemption is turned off', 'REDEEM_DISABLED');
   }
 }
 
-export async function createRedeemQr(partnerId: string): Promise<RedeemQr> {
+/** The outlet takes redeem QRs (its wallet redemption switch), and the QR was made for it (when it names one). */
+function assertOutletRedeems(outlet: Pick<OutletRow, 'id' | 'walletRedemptionEnabled'>, qrOutletId: string | null) {
+  if (!outlet.walletRedemptionEnabled) {
+    throw new HttpError(422, 'Wallet redemption is not available at this outlet', 'OUTLET_REDEEM_DISABLED');
+  }
+  if (qrOutletId && qrOutletId !== outlet.id) {
+    throw new HttpError(
+      422,
+      'This redeem QR was generated for another outlet. Ask the partner to generate one for this outlet.',
+      'REDEEM_QR_OTHER_OUTLET'
+    );
+  }
+}
+
+/**
+ * A redeem QR for the partner's whole wallet. With an outlet (current apps) only that outlet can
+ * scan it, and the outlet must be active with wallet redemption on; older apps send none.
+ */
+export async function createRedeemQr(partnerId: string, outletId?: string): Promise<RedeemQr> {
   const settings = await getProgramSettings();
   assertRedeemEnabled(settings);
   const partner = await prisma.partner.findUnique({ where: { id: partnerId } });
@@ -68,6 +92,13 @@ export async function createRedeemQr(partnerId: string): Promise<RedeemQr> {
   if (partner.status !== 'ACTIVE') {
     throw new HttpError(403, 'This partner account is not active', 'PARTNER_INACTIVE');
   }
+  const outlet = outletId
+    ? await prisma.outlet.findUnique({ where: { id: outletId }, select: { id: true, name: true, status: true, walletRedemptionEnabled: true } })
+    : null;
+  if (outletId && (!outlet || outlet.status !== 'ACTIVE')) {
+    throw new HttpError(404, 'This outlet is not available', 'OUTLET_NOT_FOUND');
+  }
+  if (outlet) assertOutletRedeems(outlet, null);
 
   const balance = await availablePoints(prisma, partnerId);
   const maxPoints = redeemQrWorth(balance);
@@ -77,7 +108,7 @@ export async function createRedeemQr(partnerId: string): Promise<RedeemQr> {
 
   // The QR's worth is signed into it, so the outlet can never take more than the wallet held then.
   const token = signToken(
-    { typ: 'redeem', partnerId, jti: crypto.randomUUID(), maxPoints: maxPoints.toString() },
+    { typ: 'redeem', partnerId, jti: crypto.randomUUID(), maxPoints: maxPoints.toString(), ...(outlet && { outletId: outlet.id }) },
     REDEEM_QR_TTL_SEC
   );
   return {
@@ -94,6 +125,7 @@ export async function createRedeemQr(partnerId: string): Promise<RedeemQr> {
     maxPoints: maxPoints.toNumber(),
     maxRupees: rupeeValueOf(maxPoints, settings.pointsToRupees).toNumber(),
     pointsRatio: { ...settings.pointsToRupees },
+    outlet: outlet ? { id: outlet.id, name: outlet.name } : null,
   };
 }
 
@@ -119,6 +151,8 @@ function parseRedeemQr(raw: string) {
   return {
     partnerId: payload.partnerId,
     tokenId: payload.jti,
+    // QRs from older apps name no outlet: any outlet with wallet redemption on can take them.
+    outletId: typeof payload.outletId === 'string' ? payload.outletId : null,
     maxPoints,
     expiresAt: new Date(payload.exp * 1000),
   };
@@ -146,7 +180,8 @@ function usableWorth(qrMaxPoints: Prisma.Decimal | null, balance: Prisma.Decimal
 
 export async function scanRedeemQr(outlet: OutletRow, rawValue: string): Promise<RedeemScanResult> {
   assertOutletCanTransact(outlet);
-  const { partnerId, tokenId, maxPoints, expiresAt } = parseRedeemQr(rawValue);
+  const { partnerId, tokenId, maxPoints, expiresAt, outletId } = parseRedeemQr(rawValue);
+  assertOutletRedeems(outlet, outletId);
   await assertQrUnused(prisma, tokenId);
 
   const [partner, settings, balance] = await Promise.all([
@@ -181,7 +216,8 @@ export async function previewRedeemBill(
   if (input.customer) {
     throw new HttpError(400, 'Customer details apply only to referral QR codes', 'CUSTOMER_NOT_ALLOWED');
   }
-  const { partnerId, tokenId, maxPoints } = parseRedeemQr(input.qrCode);
+  const { partnerId, tokenId, maxPoints, outletId } = parseRedeemQr(input.qrCode);
+  assertOutletRedeems(outlet, outletId);
   await assertQrUnused(prisma, tokenId);
   const [partner, settings, balance] = await Promise.all([
     activePartner(prisma, partnerId),
@@ -224,7 +260,7 @@ export async function createRedeemBill(
   if (input.customer) {
     throw new HttpError(400, 'Customer details apply only to referral QR codes', 'CUSTOMER_NOT_ALLOWED');
   }
-  const { partnerId, tokenId, maxPoints } = parseRedeemQr(input.qrCode);
+  const { partnerId, tokenId, maxPoints, outletId } = parseRedeemQr(input.qrCode);
 
   try {
     return await prisma.$transaction(
@@ -232,6 +268,7 @@ export async function createRedeemBill(
         // Re-read the outlet inside the transaction so a just-deactivated outlet cannot bill.
         const currentOutlet = await tx.outlet.findUniqueOrThrow({ where: { id: outlet.id } });
         assertOutletCanTransact(currentOutlet);
+        assertOutletRedeems(currentOutlet, outletId);
 
         // Serialize spends of the same wallet so the balance cannot be spent twice.
         await lockWallet(tx, partnerId);

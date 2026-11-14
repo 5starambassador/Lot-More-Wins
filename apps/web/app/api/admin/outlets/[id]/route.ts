@@ -5,7 +5,7 @@ import prisma from '@/lib/prisma';
 import { requireAdmin, requireAdminDelete } from '@/lib/auth';
 import { deleteOutlet } from '@/lib/admin-deletions';
 import { adminOutletInclude, serializeAdminOutlet } from '@/lib/outlets';
-import { applyOfferChanges, pickOfferFields } from '@/lib/outlet-offers';
+import { applyOfferChanges, pickOfferFields, withoutOfferFields } from '@/lib/outlet-offers';
 import { getProgramSettings } from '@/lib/settings';
 import { fail, handleRouteError, ok, readJson, validationError } from '@/lib/api-response';
 
@@ -39,40 +39,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const { id } = await params;
     const parsed = outletUpdateSchema.safeParse(await readJson(req));
     if (!parsed.success) return validationError(parsed.error);
-    const {
-      adminPassword,
-      firstTimeDiscount,
-      achariyaFirstTimeDiscount,
-      repeatDiscount,
-      referralDiscount,
-      gstPercentage,
-      serviceChargeType,
-      serviceChargeValue,
-      purchasePointsPercentage,
-      referralPointsPercentage,
-      achariyaReferralPointsPercentage,
-      cashRewardPurchasePercentage,
-      cashRewardReferralPercentage,
-      givesCashReward,
-      canEditOffers,
-      ...fields
-    } = parsed.data;
-    const offers = pickOfferFields({
-      firstTimeDiscount,
-      achariyaFirstTimeDiscount,
-      repeatDiscount,
-      referralDiscount,
-      gstPercentage,
-      serviceChargeType,
-      serviceChargeValue,
-      purchasePointsPercentage,
-      referralPointsPercentage,
-      achariyaReferralPointsPercentage,
-      cashRewardPurchasePercentage,
-      cashRewardReferralPercentage,
-      givesCashReward,
-      canEditOffers,
-    });
+    const { adminPassword, ...rest } = parsed.data;
+    const offers = pickOfferFields(rest);
+    const fields = withoutOfferFields(rest);
 
     const existing = await prisma.outlet.findUnique({
       where: { id },

@@ -13,6 +13,7 @@ import {
   walletAmount,
 } from '../../components/wallet/TransactionRow';
 import { describeError, useTransaction } from '../../lib/queries';
+import { billDiscountLabel } from '../../lib/offer';
 import { formatDate, formatDateTimeFull, formatINR, formatPercent, formatPoints } from '../../lib/format';
 import { useWalletFormat, type WalletFormat } from '../../lib/wallet-display';
 import { colors, fonts, radius, space } from '../../theme/tokens';
@@ -80,7 +81,7 @@ function BillCard({ bill, format }: { bill: PartnerTransactionBill; format: Wall
       <Line label="Bill amount" value={formatINR(bill.billAmount)} />
       {!redeem && bill.discountAmount > 0 ? (
         <>
-          <Line label={`Discount (${formatPercent(bill.discountPercentage)})`} value={`− ${formatINR(bill.discountAmount)}`} tone="success" />
+          <Line label={billDiscountLabel(bill)} value={`− ${formatINR(bill.discountAmount)}`} tone="success" />
           {bill.isFirstTime ? <Note>First purchase at this outlet</Note> : null}
           {bill.birthdayBonusPercentage > 0 ? <Note>{`Includes ${formatPercent(bill.birthdayBonusPercentage)} birthday bonus`}</Note> : null}
           {bill.referralRewardPercentage > 0 ? <Note>{`Referral reward: ${formatPercent(bill.referralRewardPercentage)} discount`}</Note> : null}

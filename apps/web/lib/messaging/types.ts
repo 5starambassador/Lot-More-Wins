@@ -19,6 +19,8 @@ export interface SendInvoiceOptions {
   discountAmount: number;
   /** Total discount %, birthday bonus / referral reward included. */
   discountPercentage: number;
+  /** FIXED: a flat ₹ discount; the % is left off the invoice. */
+  discountType?: 'PERCENTAGE' | 'FIXED';
   /** Amount after discount, before service charge and GST. */
   taxableAmount: number;
   /** The outlet's service charge on this bill (0 = no line). */

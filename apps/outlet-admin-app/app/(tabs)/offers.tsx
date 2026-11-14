@@ -1,10 +1,17 @@
 import { useEffect, useState, type ComponentProps } from 'react';
-import { Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, RefreshControl, StyleSheet, Switch, TextInput, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { outletOffersUpdateSchema } from '@lotmorewins/validation';
-import type { OutletOfferChangeRecord, OutletSettingsView, ServiceChargeType, UpdateOutletOffersPayload } from '@lotmorewins/types';
+import { OUTLET_SLABS, outletOffersUpdateSchema } from '@lotmorewins/validation';
+import type {
+  DiscountType,
+  OutletOfferChangeRecord,
+  OutletSettingsView,
+  OutletSlabKey,
+  ServiceChargeType,
+  UpdateOutletOffersPayload,
+} from '@lotmorewins/types';
 import * as Haptics from '../../lib/haptics';
 import { Button, Divider, FullScreenLoader, InfoRow, Notice, Panel, Screen, SectionLabel, StateView, Txt } from '../../components/ui';
 import { BrandLogo } from '../../components/brand/Brand';
@@ -17,10 +24,12 @@ import { colors, fonts, radius, space } from '../../theme/tokens';
  * This outlet's slabs, edited by the Outlet Admin: GST, the service charge (a % or a fixed ₹), the
  * first-bill and repeat-bill partner discounts, cashback (the purchase reward credited to the
  * partner's wallet, on repeat bills only), the referring partner's reward and the referred guest's
- * bill discount. Each slab is one rate for every partner (Achariya and Non-Achariya alike). On a
- * bill the discount comes off the product total first, the service charge is added to what remains
- * and GST is charged on both. A discount is never more than half the bill. Every change is
- * audit-logged on the server and applies to the next bill.
+ * bill discount. Every slab but GST is a % or a flat ₹ amount, chosen per slab: a flat discount is
+ * the most the outlet gives (picked on each bill), a flat reward is the ₹ credited per bill. Also the
+ * minimum bill for a discount and whether partners can redeem their wallet here. Each slab is one
+ * rate for every partner (Achariya and Non-Achariya alike). On a bill the discount comes off the
+ * product total first, the service charge is added to what remains and GST is charged on both. A
+ * discount is never more than half the bill. Every change is audit-logged and applies to the next bill.
  */
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -81,7 +90,7 @@ const TAX_SLABS: Slab[] = [
   {
     key: 'gst',
     label: 'GST',
-    hint: 'Charged on the bill after the discount, plus the service charge',
+    hint: 'A tax rate, so always a %. Charged on the bill after the discount, plus the service charge',
     icon: 'document-text-outline',
     fields: ['gstPercentage'],
   },
@@ -89,11 +98,49 @@ const TAX_SLABS: Slab[] = [
 
 const SLABS = [...PARTNER_SLABS, ...REFERRAL_SLABS, ...TAX_SLABS];
 
+/** The slabs that can be a % or a flat ₹ amount (every one but GST), and the server slab each is. */
+const TYPED: Partial<Record<SlabKey, OutletSlabKey>> = {
+  firstBill: 'firstTimeDiscount',
+  repeatBill: 'repeatDiscount',
+  cashback: 'purchasePoints',
+  guestDiscount: 'referralDiscount',
+  referrerReward: 'referralPoints',
+};
+const TYPED_KEYS = Object.keys(TYPED) as SlabKey[];
+const slabDef = (key: SlabKey) => OUTLET_SLABS.find((s) => s.key === TYPED[key])!;
+/** A flat discount is whole rupees; a flat reward may have paise. */
+const isDiscountSlab = (key: SlabKey) => slabDef(key).kind === 'discount';
+
+const FLAT_HINT: Partial<Record<SlabKey, string>> = {
+  firstBill: "Most off a partner's first bill here. You pick the amount on each bill",
+  repeatBill: 'Most off every later bill. You pick the amount on each bill',
+  guestDiscount: "Most off the guest's bill. You pick the amount on each bill",
+  cashback: "Credited to the partner's wallet on each repeat bill (never more than the bill)",
+  referrerReward: "Credited to the referring partner on each guest's bill (never more than the bill)",
+};
+
 const FIELD_LABELS: Record<string, string> = {
   firstTimeDiscount: 'First bill discount',
   achariyaFirstTimeDiscount: 'First bill discount (Achariya)',
   repeatDiscount: 'Repeat bill discount',
   referralDiscount: 'Referred guest discount',
+  discountType: 'Discount type',
+  firstTimeDiscountType: 'First bill discount type',
+  repeatDiscountType: 'Repeat bill discount type',
+  referralDiscountType: 'Referred guest discount type',
+  purchasePointsType: 'Cashback type',
+  referralPointsType: 'Referring partner reward type',
+  cashRewardPurchaseType: 'Purchase cash reward type',
+  cashRewardReferralType: 'Referral cash reward type',
+  flatFirstTimeDiscount: 'First bill discount (flat)',
+  flatRepeatDiscount: 'Repeat bill discount (flat)',
+  flatReferralDiscount: 'Referred guest discount (flat)',
+  flatPurchasePoints: 'Cashback (flat)',
+  flatReferralPoints: 'Referring partner reward (flat)',
+  flatCashRewardPurchase: 'Purchase cash reward (flat)',
+  flatCashRewardReferral: 'Referral cash reward (flat)',
+  minBillAmount: 'Minimum bill for a discount',
+  walletRedemptionEnabled: 'Wallet redemption',
   gstPercentage: 'GST',
   serviceChargeType: 'Service charge type',
   serviceChargeValue: 'Service charge',
@@ -106,8 +153,16 @@ const FIELD_LABELS: Record<string, string> = {
   canEditOffers: 'Outlet can edit offers',
 };
 
-type FormState = Record<SlabKey, string> & { serviceChargeType: ServiceChargeType; serviceCharge: string };
-type ErrorKey = SlabKey | 'serviceCharge';
+type FormState = Record<SlabKey, string> & {
+  serviceChargeType: ServiceChargeType;
+  serviceCharge: string;
+  /** Each typed slab: PERCENTAGE uses the % above, FIXED its ₹ amount in flat. */
+  types: Partial<Record<SlabKey, DiscountType>>;
+  flat: Partial<Record<SlabKey, string>>;
+  minBill: string;
+  walletRedemption: boolean;
+};
+type ErrorKey = SlabKey | 'serviceCharge' | 'minBill';
 
 /** The rate each field resolves to at this outlet (its override, or the programme value). */
 function currentValue(view: OutletSettingsView, field: OfferField): number {
@@ -121,7 +176,15 @@ const toForm = (view: OutletSettingsView): FormState => ({
   // Older servers send no service charge: none.
   serviceChargeType: view.offers.serviceChargeType ?? 'PERCENTAGE',
   serviceCharge: String(view.offers.serviceChargeValue ?? 0),
+  // Older servers send no slab types: percentage.
+  types: Object.fromEntries(TYPED_KEYS.map((k) => [k, (view.offers[slabDef(k).typeField] as DiscountType | undefined) ?? 'PERCENTAGE'])),
+  flat: Object.fromEntries(TYPED_KEYS.map((k) => [k, String(view.offers[slabDef(k).flatField] ?? 0)])),
+  minBill: String(view.offers.minBillAmount ?? 0),
+  walletRedemption: view.offers.walletRedemptionEnabled ?? true,
 });
+
+const typeChanged = (form: FormState, initial: FormState, key: SlabKey) =>
+  form.types[key] !== initial.types[key] || (form.types[key] === 'FIXED' && form.flat[key] !== initial.flat[key]);
 
 const serviceChargeChanged = (form: FormState, initial: FormState) =>
   form.serviceChargeType !== initial.serviceChargeType || form.serviceCharge !== initial.serviceCharge;
@@ -135,8 +198,12 @@ function splitNote(view: OutletSettingsView, slab: Slab): string | null {
 
 const cleanNumber = (t: string) => t.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
 
+const cleanRupees = (t: string) => t.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+
 function changeValue(field: string, value: string | null): string {
   if (field === 'serviceChargeType') return value === 'FIXED' ? 'Fixed ₹' : 'Percentage';
+  if (field === 'discountType' || field.endsWith('Type')) return value === 'FIXED' ? 'Flat ₹' : 'Percentage';
+  if (field.startsWith('flat') || field === 'minBillAmount') return `₹${value ?? '0'}`;
   // A % or a ₹ amount, by the type saved with it.
   if (field === 'serviceChargeValue') return value ?? '0';
   if (value === null) return field === 'gstPercentage' ? '0%' : 'programme default';
@@ -159,7 +226,50 @@ function ChangeRow({ change }: { change: OutletOfferChangeRecord }) {
   );
 }
 
-/** One slab: icon, name and what it does on the left, the percentage input on the right. */
+/** Percentage or flat ₹: the radio pair under every slab but GST. */
+function TypeRadios({
+  type,
+  editable,
+  onChange,
+  flatLabel = 'Flat(₹)',
+  label,
+}: {
+  type: DiscountType;
+  editable: boolean;
+  onChange: (type: DiscountType) => void;
+  flatLabel?: string;
+  label: string;
+}) {
+  return (
+    <View style={styles.chargeTypes} accessibilityRole="radiogroup" accessibilityLabel={`${label} type`}>
+      {(['PERCENTAGE', 'FIXED'] as const).map((option) => {
+        const active = option === type;
+        return (
+          <Pressable
+            key={option}
+            disabled={!editable}
+            onPress={() => {
+              if (!active) {
+                Haptics.selectionAsync();
+                onChange(option);
+              }
+            }}
+            style={[styles.chargeType, styles.radio, active && styles.chargeTypeActive]}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: active, disabled: !editable }}
+          >
+            <Ionicons name={active ? 'radio-button-on' : 'radio-button-off'} size={16} color={active ? colors.gold : colors.textMuted} />
+            <Txt variant="smallMedium" tone={active ? 'gold' : 'secondary'}>
+              {option === 'PERCENTAGE' ? 'Pct(%)' : flatLabel}
+            </Txt>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/** One slab: icon, name and what it does on the left, the % or ₹ input on the right, the type radios below. */
 function SlabRow({
   slab,
   value,
@@ -167,6 +277,10 @@ function SlabRow({
   note,
   editable,
   onChange,
+  rupees = false,
+  wholeRupees = true,
+  type,
+  onChangeType,
 }: {
   slab: Slab;
   value: string;
@@ -174,6 +288,13 @@ function SlabRow({
   note: string | null;
   editable: boolean;
   onChange: (value: string) => void;
+  /** A flat slab: ₹ instead of %. */
+  rupees?: boolean;
+  /** Flat discounts are whole rupees; flat rewards may have paise. */
+  wholeRupees?: boolean;
+  /** Typed slabs only: the current type and how to change it. */
+  type?: DiscountType;
+  onChangeType?: (type: DiscountType) => void;
 }) {
   const [focused, setFocused] = useState(false);
   return (
@@ -185,30 +306,39 @@ function SlabRow({
         <View style={styles.slabText}>
           <Txt variant="bodyMedium">{slab.label}</Txt>
           <Txt variant="caption" tone="muted">
-            {slab.hint}
+            {rupees ? (FLAT_HINT[slab.key] ?? slab.hint) : slab.hint}
           </Txt>
         </View>
-        <View style={[styles.slabInput, focused && styles.slabInputFocused, !!error && styles.slabInputError]}>
+        <View style={[styles.slabInput, rupees && styles.slabInputWide, focused && styles.slabInputFocused, !!error && styles.slabInputError]}>
+          {rupees && (
+            <Txt variant="bodyMedium" tone="secondary">
+              ₹
+            </Txt>
+          )}
           <TextInput
             value={value}
-            onChangeText={(t) => onChange(cleanNumber(t))}
+            onChangeText={(t) => onChange(rupees && wholeRupees ? cleanRupees(t) : cleanNumber(t))}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
-            keyboardType="decimal-pad"
+            keyboardType={rupees && wholeRupees ? 'number-pad' : 'decimal-pad'}
+            inputMode={rupees && wholeRupees ? 'numeric' : 'decimal'}
             placeholder="0"
             placeholderTextColor={colors.textMuted}
             selectionColor={colors.gold}
             cursorColor={colors.gold}
             editable={editable}
-            maxLength={5}
+            maxLength={rupees ? 9 : 5}
             style={styles.slabValue}
-            accessibilityLabel={`${slab.label} percentage`}
+            accessibilityLabel={rupees ? `${slab.label} in rupees` : `${slab.label} percentage`}
           />
-          <Txt variant="bodyMedium" tone="secondary">
-            %
-          </Txt>
+          {!rupees && (
+            <Txt variant="bodyMedium" tone="secondary">
+              %
+            </Txt>
+          )}
         </View>
       </View>
+      {type && onChangeType ? <TypeRadios type={type} editable={editable} onChange={onChangeType} label={slab.label} /> : null}
       {error ? (
         <Txt variant="caption" tone="danger" style={styles.slabHelper}>
           {error}
@@ -283,36 +413,107 @@ function ServiceChargeRow({
           )}
         </View>
       </View>
-      <View style={styles.chargeTypes}>
-        {(['PERCENTAGE', 'FIXED'] as const).map((option) => {
-          const active = option === type;
-          return (
-            <Pressable
-              key={option}
-              disabled={!editable}
-              onPress={() => {
-                if (!active) {
-                  Haptics.selectionAsync();
-                  onChangeType(option);
-                }
-              }}
-              style={[styles.chargeType, active && styles.chargeTypeActive]}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: active, disabled: !editable }}
-            >
-              <Txt variant="smallMedium" tone={active ? 'gold' : 'secondary'}>
-                {option === 'PERCENTAGE' ? 'Percentage (%)' : 'Fixed amount (₹)'}
-              </Txt>
-            </Pressable>
-          );
-        })}
-      </View>
+      <TypeRadios type={type} editable={editable} onChange={onChangeType} flatLabel="Fixed amount (₹)" label="Service charge" />
       {error ? (
         <Txt variant="caption" tone="danger" style={styles.slabHelper}>
           {error}
         </Txt>
       ) : null}
     </View>
+  );
+}
+
+/** Minimum bill for a discount (₹, 0 = none) and the wallet redemption switch. */
+function OutletRulesPanel({
+  minBill,
+  minBillError,
+  walletRedemption,
+  editable,
+  showWallet,
+  onChangeMinBill,
+  onChangeWallet,
+}: {
+  minBill: string;
+  minBillError?: string;
+  walletRedemption: boolean;
+  editable: boolean;
+  showWallet: boolean;
+  onChangeMinBill: (value: string) => void;
+  onChangeWallet: (on: boolean) => void;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <Panel style={styles.section}>
+      <View style={styles.slab}>
+        <View style={styles.slabMain}>
+          <View style={styles.slabIcon}>
+            <Ionicons name="receipt-outline" size={18} color={colors.gold} />
+          </View>
+          <View style={styles.slabText}>
+            <Txt variant="bodyMedium">Minimum bill for a discount</Txt>
+            <Txt variant="caption" tone="muted">
+              Bills below this get no discount, % or flat. 0 for no minimum
+            </Txt>
+          </View>
+          <View style={[styles.slabInput, styles.slabInputWide, focused && styles.slabInputFocused, !!minBillError && styles.slabInputError]}>
+            <Txt variant="bodyMedium" tone="secondary">
+              ₹
+            </Txt>
+            <TextInput
+              value={minBill}
+              onChangeText={(t) => onChangeMinBill(cleanNumber(t))}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              keyboardType="decimal-pad"
+              placeholder="0"
+              placeholderTextColor={colors.textMuted}
+              selectionColor={colors.gold}
+              cursorColor={colors.gold}
+              editable={editable}
+              maxLength={10}
+              style={styles.slabValue}
+              accessibilityLabel="Minimum bill for a discount in rupees"
+            />
+          </View>
+        </View>
+        {minBillError ? (
+          <Txt variant="caption" tone="danger" style={styles.slabHelper}>
+            {minBillError}
+          </Txt>
+        ) : null}
+      </View>
+      {showWallet && (
+        <>
+          <Divider />
+          <View style={styles.slab}>
+            <View style={styles.slabMain}>
+              <View style={styles.slabIcon}>
+                <Ionicons name="qr-code-outline" size={18} color={colors.gold} />
+              </View>
+              <View style={styles.slabText}>
+                <Txt variant="bodyMedium">Wallet redemption</Txt>
+                <Txt variant="caption" tone="muted">
+                  {walletRedemption
+                    ? 'On: partners can pay part of a bill here with a wallet redeem QR'
+                    : 'Off: partners cannot redeem their wallet at this outlet'}
+                </Txt>
+              </View>
+              <Switch
+                value={walletRedemption}
+                disabled={!editable}
+                onValueChange={(on) => {
+                  Haptics.selectionAsync();
+                  onChangeWallet(on);
+                }}
+                trackColor={{ false: colors.line, true: colors.gold }}
+                thumbColor={colors.text}
+                accessibilityLabel="Wallet redemption"
+              />
+            </View>
+          </View>
+        </>
+      )}
+    </Panel>
   );
 }
 
@@ -323,17 +524,27 @@ function ServiceChargeRow({
  */
 function ExampleBill({
   discount,
+  flat,
   gst,
   serviceChargeType,
   serviceCharge,
+  minBill,
 }: {
   discount: number;
+  /** A flat first-bill slab in ₹ (the full slab is used in the example). */
+  flat: number | null;
   gst: number;
   serviceChargeType: ServiceChargeType;
   serviceCharge: number;
+  minBill: number;
 }) {
   const subtotal = 1000;
-  const afterDiscount = Math.round(subtotal - (subtotal * Math.min(discount, 50)) / 100);
+  const below = minBill > 0 && subtotal < minBill;
+  const afterDiscount = below
+    ? subtotal
+    : flat !== null
+      ? Math.round(subtotal - Math.min(flat, subtotal / 2))
+      : Math.round(subtotal - (subtotal * Math.min(discount, 50)) / 100);
   const serviceAmount =
     serviceCharge > 0
       ? serviceChargeType === 'FIXED'
@@ -351,7 +562,17 @@ function ExampleBill({
         Example · first bill of {formatINR(subtotal)}
       </Txt>
       <InfoRow label="Product total" value={formatINR(subtotal)} />
-      <InfoRow label={`Discount (${formatPercent(discount)})`} value={`− ${formatINR(subtotal - afterDiscount)}`} tone="success" />
+      <InfoRow
+        label={
+          below
+            ? `Discount (below the ${formatINR(minBill)} minimum)`
+            : flat !== null
+              ? 'Discount (flat, full slab)'
+              : `Discount (${formatPercent(discount)})`
+        }
+        value={`− ${formatINR(subtotal - afterDiscount)}`}
+        tone="success"
+      />
       {serviceAmount > 0 && (
         <InfoRow
           label={serviceChargeType === 'FIXED' ? 'Service charge' : `Service charge (${formatPercent(serviceCharge)})`}
@@ -426,14 +647,34 @@ export default function SlabsScreen() {
   const initial = toForm(view);
   // A server that predates service charges sends no service charge fields and would reject them on save.
   const serviceChargeSupported = view.offers.serviceChargeType !== undefined;
-  const dirty = SLABS.some((s) => form[s.key] !== initial[s.key]) || serviceChargeChanged(form, initial);
+  // A server that predates per-slab types, the minimum bill and the wallet switch sends none of them.
+  const typesSupported = view.offers.firstTimeDiscountType !== undefined;
+  const typeOf = (key: SlabKey): DiscountType => (typesSupported && TYPED[key] ? (form.types[key] ?? 'PERCENTAGE') : 'PERCENTAGE');
+  const isFlat = (key: SlabKey) => typeOf(key) === 'FIXED';
+  const dirty =
+    SLABS.some((s) => !isFlat(s.key) && form[s.key] !== initial[s.key]) ||
+    serviceChargeChanged(form, initial) ||
+    (typesSupported &&
+      (TYPED_KEYS.some((k) => typeChanged(form, initial, k)) ||
+        form.minBill !== initial.minBill ||
+        form.walletRedemption !== initial.walletRedemption));
 
   const onSave = () => {
     setMessage(null);
     const errs: Partial<Record<ErrorKey, string>> = {};
-    const payload: Record<string, number | string> = {};
+    const payload: Record<string, number | string | boolean> = {};
     for (const slab of SLABS) {
-      // A slab is saved when its value changed, or when it would bring split rates back to one.
+      // A flat slab saves its type and ₹ amount together.
+      if (typesSupported && TYPED[slab.key] && typeChanged(form, initial, slab.key)) {
+        const def = slabDef(slab.key);
+        payload[def.typeField] = typeOf(slab.key);
+        if (isFlat(slab.key)) {
+          if (!form.flat[slab.key]) errs[slab.key] = 'Enter an amount (0 for none)';
+          else payload[def.flatField] = Number(form.flat[slab.key]);
+        }
+      }
+      if (isFlat(slab.key)) continue;
+      // A % slab is saved when its value changed, or when it would bring split rates back to one.
       if (form[slab.key] === initial[slab.key] && !splitNote(view, slab)) continue;
       if (form[slab.key] === '') {
         errs[slab.key] = 'Enter a percentage (0 for none)';
@@ -449,12 +690,27 @@ export default function SlabsScreen() {
         payload.serviceChargeValue = Number(form.serviceCharge);
       }
     }
+    if (typesSupported && form.minBill !== initial.minBill) {
+      if (form.minBill === '') errs.minBill = 'Enter an amount (0 for no minimum)';
+      else payload.minBillAmount = Number(form.minBill);
+    }
+    if (typesSupported && form.walletRedemption !== initial.walletRedemption) payload.walletRedemptionEnabled = form.walletRedemption;
+
     const parsed = outletOffersUpdateSchema.safeParse(payload);
     if (!parsed.success) {
       for (const issue of parsed.error.issues) {
-        const field = issue.path[0];
+        const field = String(issue.path[0]);
         if (field === 'serviceChargeType' || field === 'serviceChargeValue') {
           errs.serviceCharge ??= issue.message;
+          continue;
+        }
+        if (field === 'minBillAmount') {
+          errs.minBill ??= issue.message;
+          continue;
+        }
+        const typed = TYPED_KEYS.find((k) => slabDef(k).flatField === field || slabDef(k).typeField === field);
+        if (typed) {
+          errs[typed] ??= issue.message;
           continue;
         }
         const slab = SLABS.find((s) => s.fields.includes(field as OfferField));
@@ -473,19 +729,40 @@ export default function SlabsScreen() {
     save.mutate(parsed.data);
   };
 
+  const renderSlab = (slab: Slab) => {
+    const typed = typesSupported && !!TYPED[slab.key];
+    const flat = isFlat(slab.key);
+    return (
+      <SlabRow
+        slab={slab}
+        rupees={flat}
+        wholeRupees={!TYPED[slab.key] || isDiscountSlab(slab.key)}
+        value={flat ? (form.flat[slab.key] ?? '') : form[slab.key]}
+        error={errors[slab.key]}
+        note={flat ? null : splitNote(view, slab)}
+        editable={!save.isPending}
+        onChange={(value) =>
+          setForm(flat ? { ...form, flat: { ...form.flat, [slab.key]: value } } : { ...form, [slab.key]: value })
+        }
+        type={typed ? typeOf(slab.key) : undefined}
+        onChangeType={
+          typed
+            ? (type) => {
+                setErrors((e) => ({ ...e, [slab.key]: undefined }));
+                setForm({ ...form, types: { ...form.types, [slab.key]: type } });
+              }
+            : undefined
+        }
+      />
+    );
+  };
+
   const renderSlabs = (slabs: Slab[]) => (
     <Panel style={styles.section}>
       {slabs.map((slab, i) => (
         <View key={slab.key}>
           {i > 0 && <Divider />}
-          <SlabRow
-            slab={slab}
-            value={form[slab.key]}
-            error={errors[slab.key]}
-            note={splitNote(view, slab)}
-            editable={!save.isPending}
-            onChange={(value) => setForm({ ...form, [slab.key]: value })}
-          />
+          {renderSlab(slab)}
         </View>
       ))}
     </Panel>
@@ -530,23 +807,33 @@ export default function SlabsScreen() {
           {TAX_SLABS.map((slab, i) => (
             <View key={slab.key}>
               {(serviceChargeSupported || i > 0) && <Divider />}
-              <SlabRow
-                slab={slab}
-                value={form[slab.key]}
-                error={errors[slab.key]}
-                note={splitNote(view, slab)}
-                editable={!save.isPending}
-                onChange={(value) => setForm({ ...form, [slab.key]: value })}
-              />
+              {renderSlab(slab)}
             </View>
           ))}
         </Panel>
 
+        {typesSupported && (
+          <>
+            <SectionLabel label="Discount and wallet rules" />
+            <OutletRulesPanel
+              minBill={form.minBill}
+              minBillError={errors.minBill}
+              walletRedemption={form.walletRedemption}
+              editable={!save.isPending}
+              showWallet
+              onChangeMinBill={(minBill) => setForm({ ...form, minBill })}
+              onChangeWallet={(walletRedemption) => setForm({ ...form, walletRedemption })}
+            />
+          </>
+        )}
+
         <ExampleBill
           discount={Number(form.firstBill) || 0}
+          flat={isFlat('firstBill') ? Number(form.flat.firstBill) || 0 : null}
           gst={Number(form.gst) || 0}
           serviceChargeType={form.serviceChargeType}
           serviceCharge={Number(form.serviceCharge) || 0}
+          minBill={Number(form.minBill) || 0}
         />
 
         <Txt variant="caption" tone="muted" style={styles.note}>
@@ -606,6 +893,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     backgroundColor: colors.maroonSoft,
   },
+  slabInputWide: { width: 112 },
   slabInputFocused: { borderColor: colors.gold },
   slabInputError: { borderColor: colors.danger },
   slabValue: {
@@ -628,6 +916,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   chargeTypeActive: { borderColor: colors.gold, backgroundColor: colors.goldSoft },
+  radio: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   exampleTitle: { marginBottom: space.xs },
   exampleTotal: {
     flexDirection: 'row',

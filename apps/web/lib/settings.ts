@@ -49,6 +49,7 @@ function toDto(row: ProgramSetting | null): ProgramSettings {
       payoutMinimumAmount: 100,
       payoutWeekday: 1,
       redeemQrEnabled: false,
+      walletEnabled: true,
       isPersisted: false,
       updatedAt: null,
     };
@@ -88,6 +89,7 @@ function toDto(row: ProgramSetting | null): ProgramSettings {
     payoutMinimumAmount: row.payoutMinimumAmount.toNumber(),
     payoutWeekday: row.payoutWeekday,
     redeemQrEnabled: row.redeemQrEnabled,
+    walletEnabled: row.walletEnabled,
     isPersisted: true,
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -243,6 +245,9 @@ export async function updateProgramSettings(
     }),
     ...(input.redeemQrEnabled !== undefined && {
       redeemQrEnabled: input.redeemQrEnabled,
+    }),
+    ...(input.walletEnabled !== undefined && {
+      walletEnabled: input.walletEnabled,
     }),
     updatedBy,
   } as const;

@@ -246,5 +246,6 @@ export async function getPartnerHome(partnerId: string): Promise<PartnerHome> {
     cashBalance: 0,
     upiMissing: false,
     redeemEnabled: settings.redeemQrEnabled,
+    walletEnabled: settings.walletEnabled,
   };
 }

@@ -3,11 +3,19 @@
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { Eye, EyeOff, KeyRound, Store } from 'lucide-react';
-import type { AdminOutlet, ServiceChargeType } from '@lotmorewins/types';
-import { MAX_OUTLET_IMAGES, MAX_SERVICE_CHARGE_PERCENT, MAX_SERVICE_CHARGE_RUPEES, normalizeIndianMobile } from '@lotmorewins/validation';
+import type { AdminOutlet, DiscountType, OutletSlabKey, OutletSlabTypes, ServiceChargeType } from '@lotmorewins/types';
+import {
+  MAX_FLAT_DISCOUNT_RUPEES,
+  MAX_MIN_BILL_RUPEES,
+  MAX_OUTLET_IMAGES,
+  MAX_SERVICE_CHARGE_PERCENT,
+  MAX_SERVICE_CHARGE_RUPEES,
+  OUTLET_SLABS,
+  normalizeIndianMobile,
+} from '@lotmorewins/validation';
 import { Button, buttonClass } from '@/components/ui/button';
 import { Alert } from '@/components/ui/feedback';
-import { Input, Select } from '@/components/ui/input';
+import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
 import { Panel } from '@/components/ui/panel';
 import { cn } from '@/lib/utils';
@@ -29,6 +37,13 @@ export interface OutletFormValues {
   achariyaFirstTimeDiscount: string;
   repeatDiscount: string;
   referralDiscount: string;
+  /** Each slab's type: PERCENTAGE uses the % fields, FIXED its flat ₹ amount below. */
+  slabTypes: OutletSlabTypes;
+  /** Each slab's flat ₹ amount as typed ('' = 0). */
+  flat: Record<OutletSlabKey, string>;
+  /** Bills below this get no discount; '' or 0 = no minimum. */
+  minBillAmount: string;
+  walletRedemptionEnabled: boolean;
   gstPercentage: string;
   /** Service charge: a % of the discounted amount or a fixed ₹ per bill; '' or 0 = none. */
   serviceChargeType: ServiceChargeType;
@@ -61,17 +76,38 @@ export const REWARD_FIELDS = [
 ] as const;
 
 type RewardKey = (typeof REWARD_FIELDS)[number]['key'];
+type PercentKey = DiscountKey | RewardKey;
+
+/** Every slab with a % or flat ₹ choice, in form order, with what each means. */
+export const SLAB_INFO: Record<OutletSlabKey, { label: string; flatHint: string; cashback?: boolean }> = {
+  firstTimeDiscount: { label: 'First purchase discount', flatHint: 'Most ₹ off a first bill; the Outlet Admin picks the amount per bill.' },
+  repeatDiscount: { label: 'Repeat purchase discount', flatHint: 'Most ₹ off a repeat bill; the Outlet Admin picks the amount per bill.' },
+  referralDiscount: { label: 'Referred friend discount', flatHint: "Most ₹ off a referred friend's bill; picked per bill." },
+  purchasePoints: { label: 'Purchase points', flatHint: '₹ worth of points per bill (never more than the bill).' },
+  referralPoints: { label: 'Referral points', flatHint: "₹ worth of points to the referrer per referred friend's bill." },
+  cashRewardPurchase: { label: 'Purchase cashback', flatHint: '₹ cashback per bill (never more than the bill).', cashback: true },
+  cashRewardReferral: { label: 'Referral cashback', flatHint: "₹ cashback to the referrer per referred friend's bill.", cashback: true },
+};
+
+const PERCENT_LABEL: Record<PercentKey, string> = Object.fromEntries(
+  [...DISCOUNT_FIELDS, ...REWARD_FIELDS].map(({ key, label }) => [key, label])
+) as Record<PercentKey, string>;
 
 const pct = (v: number | null | undefined) => (v === null || v === undefined ? '' : String(v));
 
 /** The offer fields of the form as the API payload: a blank discount is null (programme setting). */
 export function offerPayload(values: OutletFormValues) {
   const discount = (v: string) => (v.trim() === '' ? null : Number(v));
+  const rupees = (v: string) => (v.trim() === '' ? 0 : Number(v));
   return {
     firstTimeDiscount: discount(values.firstTimeDiscount),
     achariyaFirstTimeDiscount: discount(values.achariyaFirstTimeDiscount),
     repeatDiscount: discount(values.repeatDiscount),
     referralDiscount: discount(values.referralDiscount),
+    ...Object.fromEntries(OUTLET_SLABS.map((s) => [s.typeField, values.slabTypes[s.key]])),
+    ...Object.fromEntries(OUTLET_SLABS.map((s) => [s.flatField, rupees(values.flat[s.key])])),
+    minBillAmount: rupees(values.minBillAmount),
+    walletRedemptionEnabled: values.walletRedemptionEnabled,
     gstPercentage: values.gstPercentage.trim() === '' ? 0 : Number(values.gstPercentage),
     serviceChargeType: values.serviceChargeType,
     serviceChargeValue: values.serviceChargeValue.trim() === '' ? 0 : Number(values.serviceChargeValue),
@@ -86,6 +122,7 @@ export function offerPayload(values: OutletFormValues) {
 }
 
 export function emptyOutletForm(outlet?: AdminOutlet): OutletFormValues {
+  const offers = outlet?.offers;
   return {
     name: outlet?.name ?? '',
     email: outlet?.email ?? '',
@@ -97,21 +134,69 @@ export function emptyOutletForm(outlet?: AdminOutlet): OutletFormValues {
     images: outlet?.images ?? [],
     adminEmail: outlet?.adminEmail ?? '',
     adminPassword: '',
-    firstTimeDiscount: pct(outlet?.offers.firstTimeDiscount),
-    achariyaFirstTimeDiscount: pct(outlet?.offers.achariyaFirstTimeDiscount),
-    repeatDiscount: pct(outlet?.offers.repeatDiscount),
-    referralDiscount: pct(outlet?.offers.referralDiscount),
+    firstTimeDiscount: pct(offers?.firstTimeDiscount),
+    achariyaFirstTimeDiscount: pct(offers?.achariyaFirstTimeDiscount),
+    repeatDiscount: pct(offers?.repeatDiscount),
+    referralDiscount: pct(offers?.referralDiscount),
+    slabTypes: Object.fromEntries(
+      OUTLET_SLABS.map((s) => [s.key, (offers?.[s.typeField] as DiscountType | undefined) ?? 'PERCENTAGE'])
+    ) as OutletSlabTypes,
+    flat: Object.fromEntries(OUTLET_SLABS.map((s) => [s.key, String(offers?.[s.flatField] ?? 0)])) as Record<OutletSlabKey, string>,
+    minBillAmount: String(offers?.minBillAmount ?? 0),
+    walletRedemptionEnabled: offers?.walletRedemptionEnabled ?? true,
     gstPercentage: outlet ? String(outlet.offers.gstPercentage) : '0',
-    serviceChargeType: outlet?.offers.serviceChargeType ?? 'PERCENTAGE',
+    serviceChargeType: offers?.serviceChargeType ?? 'PERCENTAGE',
     serviceChargeValue: outlet ? String(outlet.offers.serviceChargeValue ?? 0) : '0',
-    purchasePointsPercentage: pct(outlet?.offers.purchasePointsPercentage),
-    referralPointsPercentage: pct(outlet?.offers.referralPointsPercentage),
-    achariyaReferralPointsPercentage: pct(outlet?.offers.achariyaReferralPointsPercentage),
-    cashRewardPurchasePercentage: pct(outlet?.offers.cashRewardPurchasePercentage),
-    cashRewardReferralPercentage: pct(outlet?.offers.cashRewardReferralPercentage),
-    givesCashReward: outlet?.offers.givesCashReward ?? false,
-    canEditOffers: outlet?.offers.canEditOffers ?? false,
+    purchasePointsPercentage: pct(offers?.purchasePointsPercentage),
+    referralPointsPercentage: pct(offers?.referralPointsPercentage),
+    achariyaReferralPointsPercentage: pct(offers?.achariyaReferralPointsPercentage),
+    cashRewardPurchasePercentage: pct(offers?.cashRewardPurchasePercentage),
+    cashRewardReferralPercentage: pct(offers?.cashRewardReferralPercentage),
+    givesCashReward: offers?.givesCashReward ?? false,
+    canEditOffers: offers?.canEditOffers ?? false,
   };
+}
+
+/** Percentage or flat ₹: the radio pair every slab (and the service charge) uses. */
+export function TypeRadios({
+  name,
+  value,
+  onChange,
+  flatLabel = 'Flat ₹',
+}: {
+  name: string;
+  value: DiscountType;
+  onChange: (type: DiscountType) => void;
+  flatLabel?: string;
+}) {
+  return (
+    <div className="inline-flex rounded-md border border-stone-200 p-0.5" role="radiogroup" aria-label={`${name} type`}>
+      {(
+        [
+          { v: 'PERCENTAGE', label: 'Percentage %' },
+          { v: 'FIXED', label: flatLabel },
+        ] as const
+      ).map((o) => (
+        <label
+          key={o.v}
+          className={cn(
+            'flex cursor-pointer items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium',
+            value === o.v ? 'bg-maroon-50 text-maroon-800' : 'text-stone-500 hover:text-stone-800'
+          )}
+        >
+          <input
+            type="radio"
+            name={`${name}-type`}
+            value={o.v}
+            checked={value === o.v}
+            onChange={() => onChange(o.v)}
+            className="h-3.5 w-3.5 accent-maroon-700"
+          />
+          {o.label}
+        </label>
+      ))}
+    </div>
+  );
 }
 
 export function OutletLogo({ outlet, size = 'md' }: { outlet: Pick<AdminOutlet, 'logoUrl' | 'name'>; size?: 'md' | 'lg' }) {
@@ -194,7 +279,7 @@ export function OutletForm({
   onSubmit: (values: OutletFormValues) => void;
   cancelHref?: string;
   /** Programme discounts and rates a blank override falls back to, shown as hints (edit mode). */
-  programme?: Partial<Record<DiscountKey | RewardKey, number>>;
+  programme?: Partial<Record<PercentKey, number>>;
 }) {
   const [values, setValues] = useState(initial);
   const [showPassword, setShowPassword] = useState(false);
@@ -210,7 +295,7 @@ export function OutletForm({
   });
 
   const errors = useMemo(() => {
-    const e: Partial<Record<keyof OutletFormValues, string>> = {};
+    const e: Partial<Record<keyof OutletFormValues | `flat.${OutletSlabKey}`, string>> = {};
     if (values.name.trim().length < 2) e.name = 'Enter the outlet name (at least 2 characters).';
     if (!/^\S+@\S+\.\S+$/.test(values.email.trim())) e.email = 'Enter a valid email address.';
     if (!MOBILE.test(normalizeIndianMobile(values.mobile))) e.mobile = 'Enter a 10-digit Indian mobile number.';
@@ -221,11 +306,27 @@ export function OutletForm({
     }
     if (mode === 'edit' && resetting && !values.adminPassword) e.adminPassword = 'Enter the new password or cancel the reset.';
     // A bill is never reduced by more than half: no discount rate above 50%.
-    for (const { key } of DISCOUNT_FIELDS) {
-      if (values[key].trim() && !validPercent(values[key], 50)) e[key] = 'Enter 0–50 with up to 2 decimals, or leave blank.';
+    for (const slab of OUTLET_SLABS) {
+      if (SLAB_INFO[slab.key].cashback && !values.givesCashReward) continue;
+      if (values.slabTypes[slab.key] === 'FIXED') {
+        const v = values.flat[slab.key].trim();
+        const ok =
+          !v ||
+          (slab.kind === 'discount' ? /^\d{1,6}$/.test(v) : /^\d{1,6}(\.\d{1,2})?$/.test(v)) && Number(v) <= MAX_FLAT_DISCOUNT_RUPEES;
+        if (!ok) {
+          e[`flat.${slab.key}`] =
+            slab.kind === 'discount' ? `Enter whole rupees, ₹0–${MAX_FLAT_DISCOUNT_RUPEES}.` : `Enter ₹0–${MAX_FLAT_DISCOUNT_RUPEES}, up to 2 decimals.`;
+        }
+      } else {
+        for (const key of slab.percentFields) {
+          const max = slab.kind === 'discount' ? 50 : 100;
+          if (values[key].trim() && !validPercent(values[key], max)) e[key] = `Enter 0–${max} with up to 2 decimals, or leave blank.`;
+        }
+      }
     }
-    for (const { key } of REWARD_FIELDS) {
-      if (values[key].trim() && !validPercent(values[key])) e[key] = 'Enter 0–100 with up to 2 decimals, or leave blank.';
+    const minBill = values.minBillAmount.trim();
+    if (minBill && !(/^\d{1,7}(\.\d{1,2})?$/.test(minBill) && Number(minBill) <= MAX_MIN_BILL_RUPEES)) {
+      e.minBillAmount = `Enter ₹0–${MAX_MIN_BILL_RUPEES} with up to 2 decimals.`;
     }
     if (values.gstPercentage.trim() && !validPercent(values.gstPercentage, 50)) e.gstPercentage = 'Enter 0–50 with up to 2 decimals.';
     const charge = values.serviceChargeValue.trim();
@@ -251,7 +352,7 @@ export function OutletForm({
       (resetting && values.adminPassword.length > 0),
     [values, initial, mode, resetting]
   );
-  const show = (k: keyof OutletFormValues) => (touched ? errors[k] : undefined);
+  const show = (k: keyof typeof errors) => (touched ? errors[k] : undefined);
 
   return (
     <form
@@ -312,104 +413,154 @@ export function OutletForm({
 
         <FormSection
           title="Offers, service charge & GST"
-          description="Leave a discount or rate blank to use the programme setting. A discount is at most 50% (a bill is never reduced by more than half). The first-time discount applies to a partner's first bill at this outlet, and that bill earns no purchase points or cashback; repeat bills do. The service charge is added to the discounted amount, then GST is charged on both. Points and cashback go into the partner's wallet. Every change is logged."
+          description="Each slab is a percentage or a flat ₹ amount. Leave a % blank to use the programme setting. A discount is at most 50% (a bill is never reduced by more than half); a flat discount is the most the Outlet Admin may give, picked on each bill. The first-time discount applies to a partner's first bill at this outlet, and that bill earns no purchase points or cashback; repeat bills do. The service charge is added to the discounted amount, then GST is charged on both. Every change is logged."
         >
-          <div className="grid gap-4 sm:grid-cols-2">
-            {DISCOUNT_FIELDS.map(({ key, label }) => (
-              <Field
-                key={key}
-                label={`${label} %`}
-                htmlFor={key}
-                error={show(key)}
-                hint={programme?.[key] !== undefined ? `Blank = programme setting (${programme[key]}%)` : 'Blank = programme setting'}
-              >
-                <Input
-                  id={key}
-                  name={key}
-                  inputMode="decimal"
-                  value={values[key]}
-                  onChange={(e) => set(key, e.target.value)}
-                  placeholder={programme?.[key] !== undefined ? String(programme[key]) : 'Programme setting'}
-                  aria-invalid={!!show(key)}
-                />
-              </Field>
-            ))}
-            <Field label="GST %" htmlFor="gstPercentage" error={show('gstPercentage')} hint="0 = no GST on the bill.">
-              <Input
-                id="gstPercentage"
-                name="gstPercentage"
-                inputMode="decimal"
-                value={values.gstPercentage}
-                onChange={(e) => set('gstPercentage', e.target.value)}
-                placeholder="0"
-                aria-invalid={!!show('gstPercentage')}
-              />
-            </Field>
-            <Field
-              label="Service charge"
-              htmlFor="serviceChargeValue"
-              error={show('serviceChargeValue')}
-              hint={
-                values.serviceChargeType === 'PERCENTAGE'
-                  ? '% of the discounted amount, added before GST. 0 = none.'
-                  : 'Fixed ₹ on every bill, added before GST. 0 = none.'
-              }
-            >
-              <div className="flex gap-2">
-                <div className="w-28 shrink-0">
-                  <Select
-                    id="serviceChargeType"
-                    name="serviceChargeType"
-                    aria-label="Service charge type"
-                    value={values.serviceChargeType}
-                    onChange={(e) => set('serviceChargeType', e.target.value as ServiceChargeType)}
-                  >
-                    <option value="PERCENTAGE">%</option>
-                    <option value="FIXED">₹ fixed</option>
-                  </Select>
+          <div className="space-y-3">
+            {OUTLET_SLABS.filter((s) => !SLAB_INFO[s.key].cashback || values.givesCashReward).map((slab) => {
+              const info = SLAB_INFO[slab.key];
+              const type = values.slabTypes[slab.key];
+              const flatError = show(`flat.${slab.key}`);
+              return (
+                <div key={slab.key} className="rounded-md border border-stone-150 px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[13px] font-medium text-stone-900">{info.label}</p>
+                    <TypeRadios
+                      name={slab.key}
+                      value={type}
+                      onChange={(t) => setValues((v) => ({ ...v, slabTypes: { ...v.slabTypes, [slab.key]: t } }))}
+                    />
+                  </div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {type === 'FIXED' ? (
+                      <Field label={slab.kind === 'discount' ? 'Up to ₹' : '₹ per bill'} htmlFor={`flat-${slab.key}`} error={flatError} hint={info.flatHint}>
+                        <Input
+                          id={`flat-${slab.key}`}
+                          inputMode={slab.kind === 'discount' ? 'numeric' : 'decimal'}
+                          prefix="₹"
+                          value={values.flat[slab.key]}
+                          onChange={(e) =>
+                            setValues((v) => ({
+                              ...v,
+                              flat: {
+                                ...v.flat,
+                                [slab.key]: e.target.value.replace(slab.kind === 'discount' ? /[^0-9]/g : /[^0-9.]/g, ''),
+                              },
+                            }))
+                          }
+                          placeholder="0"
+                          aria-invalid={!!flatError}
+                        />
+                      </Field>
+                    ) : (
+                      slab.percentFields.map((key) => (
+                        <Field
+                          key={key}
+                          label={`${PERCENT_LABEL[key]} %`}
+                          htmlFor={key}
+                          error={show(key)}
+                          hint={programme?.[key] !== undefined ? `Blank = programme setting (${programme[key]}%)` : 'Blank = programme setting'}
+                        >
+                          <Input
+                            id={key}
+                            name={key}
+                            inputMode="decimal"
+                            value={values[key]}
+                            onChange={(e) => set(key, e.target.value.replace(/[^0-9.]/g, ''))}
+                            placeholder={programme?.[key] !== undefined ? String(programme[key]) : 'Programme setting'}
+                            aria-invalid={!!show(key)}
+                          />
+                        </Field>
+                      ))
+                    )}
+                  </div>
                 </div>
-                <div className="min-w-0 flex-1">
+              );
+            })}
+
+            <div className="rounded-md border border-stone-150 px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[13px] font-medium text-stone-900">Service charge</p>
+                <TypeRadios
+                  name="serviceCharge"
+                  value={values.serviceChargeType}
+                  flatLabel="Fixed ₹"
+                  onChange={(t) => set('serviceChargeType', t)}
+                />
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <Field
+                  label={values.serviceChargeType === 'PERCENTAGE' ? 'Service charge %' : 'Service charge ₹'}
+                  htmlFor="serviceChargeValue"
+                  error={show('serviceChargeValue')}
+                  hint={
+                    values.serviceChargeType === 'PERCENTAGE'
+                      ? '% of the discounted amount, added before GST. 0 = none.'
+                      : 'Fixed ₹ on every bill, added before GST. 0 = none.'
+                  }
+                >
                   <Input
                     id="serviceChargeValue"
                     name="serviceChargeValue"
                     inputMode="decimal"
+                    prefix={values.serviceChargeType === 'FIXED' ? '₹' : undefined}
                     value={values.serviceChargeValue}
                     onChange={(e) => set('serviceChargeValue', e.target.value)}
                     placeholder="0"
                     aria-invalid={!!show('serviceChargeValue')}
                   />
-                </div>
+                </Field>
               </div>
-            </Field>
-            {REWARD_FIELDS.filter((f) => !f.cashback || values.givesCashReward).map(({ key, label }) => (
-              <Field
-                key={key}
-                label={`${label} %`}
-                htmlFor={key}
-                error={show(key)}
-                hint={programme?.[key] !== undefined ? `Blank = programme setting (${programme[key]}%)` : 'Blank = programme setting'}
-              >
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="GST %" htmlFor="gstPercentage" error={show('gstPercentage')} hint="A tax rate, so always a %. 0 = no GST on the bill.">
                 <Input
-                  id={key}
-                  name={key}
+                  id="gstPercentage"
+                  name="gstPercentage"
                   inputMode="decimal"
-                  value={values[key]}
-                  onChange={(e) => set(key, e.target.value)}
-                  placeholder={programme?.[key] !== undefined ? String(programme[key]) : 'Programme setting'}
-                  aria-invalid={!!show(key)}
+                  value={values.gstPercentage}
+                  onChange={(e) => set('gstPercentage', e.target.value)}
+                  placeholder="0"
+                  aria-invalid={!!show('gstPercentage')}
                 />
               </Field>
-            ))}
-            <div className="space-y-2 sm:col-span-2">
+              <Field
+                label="Minimum bill for a discount"
+                htmlFor="minBillAmount"
+                error={show('minBillAmount')}
+                hint="Bills below this get no discount (% or flat). 0 = no minimum."
+              >
+                <Input
+                  id="minBillAmount"
+                  name="minBillAmount"
+                  inputMode="decimal"
+                  prefix="₹"
+                  value={values.minBillAmount}
+                  onChange={(e) => set('minBillAmount', e.target.value.replace(/[^0-9.]/g, ''))}
+                  placeholder="0"
+                  aria-invalid={!!show('minBillAmount')}
+                />
+              </Field>
+            </div>
+
+            <div className="space-y-2">
+              <Toggle
+                id="walletRedemptionEnabled"
+                label="Wallet redemption available"
+                hint="Partners can pay part of a bill here with a wallet redeem QR. Off: this outlet is greyed out when partners generate a redeem QR."
+                checked={values.walletRedemptionEnabled}
+                onChange={(on) => set('walletRedemptionEnabled', on)}
+              />
               <Toggle
                 id="givesCashReward"
                 label="Gives cashback"
-                hint="Bills here also credit cashback (purchase and referral %) into the partner's wallet on top of points."
+                hint="Bills here also credit cashback (purchase and referral) into the partner's wallet on top of points."
                 checked={values.givesCashReward}
                 onChange={(on) => set('givesCashReward', on)}
               />
               <p className="text-xs leading-relaxed text-stone-500">
-                The Outlet Admin can also change these discounts, rates, service charge and GST from the Outlet Admin app. Every change is in the outlet&apos;s change log.
+                The Outlet Admin can also change these slabs, the minimum bill, wallet redemption, service charge and GST from the Outlet Admin app.
+                Every change is in the outlet&apos;s change log.
               </p>
             </div>
           </div>

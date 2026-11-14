@@ -26,6 +26,11 @@ const CARD_FILL = {
   backgroundColor: '#5A0404',
   experimental_backgroundImage: 'linear-gradient(160deg, #8C0A0A 0%, #5A0404 55%, #430202 100%)',
 } as ViewStyle;
+/** Glass over the card: a glow from the top edge and a diagonal band of reflected light. */
+const CARD_GLASS = {
+  experimental_backgroundImage:
+    'linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.03) 45%, rgba(255, 255, 255, 0) 100%), linear-gradient(115deg, rgba(255, 255, 255, 0) 20%, rgba(255, 255, 255, 0.08) 32%, rgba(255, 255, 255, 0) 48%)',
+} as ViewStyle;
 const GOLD_BAR = {
   backgroundColor: colors.gold,
   experimental_backgroundImage: 'linear-gradient(90deg, #B8922F 0%, #F5C542 35%, #FFEFB8 60%, #F5C542 80%, #FFDD75 100%)',
@@ -133,6 +138,7 @@ export function ReferralProgress({
       {/* The gold frame is the gradient showing around the inset card. */}
       <View style={[styles.frame, goldFrame]} onLayout={(e) => setCard(e.nativeEvent.layout)}>
         <View style={[styles.card, CARD_FILL]}>
+          <View pointerEvents="none" style={[styles.glass, CARD_GLASS]} />
           <View style={styles.head}>
             <View style={styles.flex}>
               <Txt variant="overline" tone="gold">
@@ -196,7 +202,14 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     elevation: 8,
   },
-  card: { borderRadius: radius.xl - 2, padding: space.md, gap: space.sm, overflow: 'hidden' },
+  card: {
+    borderRadius: radius.xl - 2,
+    padding: space.md,
+    gap: space.sm,
+    overflow: 'hidden',
+    boxShadow: 'inset 0px 1px 0px rgba(255, 255, 255, 0.28), inset 1px 0px 0px rgba(255, 255, 255, 0.12), inset 0px -1px 0px rgba(0, 0, 0, 0.2)',
+  },
+  glass: { ...StyleSheet.absoluteFillObject },
   // Text starts to the right of the gift.
   head: { flexDirection: 'row', alignItems: 'center', paddingLeft: GIFT_SIZE - space.md },
   count: { flexDirection: 'row', alignItems: 'baseline', gap: 3 },

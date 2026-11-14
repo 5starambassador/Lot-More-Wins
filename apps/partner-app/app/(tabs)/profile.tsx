@@ -15,6 +15,7 @@ import {
   Button,
   DateField,
   Field,
+  Glass,
   Notice,
   OtpInput,
   Screen,
@@ -213,99 +214,107 @@ export default function ProfileScreen() {
         <View style={styles.header}>
           <TopBar title="Profile" onBack={() => router.navigate('/dashboard')} />
         </View>
-        <Animated.View entering={FadeIn.duration(400)} style={styles.identity}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Change profile photo"
-            onPress={changePhoto}
-            disabled={uploading}
-            style={({ pressed }) => [styles.avatarWrap, pressed && { opacity: 0.8 }]}
-          >
-            <Avatar name={partner.name} photoUrl={partner.photoUrl} size={96} />
-            <View style={styles.camera}>
-              {uploading ? <ActivityIndicator size="small" color={colors.textOnGold} /> : <Ionicons name="camera" size={16} color={colors.textOnGold} />}
-            </View>
-          </Pressable>
-          <Txt variant="title" align="center" style={styles.name}>
-            {partner.name}
-          </Txt>
-          <Txt variant="mono" tone="muted">
-            {partner.partnerCode}
-          </Txt>
-          <Txt variant="caption" tone="muted">
-            Partner since {formatDate(partner.createdAt)}
-          </Txt>
+        <Animated.View entering={FadeIn.duration(400)} style={styles.identityWrap}>
+          <Glass style={styles.identity}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Change profile photo"
+              onPress={changePhoto}
+              disabled={uploading}
+              style={({ pressed }) => [styles.avatarWrap, pressed && { opacity: 0.8 }]}
+            >
+              <Avatar name={partner.name} photoUrl={partner.photoUrl} size={96} />
+              <View style={styles.camera}>
+                {uploading ? <ActivityIndicator size="small" color={colors.textOnGold} /> : <Ionicons name="camera" size={16} color={colors.textOnGold} />}
+              </View>
+            </Pressable>
+            <Txt variant="title" align="center" style={styles.name}>
+              {partner.name}
+            </Txt>
+            <Txt variant="mono" tone="muted">
+              {partner.partnerCode}
+            </Txt>
+            <Txt variant="caption" tone="muted">
+              Partner since {formatDate(partner.createdAt)}
+            </Txt>
+          </Glass>
         </Animated.View>
 
         {message && <Notice tone={message.tone} message={message.text} />}
 
         <Animated.View entering={FadeInDown.delay(100).duration(400)}>
           <SectionLabel label="Your details" />
-          <Field
-            label="Full name"
-            value={name}
-            onChangeText={(v) => {
-              setName(v);
-              clear('name');
-            }}
-            autoCapitalize="words"
-            textContentType="name"
-            error={errors.name}
-          />
-          <Field
-            label="Email address"
-            value={email}
-            onChangeText={(v) => {
-              setEmail(v);
-              clear('email');
-            }}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            textContentType="emailAddress"
-            error={errors.email}
-          />
-          <Field
-            label="Mobile number"
-            prefix="+91"
-            value={mobile}
-            onChangeText={(v) => {
-              setMobile(v.replace(/\D/g, '').slice(0, 10));
-              clear('mobile');
-            }}
-            keyboardType="phone-pad"
-            maxLength={10}
-            textContentType="telephoneNumber"
-            error={errors.mobile}
-            hint="Changing your mobile or email needs a verification code"
-          />
+          <Glass rounded={radius.lg} style={styles.panel}>
+            <Field
+              label="Full name"
+              value={name}
+              onChangeText={(v) => {
+                setName(v);
+                clear('name');
+              }}
+              autoCapitalize="words"
+              textContentType="name"
+              error={errors.name}
+            />
+            <Field
+              label="Email address"
+              value={email}
+              onChangeText={(v) => {
+                setEmail(v);
+                clear('email');
+              }}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              textContentType="emailAddress"
+              error={errors.email}
+            />
+            <Field
+              label="Mobile number"
+              prefix="+91"
+              value={mobile}
+              onChangeText={(v) => {
+                setMobile(v.replace(/\D/g, '').slice(0, 10));
+                clear('mobile');
+              }}
+              keyboardType="phone-pad"
+              maxLength={10}
+              textContentType="telephoneNumber"
+              error={errors.mobile}
+              hint="Changing your mobile or email needs a verification code"
+            />
+          </Glass>
         </Animated.View>
 
         <Animated.View entering={FadeInDown.delay(160).duration(400)} style={styles.group}>
           <SectionLabel label="Location" />
-          <AddressFields
-            value={address}
-            onChange={(next) => {
-              setAddress(next);
-              setErrors((e) => ({ ...e, city: undefined, state: undefined, pincode: undefined }));
-            }}
-            errors={errors}
-          />
+          <Glass rounded={radius.lg} style={styles.panel}>
+            <AddressFields
+              value={address}
+              onChange={(next) => {
+                setAddress(next);
+                setErrors((e) => ({ ...e, city: undefined, state: undefined, pincode: undefined }));
+              }}
+              errors={errors}
+            />
+          </Glass>
         </Animated.View>
 
         <Animated.View entering={FadeInDown.delay(220).duration(400)} style={styles.group}>
           <SectionLabel label="Birthday" />
-          <DateField
-            label="Date of birth"
-            value={dob}
-            onChangeText={(v) => {
-              setDob(v);
-              clear('dateOfBirth');
-            }}
-            error={errors.dateOfBirth}
-            hint="Unlocks your birthday gift discount. A newly added or changed date counts from 30 days after you save it."
-          />
-          <Button label="Save changes" onPress={handleSave} loading={saving} disabled={!dirty} />
+          <Glass rounded={radius.lg} style={styles.panel}>
+            <DateField
+              label="Date of birth"
+              value={dob}
+              onChangeText={(v) => {
+                setDob(v);
+                clear('dateOfBirth');
+              }}
+              error={errors.dateOfBirth}
+              hint="Unlocks your birthday gift discount. A newly added or changed date counts from 30 days after you save it."
+            />
+          </Glass>
+          <Button label="Save changes" style={styles.save} onPress={handleSave} loading={saving} disabled={!dirty} />
         </Animated.View>
 
         <View style={styles.footer}>
@@ -344,7 +353,10 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   // The bar brings its own side padding; pull it out of the screen gutter.
   header: { marginHorizontal: -GUTTER },
-  identity: { alignItems: 'center', paddingTop: space.md, paddingBottom: space.xl, gap: 2 },
+  identityWrap: { marginTop: space.xs, marginBottom: space.xl },
+  identity: { alignItems: 'center', paddingTop: space.xl, paddingBottom: space.lg, paddingHorizontal: space.md, gap: 2 },
+  // Fields bring their own bottom margin.
+  panel: { paddingHorizontal: space.md, paddingTop: space.md },
   avatarWrap: { width: 96, height: 96 },
   camera: {
     position: 'absolute',
@@ -361,6 +373,7 @@ const styles = StyleSheet.create({
   },
   name: { marginTop: space.md },
   group: { marginTop: space.lg },
+  save: { marginTop: space.lg },
   footer: { marginTop: space.xxxl, gap: space.md },
   backdrop: { flex: 1, backgroundColor: colors.scrim, justifyContent: 'center', padding: space.xl },
   sheet: {

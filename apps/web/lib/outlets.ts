@@ -1,6 +1,6 @@
 import type { Outlet as OutletRow, Prisma } from '@prisma/client';
 import type { AdminOutlet, Outlet, PartnerCategory, ProgramSettings } from '@lotmorewins/types';
-import { effectiveDiscounts, effectiveRewards, offerSummary, serializeOfferSettings } from './outlet-offers';
+import { effectiveDiscounts, effectiveRewards, offerSummary, serializeOfferSettings, summaryFlat } from './outlet-offers';
 
 type DiscountSettings = Pick<ProgramSettings, 'firstTimeDiscount' | 'achariyaFirstTimeDiscount' | 'repeatDiscount' | 'referralDiscount'>;
 type RewardSettings = Pick<
@@ -30,8 +30,10 @@ export function serializeOutlet(outlet: OutletRow, settings?: DiscountSettings, 
     status: outlet.status,
     createdAt: outlet.createdAt.toISOString(),
     updatedAt: outlet.updatedAt.toISOString(),
+    minBillAmount: outlet.minBillAmount.toNumber(),
+    walletRedemptionEnabled: outlet.walletRedemptionEnabled,
     ...(settings && {
-      offer: offerSummary(effectiveDiscounts(settings, outlet), outlet.givesCashReward, category),
+      offer: offerSummary(effectiveDiscounts(settings, outlet), outlet.givesCashReward, category, summaryFlat(outlet)),
     }),
   };
 }

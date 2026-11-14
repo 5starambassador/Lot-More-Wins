@@ -231,6 +231,7 @@ export async function getPartnerWallet(partnerId: string, limit = 50): Promise<P
       };
     }),
     redeemEnabled: settings.redeemQrEnabled,
+    walletEnabled: settings.walletEnabled,
     redeemMaxPoints: redeemMax.toNumber(),
     redeemMaxRupees: rupeeValueOf(redeemMax, ratio).toNumber(),
     transferMaxPoints: transferMax.toNumber(),

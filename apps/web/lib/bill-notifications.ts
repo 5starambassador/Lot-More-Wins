@@ -91,6 +91,7 @@ export async function sendBillNotification(billId: string): Promise<BillRecord> 
           subtotal: record.billAmount,
           discountAmount: record.discountAmount,
           discountPercentage: record.discountPercentage,
+          discountType: record.discountType,
           taxableAmount: record.taxableAmount,
           serviceChargeAmount: record.serviceChargeAmount,
           gstPercentage: record.gstPercentage,

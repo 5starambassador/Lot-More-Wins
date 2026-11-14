@@ -61,6 +61,7 @@ function toBill(bill: BillRow, partnerId: string): PartnerTransactionBill {
     isFirstTime: bill.isFirstTime,
     billAmount: n(bill.billAmount),
     discountPercentage: n(bill.discountPercentage),
+    discountType: bill.discountType,
     discountAmount: n(bill.discountAmount),
     birthdayBonusPercentage: n(bill.birthdayBonusPercentage),
     referralRewardPercentage: n(bill.referralRewardPercentage),

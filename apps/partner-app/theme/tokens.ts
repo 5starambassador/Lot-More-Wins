@@ -18,6 +18,8 @@ export const colors = {
   maroon: '#B01E1E',
   maroonBright: '#E0453F',
   maroonSoft: 'rgba(0, 0, 0, 0.14)',
+  // The logo's brand red, for small tags that must stand out on the canvas (outlet discount badges)
+  brandRed: '#D12426',
 
   // Bright gold
   gold: '#F5C542',
@@ -47,6 +49,10 @@ export const colors = {
   glassPressed: 'rgba(255, 255, 255, 0.18)',
   glassBorder: 'rgba(255, 255, 255, 0.28)',
   glassSheen: 'rgba(255, 255, 255, 0.08)',
+  // The rim: lit along the top and left, fading along the right and bottom
+  glassRimLit: 'rgba(255, 255, 255, 0.46)',
+  glassRimSide: 'rgba(255, 255, 255, 0.30)',
+  glassRimShade: 'rgba(255, 255, 255, 0.12)',
 
   scrim: 'rgba(20, 2, 2, 0.82)',
   white: '#FFFFFF',

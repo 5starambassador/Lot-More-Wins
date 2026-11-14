@@ -5,10 +5,24 @@ import apiClient from '../../lib/api';
 import { colors, fonts, radius } from '../../theme/tokens';
 import { Txt } from '../ui';
 
-/** Outlet logo, or a monogram tile in brand colours when none is uploaded. `round` makes it a circle. */
-export function OutletLogo({ outlet, size = 52, round = false }: { outlet: Outlet; size?: number; round?: boolean }) {
+/**
+ * Outlet logo, or a monogram tile in brand colours when none is uploaded. `round` makes it a
+ * circle; `corner` sets the corner radius of the square (radius.md by default).
+ */
+export function OutletLogo({
+  outlet,
+  size = 52,
+  round = false,
+  corner,
+}: {
+  outlet: Outlet;
+  size?: number;
+  round?: boolean;
+  corner?: number;
+}) {
   const uri = apiClient.resolveAssetUrl(outlet.logoUrl);
-  const shape = { width: size, height: size, ...(round ? { borderRadius: size / 2 } : {}) };
+  const borderRadius = round ? size / 2 : corner;
+  const shape = { width: size, height: size, ...(borderRadius !== undefined ? { borderRadius } : {}) };
   if (uri) {
     return (
       <Image
