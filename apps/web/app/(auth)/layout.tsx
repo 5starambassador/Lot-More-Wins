@@ -13,7 +13,7 @@ export default function AuthLayout({ children }: { children: ReactNode }): React
     <div className="grid min-h-screen bg-background lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
       {/* Brand panel */}
       <aside className="relative hidden overflow-hidden bg-brand-gradient text-white lg:flex lg:flex-col lg:justify-between lg:p-12 xl:p-16">
-        {/* Fine gold rule lines: a quiet texture, not decoration for its own sake */}
+        {/* Fine gold rule lines: a quiet texture, not  for its own sake */}
         <svg className="pointer-events-none absolute inset-0 h-full w-full opacity-[0.07]" aria-hidden>
           <defs>
             <pattern id="rules" width="56" height="56" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
