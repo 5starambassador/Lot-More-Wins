@@ -20,6 +20,50 @@ export class WhatsAppProvider {
     this.invoiceGstTemplate = process.env.MSG91_INVOICE_GST_TEMPLATE_NAME || null;
   }
 
+  /** Whether MSG91 credentials are set; without them nothing is really sent. */
+  public isConfigured(): boolean {
+    return Boolean(this.authKey && this.integratedNumber);
+  }
+
+  /**
+   * Sends an approved MSG91 WhatsApp template with positional body parameters ({{1}}, {{2}}, …).
+   * Used for the Super Admin's WhatsApp push messages.
+   */
+  public async sendTemplate(to: string, templateName: string, language: string, bodyParams: string[] = []): Promise<MessagingResult> {
+    const mobile = this.formatMobileNumber(to);
+    if (!this.authKey || !this.integratedNumber) {
+      return { success: false, channel: 'whatsapp', recipient: mobile, error: 'MSG91 is not configured' };
+    }
+    try {
+      const res = await fetch('https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', authkey: this.authKey },
+        body: JSON.stringify({
+          integrated_number: this.integratedNumber,
+          content_type: 'template',
+          payload: {
+            to: mobile,
+            type: 'template',
+            template: {
+              name: templateName,
+              language: { code: language, policy: 'deterministic' },
+              components: bodyParams.length ? [{ type: 'body', parameters: bodyParams.map((text) => ({ type: 'text', text })) }] : [],
+            },
+          },
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.status === 'fail' || data?.hasError === true) {
+        const message = data?.errors ?? data?.message ?? `MSG91 Error: ${res.status} ${res.statusText}`;
+        return { success: false, channel: 'whatsapp', recipient: mobile, error: typeof message === 'string' ? message : JSON.stringify(message) };
+      }
+      return { success: true, channel: 'whatsapp', messageId: data.request_id || `msg91-tpl-${Date.now()}`, recipient: mobile };
+    } catch (err: unknown) {
+      return { success: false, channel: 'whatsapp', recipient: mobile, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
   private formatMobileNumber(raw: string): string {
     const cleaned = raw.replace(/\D/g, '');
     if (cleaned.length === 10) {
