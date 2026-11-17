@@ -564,6 +564,19 @@ export interface OutletOfferSettings {
   /** Partners may pay part of a bill here with a wallet redeem QR. */
   walletRedemptionEnabled?: boolean;
   /**
+   * Maximum wallet redemption: the most a redeem QR pays of a bill here. PERCENTAGE: that % of the
+   * bill (50 = half, 100 = all of it, 0 = none). FIXED: that many ₹, never more than the bill.
+   * Missing from older servers (50%).
+   */
+  walletRedeemCapType?: DiscountType;
+  walletRedeemCapValue?: number;
+  /**
+   * First referral bonus: on a partner's first referral bill here, the referring partner's referral
+   * cash reward is this ₹ amount plus this % of the bill (in place of the usual one). Both 0 = off.
+   */
+  firstReferralBonusAmount?: number;
+  firstReferralBonusPercentage?: number;
+  /**
    * @deprecated Older builds: FIXED when every discount slab is flat. Use the per-slab types.
    * Sending it sets all three discount slabs' types.
    */
@@ -693,6 +706,10 @@ export interface UpdateOutletOffersPayload {
   flatCashRewardReferral?: number;
   minBillAmount?: number;
   walletRedemptionEnabled?: boolean;
+  walletRedeemCapType?: DiscountType;
+  walletRedeemCapValue?: number;
+  firstReferralBonusAmount?: number;
+  firstReferralBonusPercentage?: number;
 }
 
 /** Super Admin outlet create / edit: the Outlet Admin fields plus the cash reward and edit permission. */
@@ -899,7 +916,7 @@ export interface BillCalculation {
   /** The outlet's GST %, charged on the taxable amount plus the service charge; 0 = no GST. */
   gstPercentage: number;
   gstAmount: number;
-  /** WALLET_REDEEM only: wallet points spent and their rupee worth (at most half the bill); 0 otherwise. */
+  /** WALLET_REDEEM only: wallet points spent and their rupee worth (at most the outlet's maximum wallet redemption); 0 otherwise. */
   walletRedeemPoints: number;
   walletRedeemAmount: number;
   /**
@@ -927,6 +944,16 @@ export interface BillCalculation {
   /** Referral QR only: cash reward (₹) for the referring partner. */
   cashRewardReferralPercentage: number;
   cashRewardReferralAmount: number;
+  /**
+   * Referral QR only: this is the referring partner's first referral bill at an outlet with a first
+   * referral bonus, so cashRewardReferralAmount is firstReferralBonusAmount (₹) plus
+   * cashRewardReferralPercentage % of the bill. Missing from older servers (false / 0).
+   */
+  firstReferralBonus?: boolean;
+  firstReferralBonusAmount?: number;
+  /** WALLET_REDEEM only: the outlet's maximum wallet redemption this bill was held to. Missing from older servers. */
+  walletRedeemCapType?: DiscountType;
+  walletRedeemCapValue?: number;
   /** Pricing version: the later of the programme settings and the outlet's offer settings versions. */
   settingsVersion: string;
   /** The outlet's offer settings version used. */
@@ -1253,6 +1280,14 @@ export interface PayoutRequestResponse {
 export interface RedeemQr {
   /** Value to render as the QR. Single use. */
   code: string;
+  /**
+   * The same QR as a short text code ("K7Q2-9XPA"), for the outlet to type in place of scanning.
+   * Same expiry, works once. Missing from older servers.
+   */
+  shortCode?: string;
+  /** QRs for one outlet: that outlet's maximum wallet redemption. Missing from older servers (50%). */
+  walletRedeemCapType?: DiscountType;
+  walletRedeemCapValue?: number;
   expiresAt: string;
   partner: { id: ID; partnerCode: string; name: string; mobile: string };
   /** Wallet snapshot when the QR was generated; the outlet always sees the live balance. */
@@ -1287,10 +1322,13 @@ export interface RedeemScanResult {
   partner: ScannedPartner;
   balancePoints: number;
   rupeeValue: number;
-  /** The QR's worth (capped by the live balance). At most half the bill is taken. */
+  /** The QR's worth (capped by the live balance). At most the outlet's maximum wallet redemption is taken. */
   maxPoints: number;
   maxRupees: number;
   pointsRatio: { points: number; rupees: number };
+  /** This outlet's maximum wallet redemption (a % of the bill or a flat ₹). Missing from older servers (50%). */
+  walletRedeemCapType?: DiscountType;
+  walletRedeemCapValue?: number;
   /** This outlet's GST %, charged on the bill plus the service charge. */
   gstPercentage: number;
   /** This outlet's service charge (0 = none). */

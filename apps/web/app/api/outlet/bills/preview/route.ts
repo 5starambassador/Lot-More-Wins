@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { billPreviewSchema } from '@lotmorewins/validation';
 import { requireOutletAdmin } from '@/lib/auth';
 import { previewBill } from '@/lib/billing';
-import { isRedeemQr, previewRedeemBill } from '@/lib/redemptions';
+import { isRedeemInput, previewRedeemBill } from '@/lib/redemptions';
 import { handleRouteError, ok, readJson, validationError } from '@/lib/api-response';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     const { outlet } = await requireOutletAdmin(req);
     const parsed = billPreviewSchema.safeParse(await readJson(req));
     if (!parsed.success) return validationError(parsed.error);
-    const preview = isRedeemQr(parsed.data.qrCode) ? previewRedeemBill : previewBill;
+    const preview = isRedeemInput(parsed.data.qrCode) ? previewRedeemBill : previewBill;
     return ok(await preview(outlet, parsed.data));
   } catch (error) {
     return handleRouteError(error, 'POST /api/outlet/bills/preview');

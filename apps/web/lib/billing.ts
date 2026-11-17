@@ -19,7 +19,7 @@ import type {
   PartnerCategory,
   ServiceChargeType,
 } from '@lotmorewins/types';
-import { MAX_BILL_REDUCTION_PERCENT } from '@lotmorewins/validation';
+import { DEFAULT_WALLET_REDEEM_CAP_PERCENT, MAX_BILL_REDUCTION_PERCENT } from '@lotmorewins/validation';
 import prisma from './prisma';
 import { HttpError } from './auth';
 import { requireConfiguredSettings, type ConfiguredProgramSettings } from './settings';
@@ -157,8 +157,21 @@ export interface OutletBillTerms {
   serviceChargeType: ServiceChargeType;
   serviceChargeValue: number;
   givesCashReward: boolean;
+  /** Maximum wallet redemption on a redeem bill: a % of the bill, or a flat ₹ (never more than the bill). */
+  walletRedeemCap: { type: DiscountType; value: number };
+  /** First referral bonus (₹ amount + % of the bill) on a partner's first referral bill here; both 0 = off. */
+  firstReferralBonus: { amount: number; percentage: number };
   /** The outlet's offer settings version (offersUpdatedAt). */
   version: string;
+}
+
+/** The original rule, for bills without outlet terms: the wallet pays at most half the bill. */
+export const DEFAULT_WALLET_REDEEM_CAP = { type: 'PERCENTAGE', value: DEFAULT_WALLET_REDEEM_CAP_PERCENT } as const;
+const NO_FIRST_REFERRAL_BONUS = { amount: 0, percentage: 0 } as const;
+
+/** The outlet gives a first referral bonus. */
+export function hasFirstReferralBonus(terms: Pick<OutletBillTerms, 'firstReferralBonus'>): boolean {
+  return terms.firstReferralBonus.amount > 0 || terms.firstReferralBonus.percentage > 0;
 }
 
 type OutletOfferRow = Parameters<typeof effectiveDiscounts>[1];
@@ -174,6 +187,11 @@ export function outletBillTerms(settings: ConfiguredProgramSettings, outlet: Out
     serviceChargeType: outlet.serviceChargeType,
     serviceChargeValue: outlet.serviceChargeValue.toNumber(),
     givesCashReward: outlet.givesCashReward,
+    walletRedeemCap: { type: outlet.walletRedeemCapType, value: outlet.walletRedeemCapValue.toNumber() },
+    firstReferralBonus: {
+      amount: outlet.firstReferralBonusAmount.toNumber(),
+      percentage: outlet.firstReferralBonusPercentage.toNumber(),
+    },
     version: outlet.offersUpdatedAt.toISOString(),
   };
 }
@@ -190,6 +208,8 @@ export function programmeBillTerms(settings: ConfiguredProgramSettings): OutletB
     serviceChargeType: 'PERCENTAGE',
     serviceChargeValue: 0,
     givesCashReward: false,
+    walletRedeemCap: { ...DEFAULT_WALLET_REDEEM_CAP },
+    firstReferralBonus: { ...NO_FIRST_REFERRAL_BONUS },
     version: settings.updatedAt,
   };
 }
@@ -325,6 +345,8 @@ export interface BillContext {
   customerIsPartner: boolean;
   /** Classification of the partner whose QR was scanned; Non-Achariya when omitted. */
   partnerCategory?: PartnerCategory;
+  /** Referral only: the referring partner has no earlier referral bill at this outlet (first referral bonus). */
+  firstReferralAtOutlet?: boolean;
 }
 
 const roundMoney = (d: Prisma.Decimal) => d.toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
@@ -420,12 +442,21 @@ export function calculateBill(
     rewards.cashRewardPurchasePercentage,
     outlet.flat.cashRewardPurchase
   );
-  const cashReferral = reward(
-    outlet.givesCashReward && isReferral,
-    types.cashRewardReferral,
-    rewards.cashRewardReferralPercentage,
-    outlet.flat.cashRewardReferral
-  );
+  // The referring partner's first referral bill here (not under the minimum bill) at an outlet with a
+  // first referral bonus: their referral cash reward is the bonus ₹ plus the bonus % of the bill, in
+  // place of the usual one, whether or not the outlet gives cash reward.
+  const firstReferralBonus = isReferral && !!ctx.firstReferralAtOutlet && !belowMinimumBill && hasFirstReferralBonus(outlet);
+  const cashReferral = firstReferralBonus
+    ? {
+        percentage: outlet.firstReferralBonus.percentage,
+        rupees: new Decimal(outlet.firstReferralBonus.amount).plus(amount.mul(outlet.firstReferralBonus.percentage).div(100)),
+      }
+    : reward(
+        outlet.givesCashReward && isReferral,
+        types.cashRewardReferral,
+        rewards.cashRewardReferralPercentage,
+        outlet.flat.cashRewardReferral
+      );
   const purchasePointsRecipient: PurchasePointsRecipient = !isReferral
     ? 'PARTNER'
     : ctx.customerIsPartner
@@ -468,14 +499,27 @@ export function calculateBill(
     cashRewardPurchaseAmount: roundMoney(cashPurchase.rupees).toNumber(),
     cashRewardReferralPercentage: cashReferral.percentage,
     cashRewardReferralAmount: roundMoney(cashReferral.rupees).toNumber(),
+    firstReferralBonus,
+    firstReferralBonusAmount: firstReferralBonus ? outlet.firstReferralBonus.amount : 0,
     settingsVersion: pricingVersion(settings.updatedAt, outlet.version),
     outletSettingsVersion: outlet.version,
   };
 }
 
 /**
+ * The most the wallet may pay of a bill at the outlet (its maximum wallet redemption), to the paisa:
+ * a % of the bill, or the flat ₹ amount but never more than the bill.
+ */
+export function walletRedeemCapOn(amount: Prisma.Decimal, cap: OutletBillTerms['walletRedeemCap']): Prisma.Decimal {
+  const value = Decimal.max(0, new Decimal(cap.value));
+  const rupees = cap.type === 'FIXED' ? Decimal.min(value, amount) : amount.mul(Decimal.min(value, 100)).div(100);
+  return Decimal.max(0, rupees).toDecimalPlaces(2, Decimal.ROUND_DOWN);
+}
+
+/**
  * Pure calculation of a redeem bill (WALLET_REDEEM): no discount and no rewards. The service charge
- * and GST are added to the bill as usual (GST on the bill plus the service charge); the wallet then pays for up to half the bill (MAX_BILL_REDUCTION_PERCENT),
+ * and GST are added to the bill as usual (GST on the bill plus the service charge); the wallet then
+ * pays up to the outlet's maximum wallet redemption (a % of the bill, half by default, or a flat ₹),
  * never more than the redeem QR is worth or the live balance. The customer pays the rest.
  * Whatever the QR was worth beyond that is never taken, so it simply stays in the wallet.
  * `requestedRupees` (old Outlet Admin apps, which ask for an amount) caps the wallet part further.
@@ -496,8 +540,8 @@ export function calculateRedeemBill(
   const serviceChargeAmount = serviceChargeOn(amount, outlet);
   const gstAmount = roundMoney(amount.plus(serviceChargeAmount).mul(outlet.gstPercentage).div(100));
   const usablePoints = Decimal.max(0, Decimal.min(wallet.qrMaxPoints, wallet.balancePoints));
-  const halfBill = amount.mul(MAX_BILL_REDUCTION_PERCENT).div(100).toDecimalPlaces(2, Decimal.ROUND_DOWN);
-  const rupees = Decimal.min(rupeeValueOf(usablePoints, ratio), halfBill, wallet.requestedRupees ?? halfBill);
+  const billCap = walletRedeemCapOn(amount, outlet.walletRedeemCap);
+  const rupees = Decimal.min(rupeeValueOf(usablePoints, ratio), billCap, wallet.requestedRupees ?? billCap);
   // Rupees were rounded down from the points, so this never needs more points than are usable.
   const points = Decimal.min(
     rupees.mul(ratio.points).div(ratio.rupees).toDecimalPlaces(2, Decimal.ROUND_HALF_UP),
@@ -543,6 +587,8 @@ export function calculateRedeemBill(
     cashRewardPurchaseAmount: 0,
     cashRewardReferralPercentage: 0,
     cashRewardReferralAmount: 0,
+    walletRedeemCapType: outlet.walletRedeemCap.type,
+    walletRedeemCapValue: outlet.walletRedeemCap.value,
     settingsVersion: pricingVersion(settings.updatedAt, outlet.version),
     outletSettingsVersion: outlet.version,
   };
@@ -570,6 +616,18 @@ async function partnerIdForMobile(db: Db, mobile: string): Promise<string | null
   return partner?.id ?? null;
 }
 
+/**
+ * The referring partner has no earlier referral bill at this outlet (bills under the minimum bill
+ * do not count): this bill can get the outlet's first referral bonus.
+ */
+async function isFirstReferralAtOutlet(db: Db, referrerPartnerId: string, outletId: string) {
+  return (
+    (await db.bill.count({
+      where: { referrerPartnerId, outletId, transactionType: 'REFERRAL', belowMinimumBill: false },
+    })) === 0
+  );
+}
+
 /** Special discount of the referral reward the partner has earned and not yet used; 0 when none. */
 async function waitingReferralReward(db: Db, settings: ConfiguredProgramSettings, partnerId: string): Promise<number> {
   const { rewardAvailable } = await referralProgress(db, partnerId, settings.referralRewardGoal);
@@ -594,6 +652,7 @@ async function buildContext(
       ? await isFirstTimeDirect(db, qr.partner, settings.firstTimeValidityDays, outletId)
       : await isFirstTimeCustomer(db, customer!.mobile, outletId),
     customerIsPartner: customerPartnerId !== null,
+    firstReferralAtOutlet: isDirect ? false : await isFirstReferralAtOutlet(db, qr.partner.id, outletId),
   };
   return { ctx, customerPartnerId };
 }
@@ -790,6 +849,8 @@ export function serializeBill(bill: BillWithRelations): BillRecord {
     cashRewardPurchaseAmount: bill.cashRewardPurchaseAmount.toNumber(),
     cashRewardReferralPercentage: bill.cashRewardReferralPercentage.toNumber(),
     cashRewardReferralAmount: bill.cashRewardReferralAmount.toNumber(),
+    firstReferralBonus: bill.firstReferralBonus,
+    firstReferralBonusAmount: bill.firstReferralBonusAmount.toNumber(),
     settingsVersion: bill.settingsVersion?.toISOString() ?? null,
     outletSettingsVersion: bill.outletSettingsVersion?.toISOString() ?? null,
     createdAt: bill.createdAt.toISOString(),
@@ -975,6 +1036,8 @@ export async function createBill(
             cashRewardPurchaseAmount: calc.cashRewardPurchaseAmount,
             cashRewardReferralPercentage: calc.cashRewardReferralPercentage,
             cashRewardReferralAmount: calc.cashRewardReferralAmount,
+            firstReferralBonus: calc.firstReferralBonus ?? false,
+            firstReferralBonusAmount: calc.firstReferralBonusAmount ?? 0,
             notificationStatus: 'PENDING',
             idempotencyKey: input.idempotencyKey,
             createdByAdminId: adminId,

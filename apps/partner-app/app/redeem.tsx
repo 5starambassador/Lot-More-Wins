@@ -77,6 +77,16 @@ export default function RedeemScreen() {
   const expired = !!qr && remaining <= 0;
   const forOutlet = qr?.outlet?.name ?? outletName;
   const clock = `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`;
+  // The outlet's maximum wallet redemption; older servers and any-outlet QRs: half the bill.
+  const capValue = qr?.walletRedeemCapValue ?? 50;
+  const capText =
+    qr?.walletRedeemCapType === 'FIXED'
+      ? `${formatINR(capValue)} of the bill`
+      : capValue === 50
+        ? 'half of the bill'
+        : capValue >= 100
+          ? 'the whole bill'
+          : `${Number(capValue.toFixed(2))}% of the bill`;
 
   return (
     <Screen
@@ -97,7 +107,7 @@ export default function RedeemScreen() {
       ) : (
         <Animated.View key={qr.code} entering={FadeInDown.duration(400)} style={styles.body}>
           <Txt variant="small" tone="secondary" align="center" style={styles.copy}>
-            Show this to the outlet at billing, in place of your discount QR. Your wallet pays up to half of the bill; you pay the
+            Show this to the outlet at billing, in place of your discount QR. Your wallet pays up to {capText}; you pay the
             rest. Whatever is not used stays in your wallet.
           </Txt>
           {forOutlet ? (
@@ -123,6 +133,17 @@ export default function RedeemScreen() {
             ) : null}
           </View>
 
+          {qr.shortCode ? (
+            <View style={[styles.shortCode, expired && styles.plateExpired]}>
+              <Txt variant="overline" tone="muted" align="center">
+                QR not scanning? Tell the outlet this code
+              </Txt>
+              <Txt selectable style={styles.shortCodeValue} accessibilityLabel={`Redeem code ${qr.shortCode.split('').join(' ')}`}>
+                {qr.shortCode}
+              </Txt>
+            </View>
+          ) : null}
+
           <View style={styles.timer}>
             <Ionicons name="time-outline" size={14} color={expired ? colors.danger : colors.gold} />
             <Txt variant="caption" tone={expired ? 'danger' : 'secondary'}>
@@ -136,7 +157,7 @@ export default function RedeemScreen() {
             </Txt>
             <Txt style={styles.worthFigure}>{formatINR(qr.maxRupees ?? qr.rupeeValue)}</Txt>
             <Txt variant="small" tone="secondary" align="center">
-              {inRupees ? '' : `${formatPoints(qr.maxPoints ?? qr.balancePoints)} points · `}your whole wallet · pays up to half of the bill
+              {inRupees ? '' : `${formatPoints(qr.maxPoints ?? qr.balancePoints)} points · `}your whole wallet · pays up to {capText}
             </Txt>
           </View>
 
@@ -183,6 +204,19 @@ const styles = StyleSheet.create({
   plate: { backgroundColor: '#FBF7F0', padding: space.md, borderRadius: radius.md, borderWidth: 2, borderColor: colors.gold },
   plateExpired: { opacity: 0.15 },
   expiredBadge: { position: 'absolute', backgroundColor: colors.gold, paddingHorizontal: space.md, paddingVertical: space.xs, borderRadius: radius.pill },
+  shortCode: {
+    alignSelf: 'center',
+    alignItems: 'center',
+    marginTop: space.md,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.goldLine,
+    backgroundColor: colors.goldSoft,
+  },
+  shortCodeValue: { fontFamily: fonts.bold, fontSize: 28, lineHeight: 36, letterSpacing: 4, color: colors.gold, marginTop: 2 },
   timer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: space.md },
   worth: {
     marginTop: space.xl,

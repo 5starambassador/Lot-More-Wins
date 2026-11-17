@@ -439,8 +439,37 @@ export function serviceChargeError(type: 'PERCENTAGE' | 'FIXED', value: number):
   return null;
 }
 
+/** Maximum wallet redemption when an outlet has not set one: half the bill (the original rule). */
+export const DEFAULT_WALLET_REDEEM_CAP_PERCENT = MAX_BILL_REDUCTION_PERCENT;
+
+/** Maximum wallet redemption: a % of the bill (0–100) or a flat ₹ amount; checked against its type by walletRedeemCapError. */
+export const walletRedeemCapValueSchema = z
+  .number({ invalid_type_error: 'Maximum wallet redemption must be a number' })
+  .finite()
+  .min(0, 'Maximum wallet redemption cannot be negative')
+  .max(MAX_FLAT_DISCOUNT_RUPEES, `Maximum wallet redemption cannot exceed ₹${MAX_FLAT_DISCOUNT_RUPEES}`)
+  .refine(hasAtMostTwoDecimals, 'Maximum wallet redemption can have at most 2 decimal places');
+
+/** The error for a maximum wallet redemption under its type, or null when it is allowed. */
+export function walletRedeemCapError(type: 'PERCENTAGE' | 'FIXED', value: number): string | null {
+  if (type === 'PERCENTAGE' && value > 100) return 'Maximum wallet redemption cannot exceed 100% of the bill';
+  return null;
+}
+
 /** When a payload sends both, the value must suit the type (the server re-checks against the saved type). */
-function refineServiceCharge(v: { serviceChargeType?: 'PERCENTAGE' | 'FIXED'; serviceChargeValue?: number }, ctx: z.RefinementCtx) {
+function refineServiceCharge(
+  v: {
+    serviceChargeType?: 'PERCENTAGE' | 'FIXED';
+    serviceChargeValue?: number;
+    walletRedeemCapType?: 'PERCENTAGE' | 'FIXED';
+    walletRedeemCapValue?: number;
+  },
+  ctx: z.RefinementCtx
+) {
+  if (v.walletRedeemCapType !== undefined && v.walletRedeemCapValue !== undefined) {
+    const capMessage = walletRedeemCapError(v.walletRedeemCapType, v.walletRedeemCapValue);
+    if (capMessage) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['walletRedeemCapValue'], message: capMessage });
+  }
   if (v.serviceChargeType === undefined || v.serviceChargeValue === undefined) return;
   const message = serviceChargeError(v.serviceChargeType, v.serviceChargeValue);
   if (message) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['serviceChargeValue'], message });
@@ -470,6 +499,11 @@ const outletOfferFields = {
   flatCashRewardReferral: flatRewardSchema,
   minBillAmount: minBillAmountSchema,
   walletRedemptionEnabled: z.boolean({ invalid_type_error: 'Wallet redemption must be on or off' }),
+  walletRedeemCapType: discountTypeSchema,
+  walletRedeemCapValue: walletRedeemCapValueSchema,
+  /** First referral bonus: ₹ amount plus % of the bill on a partner's first referral bill here; both 0 = off. */
+  firstReferralBonusAmount: flatRewardSchema,
+  firstReferralBonusPercentage: percentageSchema,
   gstPercentage: percentageSchema.refine((v) => v <= 50, 'GST cannot exceed 50%'),
   serviceChargeType: serviceChargeTypeSchema,
   serviceChargeValue: serviceChargeValueSchema,
@@ -511,6 +545,10 @@ export const OUTLET_OFFER_FIELDS = [
   'flatCashRewardReferral',
   'minBillAmount',
   'walletRedemptionEnabled',
+  'walletRedeemCapType',
+  'walletRedeemCapValue',
+  'firstReferralBonusAmount',
+  'firstReferralBonusPercentage',
   'gstPercentage',
   'serviceChargeType',
   'serviceChargeValue',

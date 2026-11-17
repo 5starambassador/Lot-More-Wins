@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 /**
  * POST /api/outlet/redemptions — wallet redemption for Outlet Admin app versions from before redeem
  * bills (v1.0.0). The current app redeems through POST /api/outlet/bills with the redeem QR. The
- * old request (rupees + bill) becomes a redeem bill under the same rules, at most half the bill,
+ * old request (rupees + bill) becomes a redeem bill under the same rules, at most the outlet's maximum wallet redemption,
  * and the old receipt shape is returned. A redeem QR works once: a retry replays the receipt.
  */
 export async function POST(req: NextRequest) {

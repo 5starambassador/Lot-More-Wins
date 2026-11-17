@@ -6,7 +6,7 @@ import type { BillCalculation, BillRecord, RedeemScanResult } from '@lotmorewins
 import * as Haptics from '../../lib/haptics';
 import { Badge, Button, Divider, Field, IconMark, InfoRow, Notice, Panel, Txt } from '../ui';
 import apiClient, { describeError, errorCode, isAuthError } from '../../lib/api';
-import { formatINR, formatPercent, formatPoints, newIdempotencyKey } from '../../lib/format';
+import { formatINR, formatPercent, formatPoints, newIdempotencyKey, walletCapText } from '../../lib/format';
 import { Breakdown } from './AmountStep';
 import { colors, fonts, space } from '../../theme/tokens';
 
@@ -37,7 +37,7 @@ function redeemError(err: unknown): string {
 /**
  * Redeem bill: the partner pays part of the bill from their wallet with a redeem QR (instead of a
  * discount QR, never together). The admin enters only the bill; the server works out the wallet
- * part — at most half the bill, never more than the QR is worth — and what the customer pays.
+ * part — at most the outlet's maximum wallet redemption, never more than the QR is worth — and what the customer pays.
  * Whatever the QR was worth beyond that stays in the partner's wallet. No discount and no rewards.
  */
 export function RedeemStep({
@@ -200,7 +200,7 @@ export function RedeemStep({
               : scan.gstPercentage > 0
                 ? ` before ${formatPercent(scan.gstPercentage)} GST`
                 : ''
-        }. The server works out the wallet part: up to half the bill.`}
+        }. The server works out the wallet part: up to ${walletCapText(scan)}.`}
       />
 
       {notice && <Notice tone="warning" message={notice} onDismiss={() => setNotice(null)} />}

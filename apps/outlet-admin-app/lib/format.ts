@@ -54,7 +54,14 @@ export function referralRewardLabel(referralRewardPercentage: number | undefined
 /** Redeem QRs from the partner wallet carry a case-sensitive signed token after this prefix. */
 export const REDEEM_QR_PREFIX = 'LMW-RDM.';
 
-export const isRedeemQr = (code: string) => code.trim().startsWith(REDEEM_QR_PREFIX);
+/**
+ * The short text code shown under a redeem QR ("K7Q2-9XPA"): 8 characters without look-alikes,
+ * any case, dash and spaces optional. The server turns it back into the QR.
+ */
+export const isRedeemShortCode = (code: string) => /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{8}$/.test(code.trim().toUpperCase().replace(/[\s-]/g, ''));
+
+/** A scanned redeem QR or a typed redeem short code: both go down the redeem bill path. */
+export const isRedeemQr = (code: string) => code.trim().startsWith(REDEEM_QR_PREFIX) || isRedeemShortCode(code);
 
 export const transactionLabel = (t: BillTransactionType) => (t === 'DIRECT_PARTNER' ? 'Direct partner' : 'Referral');
 
@@ -95,4 +102,13 @@ export function normalizeMobileInput(value: string): string | null {
 export function newIdempotencyKey(): string {
   const rand = () => Math.random().toString(36).slice(2, 10);
   return `oa-${Date.now().toString(36)}-${rand()}${rand()}`;
+}
+
+/** This outlet's maximum wallet redemption in words; older servers send none (half the bill). */
+export function walletCapText(cap: { walletRedeemCapType?: 'PERCENTAGE' | 'FIXED'; walletRedeemCapValue?: number }): string {
+  const value = cap.walletRedeemCapValue ?? 50;
+  if (cap.walletRedeemCapType === 'FIXED') return `${formatINR(value)} of the bill`;
+  if (value === 50) return 'half the bill';
+  if (value >= 100) return 'the whole bill';
+  return `${formatPercent(value)} of the bill`;
 }

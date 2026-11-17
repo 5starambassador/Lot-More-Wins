@@ -7,7 +7,7 @@ import type { BillCalculation, BillRecord, ReferredCustomerInput, ScanResult } f
 import * as Haptics from '../../lib/haptics';
 import { Button, Divider, Field, IconMark, InfoRow, Notice, Panel, Txt } from '../ui';
 import apiClient, { describeError, errorCode, isAuthError } from '../../lib/api';
-import { birthdayBonusLabel, referralRewardLabel, formatINR, formatPercent, formatPoints, newIdempotencyKey } from '../../lib/format';
+import { birthdayBonusLabel, referralRewardLabel, formatINR, formatPercent, formatPoints, newIdempotencyKey, walletCapText } from '../../lib/format';
 import { colors, fonts, radius, space } from '../../theme/tokens';
 
 const PREVIEW_DEBOUNCE_MS = 450;
@@ -59,7 +59,7 @@ function RedeemBreakdown({ calc }: { calc: BillCalculation | BillRecord }) {
       <InfoRow label="Paid from partner wallet" value={`− ${formatINR(calc.walletRedeemAmount)}`} tone="success" />
       <RoundOffLine calc={calc} />
       <Txt variant="caption" tone="muted">
-        {formatPoints(calc.walletRedeemPoints)} from the wallet · at most half the bill. Anything the QR was worth beyond this stays in the
+        {formatPoints(calc.walletRedeemPoints)} from the wallet · at most {walletCapText(calc)}. Anything the QR was worth beyond this stays in the
         partner’s wallet.
       </Txt>
       <View style={styles.totalGap}>

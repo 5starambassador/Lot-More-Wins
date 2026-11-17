@@ -204,7 +204,7 @@ export function BillDrawer({ bill, onClose, onDelete }: { bill: BillRecord | nul
             <div>
               <p className="text-xs text-stone-500">Paid from partner wallet</p>
               <p className="tabular font-medium text-maroon-700">− {formatINR(bill.walletRedeemAmount)}</p>
-              <p className="text-[11px] text-stone-400">{formatNumber(bill.walletRedeemPoints)} points · at most half the bill</p>
+              <p className="text-[11px] text-stone-400">{formatNumber(bill.walletRedeemPoints)} points · up to the outlet maximum</p>
             </div>
           ) : (
             <div>
@@ -311,14 +311,16 @@ export function BillDrawer({ bill, onClose, onDelete }: { bill: BillRecord | nul
               ...(bill.transactionType === 'REFERRAL'
                 ? [
                     {
-                      label: 'Referral (to the referring partner)',
-                      value: `${formatINR(bill.cashRewardReferralAmount)} · ${formatNumber(bill.cashRewardReferralPercentage)}%`,
+                      label: bill.firstReferralBonus ? 'First referral bonus (to the referring partner)' : 'Referral (to the referring partner)',
+                      value: bill.firstReferralBonus
+                        ? `${formatINR(bill.cashRewardReferralAmount)} · ${formatINR(bill.firstReferralBonusAmount ?? 0)} + ${formatNumber(bill.cashRewardReferralPercentage)}% of the bill`
+                        : `${formatINR(bill.cashRewardReferralAmount)} · ${formatNumber(bill.cashRewardReferralPercentage)}%`,
                     },
                   ]
                 : []),
             ]}
           />
-          {bill.cashRewardPurchasePercentage === 0 && bill.cashRewardReferralPercentage === 0 && (
+          {bill.cashRewardPurchaseAmount === 0 && bill.cashRewardReferralAmount === 0 && (
             <p className="mt-2 text-xs text-stone-500">No cash reward: the outlet did not give cash reward for this bill.</p>
           )}
         </Section>

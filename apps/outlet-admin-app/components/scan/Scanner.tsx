@@ -245,7 +245,7 @@ export function Scanner({
         <View>
           <Field
             label="Partner QR code"
-            placeholder="LMW-DISC-…, LMW-REF-… or LMW-RDM.…"
+            placeholder="LMW-DISC-…, LMW-REF-… or redeem code (K7Q2-9XPA)"
             value={manualCode}
             onChangeText={setManualCode}
             // Redeem codes are case-sensitive, so the keyboard must not force capitals.
@@ -254,7 +254,7 @@ export function Scanner({
             editable={!busy}
             returnKeyType="go"
             onSubmitEditing={() => verify(manualCode, 'manual')}
-            hint="The code printed under the QR in the partner app."
+            hint="The code printed under the QR in the partner app. For wallet redemption, the 8-character code under the redeem QR."
           />
           <Button label="Verify code" onPress={() => verify(manualCode, 'manual')} loading={busy} disabled={!manualCode.trim()} />
         </View>

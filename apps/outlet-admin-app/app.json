@@ -2,7 +2,7 @@
   "expo": {
     "name": "Lot More Wins Outlet Admin",
     "slug": "lot-more-wins-outlet-admin",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "lotmorewins-outletadmin",
@@ -26,7 +26,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.lotmorewins.outletadmin",
-      "versionCode": 2,
+      "versionCode": 3,
       "permissions": [
         "android.permission.CAMERA"
       ],

@@ -80,7 +80,7 @@ device (Super Admin sessions still expire after 12 hours).
   partner and their live balance and rupee worth.
 - `POST /api/outlet/redemptions` — Outlet Admin app v1.0.0 only. Body `{ qrCode, rupees, billAmount }`.
   Becomes a `WALLET_REDEEM` bill paying exactly `rupees` from the wallet; more than the bill can take
-  (half the bill, the QR's worth, the balance) is refused with `422 REDEEM_OVER_LIMIT` and the most
+  (the outlet's maximum wallet redemption — half the bill unless the outlet sets a % or flat ₹ —, the QR's worth, the balance) is refused with `422 REDEEM_OVER_LIMIT` and the most
   allowed. Returns the old `RedemptionReceipt` (`payableAmount` = the bill's `finalAmount`). A redeem
   QR works once; a retry replays the receipt.
 

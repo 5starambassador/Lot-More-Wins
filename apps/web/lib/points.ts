@@ -38,7 +38,7 @@ export function rupeeValueOf(points: Prisma.Decimal, ratio: { points: number; ru
   return points.mul(ratio.rupees).div(ratio.points).toDecimalPlaces(2, Decimal.ROUND_DOWN);
 }
 
-/** A redeem QR is worth the whole wallet; the outlet still takes at most half the bill. */
+/** A redeem QR is worth the whole wallet; the outlet takes at most its maximum wallet redemption. */
 export function redeemQrWorth(balance: Prisma.Decimal): Prisma.Decimal {
   return Decimal.max(0, balance).toDecimalPlaces(2, Decimal.ROUND_DOWN);
 }

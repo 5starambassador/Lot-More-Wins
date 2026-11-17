@@ -13,7 +13,7 @@ import type {
   PartnerCategory,
   ProgramSettings,
 } from '@lotmorewins/types';
-import { OUTLET_OFFER_FIELDS, OUTLET_SLABS, serviceChargeError } from '@lotmorewins/validation';
+import { OUTLET_OFFER_FIELDS, OUTLET_SLABS, serviceChargeError, walletRedeemCapError } from '@lotmorewins/validation';
 import prisma from './prisma';
 import { HttpError } from './auth';
 
@@ -56,6 +56,10 @@ export function serializeOfferSettings(outlet: OfferRow): OutletOfferSettings {
     flatCashRewardReferral: outlet.flatCashRewardReferral.toNumber(),
     minBillAmount: outlet.minBillAmount.toNumber(),
     walletRedemptionEnabled: outlet.walletRedemptionEnabled,
+    walletRedeemCapType: outlet.walletRedeemCapType,
+    walletRedeemCapValue: outlet.walletRedeemCapValue.toNumber(),
+    firstReferralBonusAmount: outlet.firstReferralBonusAmount.toNumber(),
+    firstReferralBonusPercentage: outlet.firstReferralBonusPercentage.toNumber(),
     // Older Outlet Admin builds read one type: flat only when every discount slab is.
     discountType:
       outlet.firstTimeDiscountType === 'FIXED' && outlet.repeatDiscountType === 'FIXED' && outlet.referralDiscountType === 'FIXED'
@@ -261,6 +265,12 @@ export async function applyOfferChanges(
   const chargeValue = input.serviceChargeValue ?? current.serviceChargeValue.toNumber();
   const chargeError = serviceChargeError(chargeType, chargeValue);
   if (chargeError) throw new HttpError(422, chargeError, 'VALIDATION_ERROR');
+  // Same for the maximum wallet redemption (at most 100% when it is a percentage).
+  const capError = walletRedeemCapError(
+    input.walletRedeemCapType ?? current.walletRedeemCapType,
+    input.walletRedeemCapValue ?? current.walletRedeemCapValue.toNumber()
+  );
+  if (capError) throw new HttpError(422, capError, 'VALIDATION_ERROR');
 
   // Older Outlet Admin builds send one discount type for every discount slab.
   if (input.discountType !== undefined) {

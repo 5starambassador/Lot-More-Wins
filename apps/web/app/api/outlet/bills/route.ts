@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { billCreateSchema } from '@lotmorewins/validation';
 import { requireOutletAdmin } from '@/lib/auth';
 import { createBill } from '@/lib/billing';
-import { createRedeemBill, isRedeemQr } from '@/lib/redemptions';
+import { createRedeemBill, isRedeemInput } from '@/lib/redemptions';
 import { trySendBillNotification } from '@/lib/bill-notifications';
 import { pushBillNotifications } from '@/lib/partner-notifications';
 import { handleRouteError, ok, readJson, validationError } from '@/lib/api-response';
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     const parsed = billCreateSchema.safeParse(await readJson(req));
     if (!parsed.success) return validationError(parsed.error);
 
-    const create = isRedeemQr(parsed.data.qrCode) ? createRedeemBill : createBill;
+    const create = isRedeemInput(parsed.data.qrCode) ? createRedeemBill : createBill;
     const result = await create(outlet, adminId, parsed.data);
     if (!result.replayed) {
       const [bill] = await Promise.all([trySendBillNotification(result.bill), pushBillNotifications(result.bill.id)]);

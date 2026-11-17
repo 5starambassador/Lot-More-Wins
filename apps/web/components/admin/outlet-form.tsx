@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { Eye, EyeOff, KeyRound, Store } from 'lucide-react';
 import type { AdminOutlet, DiscountType, OutletSlabKey, OutletSlabTypes, ServiceChargeType } from '@lotmorewins/types';
 import {
+  DEFAULT_WALLET_REDEEM_CAP_PERCENT,
   MAX_FLAT_DISCOUNT_RUPEES,
   MAX_MIN_BILL_RUPEES,
   MAX_OUTLET_IMAGES,
@@ -44,6 +45,12 @@ export interface OutletFormValues {
   /** Bills below this get no discount; '' or 0 = no minimum. */
   minBillAmount: string;
   walletRedemptionEnabled: boolean;
+  /** Maximum wallet redemption: a % of the bill (default 50) or a flat ₹ per bill. */
+  walletRedeemCapType: DiscountType;
+  walletRedeemCapValue: string;
+  /** First referral bonus: ₹ amount + % of the bill on a partner's first referral bill here ('' or 0 = none). */
+  firstReferralBonusAmount: string;
+  firstReferralBonusPercentage: string;
   gstPercentage: string;
   /** Service charge: a % of the discounted amount or a fixed ₹ per bill; '' or 0 = none. */
   serviceChargeType: ServiceChargeType;
@@ -108,6 +115,10 @@ export function offerPayload(values: OutletFormValues) {
     ...Object.fromEntries(OUTLET_SLABS.map((s) => [s.flatField, rupees(values.flat[s.key])])),
     minBillAmount: rupees(values.minBillAmount),
     walletRedemptionEnabled: values.walletRedemptionEnabled,
+    walletRedeemCapType: values.walletRedeemCapType,
+    walletRedeemCapValue: rupees(values.walletRedeemCapValue),
+    firstReferralBonusAmount: rupees(values.firstReferralBonusAmount),
+    firstReferralBonusPercentage: rupees(values.firstReferralBonusPercentage),
     gstPercentage: values.gstPercentage.trim() === '' ? 0 : Number(values.gstPercentage),
     serviceChargeType: values.serviceChargeType,
     serviceChargeValue: values.serviceChargeValue.trim() === '' ? 0 : Number(values.serviceChargeValue),
@@ -144,6 +155,10 @@ export function emptyOutletForm(outlet?: AdminOutlet): OutletFormValues {
     flat: Object.fromEntries(OUTLET_SLABS.map((s) => [s.key, String(offers?.[s.flatField] ?? 0)])) as Record<OutletSlabKey, string>,
     minBillAmount: String(offers?.minBillAmount ?? 0),
     walletRedemptionEnabled: offers?.walletRedemptionEnabled ?? true,
+    walletRedeemCapType: offers?.walletRedeemCapType ?? 'PERCENTAGE',
+    walletRedeemCapValue: String(offers?.walletRedeemCapValue ?? DEFAULT_WALLET_REDEEM_CAP_PERCENT),
+    firstReferralBonusAmount: String(offers?.firstReferralBonusAmount ?? 0),
+    firstReferralBonusPercentage: String(offers?.firstReferralBonusPercentage ?? 0),
     gstPercentage: outlet ? String(outlet.offers.gstPercentage) : '0',
     serviceChargeType: offers?.serviceChargeType ?? 'PERCENTAGE',
     serviceChargeValue: outlet ? String(outlet.offers.serviceChargeValue ?? 0) : '0',
@@ -327,6 +342,25 @@ export function OutletForm({
     const minBill = values.minBillAmount.trim();
     if (minBill && !(/^\d{1,7}(\.\d{1,2})?$/.test(minBill) && Number(minBill) <= MAX_MIN_BILL_RUPEES)) {
       e.minBillAmount = `Enter ₹0–${MAX_MIN_BILL_RUPEES} with up to 2 decimals.`;
+    }
+    const cap = values.walletRedeemCapValue.trim();
+    if (!cap) e.walletRedeemCapValue = values.walletRedeemCapType === 'PERCENTAGE' ? 'Enter 0–100.' : 'Enter the ₹ amount.';
+    else if (
+      values.walletRedeemCapType === 'PERCENTAGE'
+        ? !validPercent(cap, 100)
+        : !(/^\d{1,6}(\.\d{1,2})?$/.test(cap) && Number(cap) <= MAX_FLAT_DISCOUNT_RUPEES)
+    ) {
+      e.walletRedeemCapValue =
+        values.walletRedeemCapType === 'PERCENTAGE'
+          ? 'Enter 0–100 with up to 2 decimals.'
+          : `Enter ₹0–${MAX_FLAT_DISCOUNT_RUPEES} with up to 2 decimals.`;
+    }
+    const bonusAmount = values.firstReferralBonusAmount.trim();
+    if (bonusAmount && !(/^\d{1,6}(\.\d{1,2})?$/.test(bonusAmount) && Number(bonusAmount) <= MAX_FLAT_DISCOUNT_RUPEES)) {
+      e.firstReferralBonusAmount = `Enter ₹0–${MAX_FLAT_DISCOUNT_RUPEES} with up to 2 decimals.`;
+    }
+    if (values.firstReferralBonusPercentage.trim() && !validPercent(values.firstReferralBonusPercentage, 100)) {
+      e.firstReferralBonusPercentage = 'Enter 0–100 with up to 2 decimals.';
     }
     if (values.gstPercentage.trim() && !validPercent(values.gstPercentage, 50)) e.gstPercentage = 'Enter 0–50 with up to 2 decimals.';
     const charge = values.serviceChargeValue.trim();
@@ -551,6 +585,74 @@ export function OutletForm({
                 checked={values.walletRedemptionEnabled}
                 onChange={(on) => set('walletRedemptionEnabled', on)}
               />
+              {values.walletRedemptionEnabled && (
+                <div className="rounded-md border border-stone-150 px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[13px] font-medium text-stone-900">Maximum wallet redemption</p>
+                    <TypeRadios
+                      name="walletRedeemCap"
+                      value={values.walletRedeemCapType}
+                      flatLabel="Flat amount ₹"
+                      onChange={(t) => set('walletRedeemCapType', t)}
+                    />
+                  </div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <Field
+                      label={values.walletRedeemCapType === 'PERCENTAGE' ? 'Up to % of the bill' : 'Up to ₹ per bill'}
+                      htmlFor="walletRedeemCapValue"
+                      error={show('walletRedeemCapValue')}
+                      hint={
+                        values.walletRedeemCapType === 'PERCENTAGE'
+                          ? `The most a redeem QR pays of a bill. ${DEFAULT_WALLET_REDEEM_CAP_PERCENT}% = half (default), 100% = the whole bill, 0% = no wallet payment.`
+                          : 'The most a redeem QR pays of a bill, never more than the bill. 0 = no wallet payment.'
+                      }
+                    >
+                      <Input
+                        id="walletRedeemCapValue"
+                        name="walletRedeemCapValue"
+                        inputMode="decimal"
+                        prefix={values.walletRedeemCapType === 'FIXED' ? '₹' : undefined}
+                        value={values.walletRedeemCapValue}
+                        onChange={(e) => set('walletRedeemCapValue', e.target.value.replace(/[^0-9.]/g, ''))}
+                        placeholder={values.walletRedeemCapType === 'PERCENTAGE' ? String(DEFAULT_WALLET_REDEEM_CAP_PERCENT) : '0'}
+                        aria-invalid={!!show('walletRedeemCapValue')}
+                      />
+                    </Field>
+                  </div>
+                </div>
+              )}
+              <div className="rounded-md border border-stone-150 px-4 py-3">
+                <p className="text-[13px] font-medium text-stone-900">First referral bonus</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-stone-500">
+                  On a partner&apos;s first referral bill at this outlet, the referring partner gets this ₹ amount plus this % of the bill in their
+                  wallet straight away, in place of the usual referral cashback. Bills under the minimum bill don&apos;t count. Both 0 = off.
+                </p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <Field label="Bonus ₹" htmlFor="firstReferralBonusAmount" error={show('firstReferralBonusAmount')}>
+                    <Input
+                      id="firstReferralBonusAmount"
+                      name="firstReferralBonusAmount"
+                      inputMode="decimal"
+                      prefix="₹"
+                      value={values.firstReferralBonusAmount}
+                      onChange={(e) => set('firstReferralBonusAmount', e.target.value.replace(/[^0-9.]/g, ''))}
+                      placeholder="0"
+                      aria-invalid={!!show('firstReferralBonusAmount')}
+                    />
+                  </Field>
+                  <Field label="Plus % of the bill" htmlFor="firstReferralBonusPercentage" error={show('firstReferralBonusPercentage')}>
+                    <Input
+                      id="firstReferralBonusPercentage"
+                      name="firstReferralBonusPercentage"
+                      inputMode="decimal"
+                      value={values.firstReferralBonusPercentage}
+                      onChange={(e) => set('firstReferralBonusPercentage', e.target.value.replace(/[^0-9.]/g, ''))}
+                      placeholder="0"
+                      aria-invalid={!!show('firstReferralBonusPercentage')}
+                    />
+                  </Field>
+                </div>
+              </div>
               <Toggle
                 id="givesCashReward"
                 label="Gives cashback"
@@ -559,7 +661,7 @@ export function OutletForm({
                 onChange={(on) => set('givesCashReward', on)}
               />
               <p className="text-xs leading-relaxed text-stone-500">
-                The Outlet Admin can also change these slabs, the minimum bill, wallet redemption, service charge and GST from the Outlet Admin app.
+                The Outlet Admin can also change these slabs, the minimum bill, wallet redemption and its maximum, the first referral bonus, service charge and GST from the Outlet Admin app.
                 Every change is in the outlet&apos;s change log.
               </p>
             </div>

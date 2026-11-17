@@ -31,7 +31,8 @@ export function serializeOutlet(outlet: OutletRow, settings?: DiscountSettings, 
     createdAt: outlet.createdAt.toISOString(),
     updatedAt: outlet.updatedAt.toISOString(),
     minBillAmount: outlet.minBillAmount.toNumber(),
-    walletRedemptionEnabled: outlet.walletRedemptionEnabled,
+    // A maximum wallet redemption of 0 takes nothing from the wallet: shown as redemption off.
+    walletRedemptionEnabled: outlet.walletRedemptionEnabled && outlet.walletRedeemCapValue.gt(0),
     ...(settings && {
       offer: offerSummary(effectiveDiscounts(settings, outlet), outlet.givesCashReward, category, summaryFlat(outlet)),
     }),

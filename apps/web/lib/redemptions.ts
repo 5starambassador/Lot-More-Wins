@@ -27,7 +27,8 @@ import { redeemedNotificationRow } from './partner-notifications';
  * Wallet redemption. The partner generates a short-lived, single-use redeem QR in the app, worth
  * their whole wallet. It is one of the three QRs a bill can take (with the Personal Discount
  * QR and a Referral QR, never together): the Outlet Admin scans it, enters the bill, and the
- * wallet pays for up to half the bill (never more than the QR is worth or the live balance). The
+ * wallet pays up to the outlet's maximum wallet redemption (half the bill by default; never more
+ * than the QR is worth or the live balance). The
  * customer pays the rest. Nothing is held when the QR is generated, so whatever the QR was worth
  * beyond what the bill used simply stays in the wallet. A redeem bill gets no discount and earns
  * no rewards. Points are spent from the soonest-expiring entries first. The QR carries only a
@@ -41,6 +42,76 @@ export const REDEEM_QR_TTL_SEC = 10 * 60;
 
 export function isRedeemQr(raw: string): boolean {
   return raw.trim().startsWith(REDEEM_QR_PREFIX);
+}
+
+// ============================================================================
+// Short redeem codes: typed at the outlet in place of scanning the QR
+// ============================================================================
+
+/** No look-alikes (0/O, 1/I/L), so a code read aloud or off a screen is typed right. */
+const SHORT_CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+const SHORT_CODE_LENGTH = 8;
+const SHORT_CODE_PATTERN = new RegExp('^[' + SHORT_CODE_ALPHABET + ']{' + SHORT_CODE_LENGTH + '}$');
+
+/**
+ * The stored form of a typed short code (upper case, no spaces or dashes), or null when the input is
+ * not one. "LMW-RDM." in front is allowed: Outlet Admin builds from before short codes send only
+ * input starting with it down the redeem path.
+ */
+export function normalizeShortCode(raw: string): string | null {
+  let value = raw.trim().toUpperCase();
+  if (value.startsWith(REDEEM_QR_PREFIX)) value = value.slice(REDEEM_QR_PREFIX.length);
+  value = value.replace(/[\s-]/g, '');
+  return SHORT_CODE_PATTERN.test(value) ? value : null;
+}
+
+/** "K7Q29XPA" → "K7Q2-9XPA", as the partner sees it. */
+export function formatShortCode(code: string): string {
+  return `${code.slice(0, 4)}-${code.slice(4)}`;
+}
+
+/** A redeem QR, or its short code: either goes down the redeem bill path. */
+export function isRedeemInput(raw: string): boolean {
+  return normalizeShortCode(raw) !== null || isRedeemQr(raw);
+}
+
+function newShortCode(): string {
+  let code = '';
+  for (let i = 0; i < SHORT_CODE_LENGTH; i++) code += SHORT_CODE_ALPHABET[crypto.randomInt(SHORT_CODE_ALPHABET.length)];
+  return code;
+}
+
+/** Stores a short code for the redeem QR (retrying the rare clash) and prunes expired ones. */
+async function createShortCode(qrCode: string, partnerId: string, expiresAt: Date): Promise<string> {
+  await prisma.redeemCode.deleteMany({ where: { expiresAt: { lt: new Date() } } });
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const code = newShortCode();
+    try {
+      await prisma.redeemCode.create({ data: { code, qrCode, partnerId, expiresAt } });
+      return code;
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) throw error;
+    }
+  }
+  throw new HttpError(503, 'Could not create a redeem code. Please try again.', 'REDEEM_CODE_UNAVAILABLE');
+}
+
+/**
+ * The full redeem QR for what the outlet entered: a scanned QR as it is, a typed short code as the
+ * QR it stands for. An unknown or expired short code is refused like an expired QR.
+ */
+export async function resolveRedeemInput(raw: string): Promise<string> {
+  const short = normalizeShortCode(raw);
+  if (!short) return raw;
+  const row = await prisma.redeemCode.findUnique({ where: { code: short } });
+  if (!row || row.expiresAt.getTime() <= Date.now()) {
+    throw new HttpError(
+      422,
+      'This redeem code has expired or is not valid. Ask the partner to generate a new one.',
+      'REDEEM_QR_INVALID'
+    );
+  }
+  return row.qrCode;
 }
 
 function scannedPartner(partner: Partner): ScannedPartner {
@@ -66,9 +137,15 @@ function assertRedeemEnabled(settings: { redeemQrEnabled: boolean; walletEnabled
   }
 }
 
-/** The outlet takes redeem QRs (its wallet redemption switch), and the QR was made for it (when it names one). */
-function assertOutletRedeems(outlet: Pick<OutletRow, 'id' | 'walletRedemptionEnabled'>, qrOutletId: string | null) {
-  if (!outlet.walletRedemptionEnabled) {
+/**
+ * The outlet takes redeem QRs (its wallet redemption switch on and a maximum wallet redemption above
+ * 0), and the QR was made for it (when it names one).
+ */
+function assertOutletRedeems(
+  outlet: Pick<OutletRow, 'id' | 'walletRedemptionEnabled' | 'walletRedeemCapValue'>,
+  qrOutletId: string | null
+) {
+  if (!outlet.walletRedemptionEnabled || outlet.walletRedeemCapValue.lte(0)) {
     throw new HttpError(422, 'Wallet redemption is not available at this outlet', 'OUTLET_REDEEM_DISABLED');
   }
   if (qrOutletId && qrOutletId !== outlet.id) {
@@ -93,7 +170,7 @@ export async function createRedeemQr(partnerId: string, outletId?: string): Prom
     throw new HttpError(403, 'This partner account is not active', 'PARTNER_INACTIVE');
   }
   const outlet = outletId
-    ? await prisma.outlet.findUnique({ where: { id: outletId }, select: { id: true, name: true, status: true, walletRedemptionEnabled: true } })
+    ? await prisma.outlet.findUnique({ where: { id: outletId }, select: { id: true, name: true, status: true, walletRedemptionEnabled: true, walletRedeemCapType: true, walletRedeemCapValue: true } })
     : null;
   if (outletId && (!outlet || outlet.status !== 'ACTIVE')) {
     throw new HttpError(404, 'This outlet is not available', 'OUTLET_NOT_FOUND');
@@ -111,9 +188,14 @@ export async function createRedeemQr(partnerId: string, outletId?: string): Prom
     { typ: 'redeem', partnerId, jti: crypto.randomUUID(), maxPoints: maxPoints.toString(), ...(outlet && { outletId: outlet.id }) },
     REDEEM_QR_TTL_SEC
   );
+  const code = `${REDEEM_QR_PREFIX}${token}`;
+  const expiresAt = new Date(Date.now() + REDEEM_QR_TTL_SEC * 1000);
+  // The same QR as a short text code, for the outlet to type when the QR will not scan.
+  const shortCode = await createShortCode(code, partnerId, expiresAt);
   return {
-    code: `${REDEEM_QR_PREFIX}${token}`,
-    expiresAt: new Date(Date.now() + REDEEM_QR_TTL_SEC * 1000).toISOString(),
+    code,
+    shortCode: formatShortCode(shortCode),
+    expiresAt: expiresAt.toISOString(),
     partner: {
       id: partner.id,
       partnerCode: partner.partnerCode,
@@ -126,6 +208,7 @@ export async function createRedeemQr(partnerId: string, outletId?: string): Prom
     maxRupees: rupeeValueOf(maxPoints, settings.pointsToRupees).toNumber(),
     pointsRatio: { ...settings.pointsToRupees },
     outlet: outlet ? { id: outlet.id, name: outlet.name } : null,
+    ...(outlet && { walletRedeemCapType: outlet.walletRedeemCapType, walletRedeemCapValue: outlet.walletRedeemCapValue.toNumber() }),
   };
 }
 
@@ -180,7 +263,7 @@ function usableWorth(qrMaxPoints: Prisma.Decimal | null, balance: Prisma.Decimal
 
 export async function scanRedeemQr(outlet: OutletRow, rawValue: string): Promise<RedeemScanResult> {
   assertOutletCanTransact(outlet);
-  const { partnerId, tokenId, maxPoints, expiresAt, outletId } = parseRedeemQr(rawValue);
+  const { partnerId, tokenId, maxPoints, expiresAt, outletId } = parseRedeemQr(await resolveRedeemInput(rawValue));
   assertOutletRedeems(outlet, outletId);
   await assertQrUnused(prisma, tokenId);
 
@@ -199,6 +282,8 @@ export async function scanRedeemQr(outlet: OutletRow, rawValue: string): Promise
     maxPoints: worth.toNumber(),
     maxRupees: rupeeValueOf(worth, settings.pointsToRupees).toNumber(),
     pointsRatio: { ...settings.pointsToRupees },
+    walletRedeemCapType: terms.walletRedeemCap.type,
+    walletRedeemCapValue: terms.walletRedeemCap.value,
     gstPercentage: terms.gstPercentage,
     serviceChargeType: terms.serviceChargeType,
     serviceChargeValue: terms.serviceChargeValue,
@@ -216,7 +301,7 @@ export async function previewRedeemBill(
   if (input.customer) {
     throw new HttpError(400, 'Customer details apply only to referral QR codes', 'CUSTOMER_NOT_ALLOWED');
   }
-  const { partnerId, tokenId, maxPoints, outletId } = parseRedeemQr(input.qrCode);
+  const { partnerId, tokenId, maxPoints, outletId } = parseRedeemQr(await resolveRedeemInput(input.qrCode));
   assertOutletRedeems(outlet, outletId);
   await assertQrUnused(prisma, tokenId);
   const [partner, settings, balance] = await Promise.all([
@@ -240,7 +325,7 @@ function generateBillNumber() {
 }
 
 /**
- * Completes a redeem bill: spends the wallet part (at most half the bill) and records the bill and
+ * Completes a redeem bill: spends the wallet part (at most the outlet's maximum wallet redemption) and records the bill and
  * the redemption in one transaction. Idempotent per (outlet, idempotencyKey); each redeem QR works
  * once.
  */
@@ -260,7 +345,7 @@ export async function createRedeemBill(
   if (input.customer) {
     throw new HttpError(400, 'Customer details apply only to referral QR codes', 'CUSTOMER_NOT_ALLOWED');
   }
-  const { partnerId, tokenId, maxPoints, outletId } = parseRedeemQr(input.qrCode);
+  const { partnerId, tokenId, maxPoints, outletId } = parseRedeemQr(await resolveRedeemInput(input.qrCode));
 
   try {
     return await prisma.$transaction(
@@ -306,7 +391,7 @@ export async function createRedeemBill(
         if (requested && requested.gt(calc.walletRedeemAmount)) {
           throw new HttpError(
             422,
-            `At most ₹${calc.walletRedeemAmount.toFixed(2)} can be paid from the wallet on this bill (up to half the bill). Enter that amount or less.`,
+            `At most ₹${calc.walletRedeemAmount.toFixed(2)} can be paid from the wallet on this bill (this outlet's maximum wallet redemption). Enter that amount or less.`,
             'REDEEM_OVER_LIMIT'
           );
         }
@@ -405,7 +490,7 @@ export async function createRedeemBill(
 /**
  * Wallet redemption from Outlet Admin app versions from before redeem bills (v1.0.0): they send the
  * bill and the rupees to take off, and expect a redemption receipt back. It becomes a redeem bill,
- * so the same rules apply (at most half the bill); an amount the bill cannot take is refused with
+ * so the same rules apply (at most the outlet's maximum wallet redemption); an amount the bill cannot take is refused with
  * the most it can. The QR is the idempotency key, so a retry replays the same receipt.
  */
 export async function createLegacyRedemption(
@@ -416,9 +501,10 @@ export async function createLegacyRedemption(
   if (input.billAmount === undefined) {
     throw new HttpError(400, 'Enter the bill amount to redeem against', 'BILL_AMOUNT_REQUIRED');
   }
-  const { partnerId, tokenId } = parseRedeemQr(input.qrCode);
+  const qrCode = await resolveRedeemInput(input.qrCode);
+  const { partnerId, tokenId } = parseRedeemQr(qrCode);
   const { bill, replayed } = await createRedeemBill(outlet, adminId, {
-    qrCode: input.qrCode,
+    qrCode,
     billAmount: input.billAmount,
     idempotencyKey: `legacy-redeem-${tokenId}`,
     requestedRupees: input.rupees,

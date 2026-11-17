@@ -358,6 +358,15 @@ model Outlet {
   minBillAmount                    Decimal           @default(0) @map("min_bill_amount") @db.Decimal(12, 2)
   /// Partners may pay part of a bill here with a wallet redeem QR.
   walletRedemptionEnabled          Boolean           @default(true) @map("wallet_redemption_enabled")
+  /// Maximum wallet redemption: the most a redeem QR may pay of a bill here. PERCENTAGE: that % of
+  /// the bill (50 = half, 100 = the whole bill, 0 = none). FIXED: that many ₹ (never more than the bill).
+  walletRedeemCapType              DiscountType      @default(PERCENTAGE) @map("wallet_redeem_cap_type")
+  walletRedeemCapValue             Decimal           @default(50) @map("wallet_redeem_cap_value") @db.Decimal(10, 2)
+  /// First referral bonus: on a partner's first referral bill here (not under the minimum bill), the
+  /// referring partner's referral cash reward is this ₹ amount plus this % of the bill, in place of
+  /// the usual one (and whether or not the outlet gives cash reward). Both 0 = off.
+  firstReferralBonusAmount         Decimal           @default(0) @map("first_referral_bonus_amount") @db.Decimal(10, 2)
+  firstReferralBonusPercentage     Decimal           @default(0) @map("first_referral_bonus_percentage") @db.Decimal(5, 2)
   /// GST charged on the discounted amount. 0 = no GST line on the bill.
   gstPercentage                    Decimal           @default(0) @map("gst_percentage") @db.Decimal(5, 2)
   /// Service charge added to the discounted amount before GST: a % of it, or a fixed ₹ per bill.
@@ -542,6 +551,10 @@ model Bill {
   cashRewardReferralPercentage Decimal          @default(0) @map("cash_reward_referral_percentage") @db.Decimal(5, 2)
   cashRewardPurchaseAmount     Decimal          @default(0) @map("cash_reward_purchase_amount") @db.Decimal(12, 2)
   cashRewardReferralAmount     Decimal          @default(0) @map("cash_reward_referral_amount") @db.Decimal(12, 2)
+  /// First referral bonus: the fixed ₹ part of cashRewardReferralAmount (cashRewardReferralPercentage
+  /// is then the bonus %); 0 when this bill was not a first referral bonus bill.
+  firstReferralBonusAmount     Decimal          @default(0) @map("first_referral_bonus_amount") @db.Decimal(12, 2)
+  firstReferralBonus           Boolean          @default(false) @map("first_referral_bonus")
 
   // Bill message (WhatsApp / email) delivery.
   notificationStatus    BillNotificationStatus @default(PENDING) @map("notification_status")
@@ -595,6 +608,22 @@ model LoginAttempt {
 // ============================================================================
 
 /// Points spent at an outlet through a partner's short-lived redeem QR.
+/// Short text code shown under a redeem QR, typed in the Outlet Admin app in place of scanning.
+/// Points to the signed redeem QR it was generated with; lives as long as that QR (10 minutes).
+/// No foreign key: rows are short-lived and pruned when new codes are made.
+model RedeemCode {
+  /// 8 characters without look-alikes (no 0/O, 1/I/L), stored without the dash.
+  code      String   @id
+  /// The full redeem QR value (LMW-RDM.<signed token>).
+  qrCode    String   @map("qr_code")
+  partnerId String   @map("partner_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([expiresAt])
+  @@map("redeem_codes")
+}
+
 model PointsRedemption {
   id                String   @id @default(uuid())
   partnerId         String   @map("partner_id")

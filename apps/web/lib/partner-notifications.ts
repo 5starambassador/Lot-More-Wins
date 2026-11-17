@@ -71,7 +71,7 @@ export function billNotificationRows(input: {
   /** The registered partner who purchased: the direct partner, or a referred customer who is a partner. */
   purchaserPartnerId: string | null;
   calc: Pick<BillCalculation, 'billAmount' | 'discountPercentage' | 'discountAmount' | 'gstPercentage' | 'gstAmount' | 'finalAmount'> &
-    Partial<Pick<BillCalculation, 'serviceChargeAmount'>>;
+    Partial<Pick<BillCalculation, 'serviceChargeAmount' | 'firstReferralBonus' | 'firstReferralBonusAmount' | 'cashRewardReferralPercentage'>>;
   entries: PointsEntryInput[];
   cashEntries: CashEntryInput[];
 }): Prisma.NotificationCreateManyInput[] {
@@ -105,7 +105,11 @@ export function billNotificationRows(input: {
   if (referrerId) {
     const who = `the ${input.customerName ?? 'referred'} referred customer purchase on the ${input.outletName} outlet`;
     const expiresAt = (referral?.expiresAt as Date | null | undefined) ?? null;
-    const cashText = referralCash ? formatRupees(referralCash.amount) : '';
+    // A first referral bonus bill: say what the cashback is.
+    const bonus = input.calc.firstReferralBonus && referralCash;
+    const cashText = referralCash
+      ? `${formatRupees(referralCash.amount)}${bonus ? ` first referral bonus (${formatRupees(input.calc.firstReferralBonusAmount ?? 0)} + ${formatPercent(input.calc.cashRewardReferralPercentage ?? 0)} of the bill)` : ''}`
+      : '';
     rows.push(
       referral
         ? {
@@ -113,7 +117,7 @@ export function billNotificationRows(input: {
             type: 'REFERRAL_POINTS',
             title: 'Referral points earned',
             body: `You have earned ${formatPoints(referral.points as number)} referral points added to your wallet from ${who}.${validity(expiresAt)}${
-              referralCash ? ` ${cashText} cashback has been added too.` : ''
+              referralCash ? ` ${cashText}${bonus ? '' : ' cashback'} has been added too.` : ''
             }`,
             points: referral.points,
             amount: referralCash?.amount ?? null,
@@ -123,8 +127,8 @@ export function billNotificationRows(input: {
         : {
             partnerId: referrerId,
             type: 'CASH_REWARD',
-            title: 'Cashback earned',
-            body: `You have earned ${cashText} cashback, added to your wallet, from ${who}.`,
+            title: bonus ? 'First referral bonus earned' : 'Cashback earned',
+            body: `You have earned ${cashText}${bonus ? '' : ' cashback'}, added to your wallet, from ${who}.`,
             amount: referralCash!.amount,
             billId: input.billId,
           }

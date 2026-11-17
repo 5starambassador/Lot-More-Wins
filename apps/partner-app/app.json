@@ -3,7 +3,7 @@
     "name": "Lot More Wins Partner",
     "slug": "partner-lot-more-wins-app",
     "owner": "webdeveloperachariyas-team",
-    "version": "1.0.2",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "lotmorewins-partner",
@@ -28,7 +28,7 @@
         "backgroundColor": "#D12426"
       },
       "package": "com.lotmorewins.partner",
-      "versionCode": 13,
+      "versionCode": 15,
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",

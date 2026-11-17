@@ -47,6 +47,10 @@ const OFFER_FIELD_LABEL: Record<string, string> = {
   discountType: 'Discount type',
   minBillAmount: 'Minimum bill for a discount',
   walletRedemptionEnabled: 'Wallet redemption',
+  walletRedeemCapType: 'Maximum wallet redemption type',
+  walletRedeemCapValue: 'Maximum wallet redemption',
+  firstReferralBonusAmount: 'First referral bonus (₹)',
+  firstReferralBonusPercentage: 'First referral bonus (% of bill)',
   gstPercentage: 'GST',
   serviceChargeType: 'Service charge type',
   serviceChargeValue: 'Service charge',
@@ -61,10 +65,10 @@ function offerValue(field: string, value: string | null): string {
   if (value === 'false') return 'Off';
   if (field === 'serviceChargeType') return value === 'FIXED' ? 'Fixed ₹' : 'Percentage';
   if (field === 'discountType' || field.endsWith('Type')) return value === 'FIXED' ? 'Flat ₹' : 'Percentage';
-  if (field.startsWith('flat') || field === 'minBillAmount') return `₹${value}`;
+  if (field.startsWith('flat') || field === 'minBillAmount' || field === 'firstReferralBonusAmount') return `₹${value}`;
   if (field === 'walletRedemptionEnabled') return value === 'true' ? 'On' : 'Off';
   // A % or a ₹ amount, by the type saved with it.
-  if (field === 'serviceChargeValue') return value;
+  if (field === 'serviceChargeValue' || field === 'walletRedeemCapValue') return value;
   return field === 'givesCashReward' || field === 'canEditOffers' ? value : `${value}%`;
 }
 
@@ -479,6 +483,30 @@ function OutletDetailView({ id }: { id: string }) {
                   label: 'Wallet redemption',
                   value: outlet.offers.walletRedemptionEnabled === false ? 'Off' : 'On',
                   note: 'Redeem QR at this outlet',
+                },
+                {
+                  label: 'Maximum wallet redemption',
+                  value:
+                    (outlet.offers.walletRedeemCapType ?? 'PERCENTAGE') === 'FIXED'
+                      ? formatINR(outlet.offers.walletRedeemCapValue ?? 0)
+                      : `${outlet.offers.walletRedeemCapValue ?? 50}%`,
+                  note:
+                    (outlet.offers.walletRedeemCapType ?? 'PERCENTAGE') === 'FIXED'
+                      ? 'Most the wallet pays per bill'
+                      : 'Most the wallet pays, of the bill',
+                },
+                {
+                  label: 'First referral bonus',
+                  value:
+                    (outlet.offers.firstReferralBonusAmount ?? 0) > 0 || (outlet.offers.firstReferralBonusPercentage ?? 0) > 0
+                      ? [
+                          (outlet.offers.firstReferralBonusAmount ?? 0) > 0 ? formatINR(outlet.offers.firstReferralBonusAmount ?? 0) : null,
+                          (outlet.offers.firstReferralBonusPercentage ?? 0) > 0 ? `${outlet.offers.firstReferralBonusPercentage}% of bill` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' + ')
+                      : 'Off',
+                  note: "To the referrer, on their first referral bill here",
                 },
                 {
                   label: 'GST',

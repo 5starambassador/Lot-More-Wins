@@ -141,6 +141,10 @@ const FIELD_LABELS: Record<string, string> = {
   flatCashRewardReferral: 'Referral cash reward (flat)',
   minBillAmount: 'Minimum bill for a discount',
   walletRedemptionEnabled: 'Wallet redemption',
+  walletRedeemCapType: 'Maximum wallet redemption type',
+  walletRedeemCapValue: 'Maximum wallet redemption',
+  firstReferralBonusAmount: 'First referral bonus (₹)',
+  firstReferralBonusPercentage: 'First referral bonus (% of bill)',
   gstPercentage: 'GST',
   serviceChargeType: 'Service charge type',
   serviceChargeValue: 'Service charge',
@@ -161,8 +165,14 @@ type FormState = Record<SlabKey, string> & {
   flat: Partial<Record<SlabKey, string>>;
   minBill: string;
   walletRedemption: boolean;
+  /** Maximum wallet redemption: a % of the bill or a flat ₹ per bill. */
+  walletCapType: DiscountType;
+  walletCap: string;
+  /** First referral bonus: ₹ plus % of the bill on a partner's first referral bill here. */
+  bonusAmount: string;
+  bonusPct: string;
 };
-type ErrorKey = SlabKey | 'serviceCharge' | 'minBill';
+type ErrorKey = SlabKey | 'serviceCharge' | 'minBill' | 'walletCap' | 'bonusAmount' | 'bonusPct';
 
 /** The rate each field resolves to at this outlet (its override, or the programme value). */
 function currentValue(view: OutletSettingsView, field: OfferField): number {
@@ -181,7 +191,18 @@ const toForm = (view: OutletSettingsView): FormState => ({
   flat: Object.fromEntries(TYPED_KEYS.map((k) => [k, String(view.offers[slabDef(k).flatField] ?? 0)])),
   minBill: String(view.offers.minBillAmount ?? 0),
   walletRedemption: view.offers.walletRedemptionEnabled ?? true,
+  // Older servers send no maximum: half the bill.
+  walletCapType: view.offers.walletRedeemCapType ?? 'PERCENTAGE',
+  walletCap: String(view.offers.walletRedeemCapValue ?? 50),
+  bonusAmount: String(view.offers.firstReferralBonusAmount ?? 0),
+  bonusPct: String(view.offers.firstReferralBonusPercentage ?? 0),
 });
+
+const walletCapChanged = (form: FormState, initial: FormState) =>
+  form.walletCapType !== initial.walletCapType || form.walletCap !== initial.walletCap;
+
+const bonusChanged = (form: FormState, initial: FormState) =>
+  form.bonusAmount !== initial.bonusAmount || form.bonusPct !== initial.bonusPct;
 
 const typeChanged = (form: FormState, initial: FormState, key: SlabKey) =>
   form.types[key] !== initial.types[key] || (form.types[key] === 'FIXED' && form.flat[key] !== initial.flat[key]);
@@ -203,9 +224,9 @@ const cleanRupees = (t: string) => t.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/,
 function changeValue(field: string, value: string | null): string {
   if (field === 'serviceChargeType') return value === 'FIXED' ? 'Fixed ₹' : 'Percentage';
   if (field === 'discountType' || field.endsWith('Type')) return value === 'FIXED' ? 'Flat ₹' : 'Percentage';
-  if (field.startsWith('flat') || field === 'minBillAmount') return `₹${value ?? '0'}`;
+  if (field.startsWith('flat') || field === 'minBillAmount' || field === 'firstReferralBonusAmount') return `₹${value ?? '0'}`;
   // A % or a ₹ amount, by the type saved with it.
-  if (field === 'serviceChargeValue') return value ?? '0';
+  if (field === 'serviceChargeValue' || field === 'walletRedeemCapValue') return value ?? '0';
   if (value === null) return field === 'gstPercentage' ? '0%' : 'programme default';
   if (value === 'true') return 'On';
   if (value === 'false') return 'Off';
@@ -423,6 +444,83 @@ function ServiceChargeRow({
   );
 }
 
+/** A single % or ₹ value with an icon, a title and a hint; optional % / ₹ radios below. */
+function ValueRow({
+  icon,
+  title,
+  hint,
+  value,
+  rupees,
+  error,
+  editable,
+  onChange,
+  type,
+  onChangeType,
+  flatLabel,
+}: {
+  icon: ComponentProps<typeof Ionicons>['name'];
+  title: string;
+  hint: string;
+  value: string;
+  rupees: boolean;
+  error?: string;
+  editable: boolean;
+  onChange: (value: string) => void;
+  type?: DiscountType;
+  onChangeType?: (type: DiscountType) => void;
+  flatLabel?: string;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <View style={styles.slab}>
+      <View style={styles.slabMain}>
+        <View style={styles.slabIcon}>
+          <Ionicons name={icon} size={18} color={colors.gold} />
+        </View>
+        <View style={styles.slabText}>
+          <Txt variant="bodyMedium">{title}</Txt>
+          <Txt variant="caption" tone="muted">
+            {hint}
+          </Txt>
+        </View>
+        <View style={[styles.slabInput, rupees && styles.slabInputWide, focused && styles.slabInputFocused, !!error && styles.slabInputError]}>
+          {rupees && (
+            <Txt variant="bodyMedium" tone="secondary">
+              ₹
+            </Txt>
+          )}
+          <TextInput
+            value={value}
+            onChangeText={(t) => onChange(cleanNumber(t))}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            keyboardType="decimal-pad"
+            placeholder="0"
+            placeholderTextColor={colors.textMuted}
+            selectionColor={colors.gold}
+            cursorColor={colors.gold}
+            editable={editable}
+            maxLength={rupees ? 9 : 6}
+            style={styles.slabValue}
+            accessibilityLabel={rupees ? `${title} in rupees` : `${title} percentage`}
+          />
+          {!rupees && (
+            <Txt variant="bodyMedium" tone="secondary">
+              %
+            </Txt>
+          )}
+        </View>
+      </View>
+      {type && onChangeType ? <TypeRadios type={type} editable={editable} onChange={onChangeType} flatLabel={flatLabel} label={title} /> : null}
+      {error ? (
+        <Txt variant="caption" tone="danger" style={styles.slabHelper}>
+          {error}
+        </Txt>
+      ) : null}
+    </View>
+  );
+}
+
 /** Minimum bill for a discount (₹, 0 = none) and the wallet redemption switch. */
 function OutletRulesPanel({
   minBill,
@@ -432,6 +530,7 @@ function OutletRulesPanel({
   showWallet,
   onChangeMinBill,
   onChangeWallet,
+  walletCap,
 }: {
   minBill: string;
   minBillError?: string;
@@ -440,6 +539,14 @@ function OutletRulesPanel({
   showWallet: boolean;
   onChangeMinBill: (value: string) => void;
   onChangeWallet: (on: boolean) => void;
+  /** Servers with a maximum wallet redemption: its type, value and editors. */
+  walletCap?: {
+    type: DiscountType;
+    value: string;
+    error?: string;
+    onChangeType: (type: DiscountType) => void;
+    onChange: (value: string) => void;
+  };
 }) {
   const [focused, setFocused] = useState(false);
   return (
@@ -511,6 +618,28 @@ function OutletRulesPanel({
               />
             </View>
           </View>
+          {walletRedemption && walletCap && (
+            <>
+              <Divider />
+              <ValueRow
+                icon="wallet-outline"
+                title="Maximum wallet redemption"
+                hint={
+                  walletCap.type === 'FIXED'
+                    ? 'Most the wallet pays of a bill, never more than the bill. 0 for no wallet payment'
+                    : 'Most the wallet pays of a bill. 50% = half, 100% = the whole bill, 0 for no wallet payment'
+                }
+                value={walletCap.value}
+                rupees={walletCap.type === 'FIXED'}
+                error={walletCap.error}
+                editable={editable}
+                onChange={walletCap.onChange}
+                type={walletCap.type}
+                onChangeType={walletCap.onChangeType}
+                flatLabel="Flat amount (₹)"
+              />
+            </>
+          )}
         </>
       )}
     </Panel>
@@ -649,6 +778,8 @@ export default function SlabsScreen() {
   const serviceChargeSupported = view.offers.serviceChargeType !== undefined;
   // A server that predates per-slab types, the minimum bill and the wallet switch sends none of them.
   const typesSupported = view.offers.firstTimeDiscountType !== undefined;
+  // A server that predates the maximum wallet redemption and the first referral bonus sends neither.
+  const capSupported = view.offers.walletRedeemCapType !== undefined;
   const typeOf = (key: SlabKey): DiscountType => (typesSupported && TYPED[key] ? (form.types[key] ?? 'PERCENTAGE') : 'PERCENTAGE');
   const isFlat = (key: SlabKey) => typeOf(key) === 'FIXED';
   const dirty =
@@ -657,7 +788,8 @@ export default function SlabsScreen() {
     (typesSupported &&
       (TYPED_KEYS.some((k) => typeChanged(form, initial, k)) ||
         form.minBill !== initial.minBill ||
-        form.walletRedemption !== initial.walletRedemption));
+        form.walletRedemption !== initial.walletRedemption)) ||
+    (capSupported && (walletCapChanged(form, initial) || bonusChanged(form, initial)));
 
   const onSave = () => {
     setMessage(null);
@@ -695,6 +827,18 @@ export default function SlabsScreen() {
       else payload.minBillAmount = Number(form.minBill);
     }
     if (typesSupported && form.walletRedemption !== initial.walletRedemption) payload.walletRedemptionEnabled = form.walletRedemption;
+    // The maximum's type and value are always saved together, and so are the bonus ₹ and %.
+    if (capSupported && walletCapChanged(form, initial)) {
+      if (form.walletCap === '') errs.walletCap = form.walletCapType === 'FIXED' ? 'Enter an amount (0 for none)' : 'Enter a percentage (0 for none)';
+      else {
+        payload.walletRedeemCapType = form.walletCapType;
+        payload.walletRedeemCapValue = Number(form.walletCap);
+      }
+    }
+    if (capSupported && bonusChanged(form, initial)) {
+      payload.firstReferralBonusAmount = Number(form.bonusAmount || 0);
+      payload.firstReferralBonusPercentage = Number(form.bonusPct || 0);
+    }
 
     const parsed = outletOffersUpdateSchema.safeParse(payload);
     if (!parsed.success) {
@@ -706,6 +850,18 @@ export default function SlabsScreen() {
         }
         if (field === 'minBillAmount') {
           errs.minBill ??= issue.message;
+          continue;
+        }
+        if (field === 'walletRedeemCapType' || field === 'walletRedeemCapValue') {
+          errs.walletCap ??= issue.message;
+          continue;
+        }
+        if (field === 'firstReferralBonusAmount') {
+          errs.bonusAmount ??= issue.message;
+          continue;
+        }
+        if (field === 'firstReferralBonusPercentage') {
+          errs.bonusPct ??= issue.message;
           continue;
         }
         const typed = TYPED_KEYS.find((k) => slabDef(k).flatField === field || slabDef(k).typeField === field);
@@ -792,6 +948,35 @@ export default function SlabsScreen() {
         <SectionLabel label="Referral bills" />
         {renderSlabs(REFERRAL_SLABS)}
 
+        {capSupported && (
+          <>
+            <SectionLabel label="First referral bonus" />
+            <Panel style={styles.section}>
+              <ValueRow
+                icon="gift-outline"
+                title="Bonus amount"
+                hint="On a partner's first referral bill here, this goes to the referring partner's wallet straight away. 0 for none"
+                value={form.bonusAmount}
+                rupees
+                error={errors.bonusAmount}
+                editable={!save.isPending}
+                onChange={(bonusAmount) => setForm({ ...form, bonusAmount })}
+              />
+              <Divider />
+              <ValueRow
+                icon="trending-up-outline"
+                title="Plus % of the bill"
+                hint="Added to the bonus amount. Together they replace the usual referral cash reward on that bill. 0 for none"
+                value={form.bonusPct}
+                rupees={false}
+                error={errors.bonusPct}
+                editable={!save.isPending}
+                onChange={(bonusPct) => setForm({ ...form, bonusPct })}
+              />
+            </Panel>
+          </>
+        )}
+
         <SectionLabel label={serviceChargeSupported ? 'Service charge and tax' : 'Tax'} />
         <Panel style={styles.section}>
           {serviceChargeSupported && (
@@ -823,6 +1008,20 @@ export default function SlabsScreen() {
               showWallet
               onChangeMinBill={(minBill) => setForm({ ...form, minBill })}
               onChangeWallet={(walletRedemption) => setForm({ ...form, walletRedemption })}
+              walletCap={
+                capSupported
+                  ? {
+                      type: form.walletCapType,
+                      value: form.walletCap,
+                      error: errors.walletCap,
+                      onChangeType: (walletCapType) => {
+                        setErrors((e) => ({ ...e, walletCap: undefined }));
+                        setForm({ ...form, walletCapType });
+                      },
+                      onChange: (walletCap) => setForm({ ...form, walletCap }),
+                    }
+                  : undefined
+              }
             />
           </>
         )}
@@ -837,7 +1036,7 @@ export default function SlabsScreen() {
         />
 
         <Txt variant="caption" tone="muted" style={styles.note}>
-          Partners see this outlet as “{view.summary.label}”. A discount is never more than half the bill.{serviceChargeSupported ? " A partner's first bill here earns no cashback." : ''} Changes apply to the next bill.
+          Partners see this outlet as “{view.summary.label}”. A discount is never more than half the bill; a wallet payment is never more than the maximum wallet redemption.{serviceChargeSupported ? " A partner's first bill here earns no cashback." : ''} Changes apply to the next bill.
         </Txt>
 
         <Button label="Save slabs" onPress={onSave} loading={save.isPending} disabled={!dirty && !SLABS.some((s) => splitNote(view, s))} />
