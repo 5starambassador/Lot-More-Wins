@@ -59,18 +59,23 @@ export async function unregisterPush(): Promise<void> {
   }
 }
 
-/**
- * Runs `onReceive` when a push arrives in the foreground and `onOpen` when one is tapped, with
- * the notification type the server put in the push data (e.g. PURCHASE_POINTS).
- */
-export function subscribeToPush(onReceive: () => void, onOpen: (type: string | null) => void): () => void {
+/** What the server put in a push: its type (e.g. PURCHASE_POINTS), the stored notification and where a tap leads. */
+export interface PushTap {
+  type: string | null;
+  notificationId: string | null;
+  url: string | null;
+}
+
+/** Runs `onReceive` when a push arrives in the foreground and `onOpen` when one is tapped. */
+export function subscribeToPush(onReceive: () => void, onOpen: (tap: PushTap) => void): () => void {
   if (!supported) return () => {};
   const open = (response: Notifications.NotificationResponse | null) => {
     const id = response?.notification.request.identifier;
     if (!id || id === openedNotificationId) return;
     openedNotificationId = id;
-    const type = response?.notification.request.content.data?.type;
-    onOpen(typeof type === 'string' ? type : null);
+    const data = response?.notification.request.content.data ?? {};
+    const text = (v: unknown) => (typeof v === 'string' && v ? v : null);
+    onOpen({ type: text(data.type), notificationId: text(data.notificationId), url: text(data.url) });
   };
   const received = Notifications.addNotificationReceivedListener(onReceive);
   const opened = Notifications.addNotificationResponseReceivedListener(open);

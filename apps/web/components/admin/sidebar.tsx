@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
   BarChart3,
-  Bell,
+  BellRing,
   CreditCard,
   LayoutDashboard,
   LogOut,
@@ -76,6 +76,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
         icon: SlidersHorizontal,
         page: 'settings',
       },
+      { href: '/push-notifications', label: 'Push notifications', icon: BellRing, page: 'admins' },
       { href: '/whatsapp-push', label: 'WhatsApp push messages', icon: MessageCircle, page: 'admins' },
       { href: '/admins', label: 'Admins', icon: ShieldCheck, page: 'admins' },
     ],
@@ -85,7 +86,6 @@ const NAV: { section: string; items: NavItem[] }[] = [
     items: [
       { href: '#', label: 'Subscriptions', icon: CreditCard, soon: true },
       { href: '#', label: 'Reports', icon: BarChart3, soon: true },
-      { href: '#', label: 'Notifications', icon: Bell, soon: true },
     ],
   },
 ];

@@ -1,12 +1,13 @@
 import { Fragment } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import type { PartnerNotification, PartnerNotificationPage } from '@lotmorewins/types';
 import apiClient from '../../lib/api';
-import { FullScreenLoader, Glass, StateView, TopBar, Txt } from '../../components/ui';
+import { Button, FullScreenLoader, Glass, StateView, TopBar, Txt } from '../../components/ui';
+import { openNotificationLink } from '../../lib/open-link';
 import { describeError } from '../../lib/queries';
 import { formatRelative } from '../../lib/format';
 import { canvasFill, colors, fonts, GUTTER, space } from '../../theme/tokens';
@@ -33,6 +34,7 @@ function RichText({ text }: { text: string }) {
 export default function NotificationDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const queryClient = useQueryClient();
+  const router = useRouter();
   // Opened from the list, the notification is already loaded: show it at once.
   const cached = queryClient
     .getQueryData<InfiniteData<PartnerNotificationPage>>(['notifications'])
@@ -82,6 +84,14 @@ export default function NotificationDetailScreen() {
               </Txt>
             )}
           </Glass>
+          {n.url ? (
+            <Button
+              label={/^https?:/i.test(n.url) ? 'Open link' : 'Open'}
+              icon={<Ionicons name={/^https?:/i.test(n.url) ? 'open-outline' : 'arrow-forward'} size={18} color={colors.textOnGold} />}
+              onPress={() => openNotificationLink(router, n.url)}
+              style={styles.open}
+            />
+          ) : null}
         </ScrollView>
       )}
     </SafeAreaView>
@@ -104,6 +114,7 @@ const styles = StyleSheet.create({
   },
   flex: { flex: 1 },
   card: { padding: space.md },
+  open: { marginTop: space.md },
   message: { fontFamily: fonts.regular, fontSize: 15, lineHeight: 24, color: colors.text },
   bold: { fontFamily: fonts.semibold, color: colors.text },
 });

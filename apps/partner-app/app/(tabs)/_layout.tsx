@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { FullScreenLoader } from '../../components/ui';
+import { openNotificationLink } from '../../lib/open-link';
 import { registerForPush, subscribeToPush } from '../../lib/push';
 import { useAuthStore } from '../../store/auth-store';
 import { colors, fonts } from '../../theme/tokens';
@@ -56,8 +57,11 @@ export default function TabsLayout() {
         queryClient.invalidateQueries({ queryKey: ['wallet'] });
         queryClient.invalidateQueries({ queryKey: ['notifications'] });
       },
-      (type) => {
-        if (type && WALLET_NOTIFICATIONS.has(type)) router.navigate('/wallet');
+      ({ type, notificationId, url }) => {
+        // Pushes from the Super Admin push engine can point somewhere: an app page or a web link.
+        if (openNotificationLink(router, url)) return;
+        if (type === 'OFFER' && notificationId) router.push({ pathname: '/notification/[id]', params: { id: notificationId } });
+        else if (type && WALLET_NOTIFICATIONS.has(type)) router.navigate('/wallet');
         else if (type === 'REFERRAL_REWARD') router.push({ pathname: '/qr/[type]', params: { type: 'discount' } });
         else router.push('/notifications');
       }

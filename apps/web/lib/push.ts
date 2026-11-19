@@ -32,13 +32,27 @@ export interface PushResult {
   errors: string[];
 }
 
-/** Never throws; the result says how many were accepted (used by the Super Admin test push). */
-export async function sendPush(messages: PushMessage[]): Promise<PushResult> {
+export type PushPlatform = 'android' | 'ios';
+
+/**
+ * Devices without a platform registered before it was recorded; only the Android app existed
+ * then, so they count as Android.
+ */
+function platformWhere(platforms?: PushPlatform[]) {
+  if (!platforms || platforms.length === 0 || (platforms.includes('android') && platforms.includes('ios'))) return {};
+  return platforms.includes('ios') ? { platform: 'ios' } : { OR: [{ platform: 'android' }, { platform: null }] };
+}
+
+/**
+ * Never throws; the result says how many were accepted (used by the Super Admin test push).
+ * `platforms` limits it to Android or iOS devices (default: both).
+ */
+export async function sendPush(messages: PushMessage[], options: { platforms?: PushPlatform[] } = {}): Promise<PushResult> {
   const result: PushResult = { devices: 0, accepted: 0, errors: [] };
   if (messages.length === 0) return result;
   try {
     const devices = await prisma.pushDevice.findMany({
-      where: { partnerId: { in: [...new Set(messages.map((m) => m.partnerId))] } },
+      where: { partnerId: { in: [...new Set(messages.map((m) => m.partnerId))] }, ...platformWhere(options.platforms) },
       select: { partnerId: true, token: true },
     });
     const payload = messages.flatMap((m) =>

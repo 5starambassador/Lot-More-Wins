@@ -708,6 +708,8 @@ model Notification {
   body      String
   /// Full message of an OFFER notification, shown on its own page (WhatsApp-style *bold*).
   detail    String?
+  /// Where tapping it leads: an in-app route (/wallet) or a web link (https://…). Null = the default.
+  url       String?
   points    Decimal?         @db.Decimal(14, 2)
   /// Rupee amount (cash reward or payout) the notification is about.
   amount    Decimal?         @db.Decimal(12, 2)
@@ -887,4 +889,110 @@ model OutletOfferChange {
 
   @@index([outletId, createdAt])
   @@map("outlet_offer_changes")
+}
+
+// ============================================================================
+// Push notification engine (Super Admin): templates, campaigns and their runs
+// ============================================================================
+
+/// A reusable push message written in the Super Admin panel.
+model PushTemplate {
+  id        String    @id @default(uuid())
+  name      String
+  title     String
+  body      String
+  /// Full message shown on the notification's own page in the app (WhatsApp-style *bold*).
+  detail    String?
+  /// Where tapping the push leads: an in-app route (/wallet) or a web link (https://…).
+  url       String?
+  createdBy String    @map("created_by")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  /// Deleted templates are kept for the campaigns that used them.
+  deletedAt DateTime? @map("deleted_at")
+
+  campaigns PushCampaign[]
+
+  @@map("push_templates")
+}
+
+enum PushScheduleType {
+  /// Sent straight away.
+  NOW
+  /// Sent once at sendAt.
+  ONCE
+  /// Every day at timeOfDay (IST).
+  DAILY
+  /// On the weekdays listed, at timeOfDay (IST).
+  WEEKLY
+}
+
+enum PushCampaignStatus {
+  SCHEDULED
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+/// One send (or a recurring series of sends) of a template to an audience. The message is a
+/// copy of the template when it was scheduled, so editing the template later changes nothing.
+model PushCampaign {
+  id           String             @id @default(uuid())
+  templateId   String?            @map("template_id")
+  title        String
+  body         String
+  detail       String?
+  url          String?
+  /// { kind: "all" } | { kind: "filter", filter } (re-evaluated at every send) | { kind: "partners", ids }.
+  audience     Json
+  /// Partners the audience matched when it was scheduled.
+  audienceSize Int                @default(0) @map("audience_size")
+  /// "android" and / or "ios".
+  platforms    String[]
+  /// Also add it to each partner's Notifications list in the app.
+  saveToInbox  Boolean            @default(true) @map("save_to_inbox")
+  scheduleType PushScheduleType   @map("schedule_type")
+  /// ONCE: when to send.
+  sendAt       DateTime?          @map("send_at")
+  /// DAILY / WEEKLY: "HH:MM", IST.
+  timeOfDay    String?            @map("time_of_day")
+  /// WEEKLY: 0 = Sunday … 6 = Saturday.
+  weekdays     Int[]              @default([])
+  /// DAILY / WEEKLY: no sends before this day or after endDate (IST calendar days).
+  startDate    DateTime?          @map("start_date") @db.Date
+  endDate      DateTime?          @map("end_date") @db.Date
+  /// When the dispatcher sends next; null once there is nothing left to send.
+  nextRunAt    DateTime?          @map("next_run_at")
+  status       PushCampaignStatus @default(SCHEDULED)
+  createdBy    String             @map("created_by")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+
+  template PushTemplate?     @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  runs     PushCampaignRun[]
+
+  @@index([status, nextRunAt])
+  @@map("push_campaigns")
+}
+
+/// One send of a campaign. Creating the row claims that send, so it happens once.
+model PushCampaignRun {
+  id           String    @id @default(uuid())
+  campaignId   String    @map("campaign_id")
+  /// The occurrence this run is for (when it was due).
+  scheduledFor DateTime  @map("scheduled_for")
+  startedAt    DateTime  @default(now()) @map("started_at")
+  finishedAt   DateTime? @map("finished_at")
+  /// sending | sent | failed | missed (the dispatcher came too late to send it).
+  status       String    @default("sending")
+  partners     Int       @default(0)
+  devices      Int       @default(0)
+  accepted     Int       @default(0)
+  /// Expo error code -> count.
+  errors       Json?
+
+  campaign PushCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, scheduledFor])
+  @@map("push_campaign_runs")
 }

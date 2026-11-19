@@ -1450,6 +1450,8 @@ export interface PartnerNotification {
   body: string;
   /** Full message of an OFFER notification (WhatsApp-style *bold*). Missing from older servers. */
   detail?: string | null;
+  /** Where tapping it leads: an in-app route (/wallet) or a web link. Missing from older servers. */
+  url?: string | null;
   points: number | null;
   /** Rupee amount for cash reward and payout notifications. */
   amount: number | null;

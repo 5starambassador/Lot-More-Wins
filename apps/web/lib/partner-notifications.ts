@@ -352,6 +352,7 @@ function serialize(stored: Notification, display: Display): PartnerNotification 
     title: n.title,
     body: n.body,
     detail: n.detail,
+    url: n.url,
     points: n.points?.toNumber() ?? null,
     amount: n.amount?.toNumber() ?? null,
     expiresAt: n.expiresAt?.toISOString() ?? null,
